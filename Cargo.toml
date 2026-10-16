@@ -1,0 +1,20 @@
+[package]
+name = "notebook"
+version = "0.1.0"
+edition = "2021"
+description = "A GTK 3 desktop application based on the gtk3-rs `notebook` example"
+license = "MIT"
+
+[[bin]]
+name = "notebook"
+path = "src/main.rs"
+
+[dependencies]
+gtk = "0.19"
+
+# Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true

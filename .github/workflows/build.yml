@@ -1,0 +1,95 @@
+name: build
+
+# Tag-only: pushing a v* tag builds every target and publishes a release.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both targets are built inside Debian 10 (glibc 2.28), so the
+          # binaries run on any system with glibc >= 2.28.
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Debian 10 (glibc 2.28) for linux-${{ matrix.arch }}
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker run --rm \
+            -v "$PWD":/src \
+            -w /src \
+            -e ARCH="$ARCH" \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            debian:10 \
+            bash /src/.github/scripts/build-linux.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notebook-linux-${{ matrix.arch }}
+          path: notebook-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: windows-x86_64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-pkg-config
+            zip
+
+      - name: Build (MinGW-w64) and bundle GTK 3 DLLs
+        shell: msys2 {0}
+        run: bash ./.github/scripts/build-windows.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notebook-windows-x86_64
+          path: notebook-windows-x86_64.zip
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
