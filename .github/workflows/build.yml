@@ -60,13 +60,15 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          # UCRT64 is the current MSYS2 environment (MINGW64 is deprecated and
+          # UCRT64 targets Windows 10+, matching this build's requirement).
+          msystem: UCRT64
           update: true
           path-type: inherit
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-gtk3
-            mingw-w64-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gtk3
+            mingw-w64-ucrt-x86_64-pkg-config
             zip
 
       - name: Build (MinGW-w64) and bundle GTK 3 DLLs

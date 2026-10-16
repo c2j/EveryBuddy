@@ -10,6 +10,15 @@ set -euo pipefail
 
 target=x86_64-pc-windows-gnu
 
+# The Windows runner's default Rust host is `x86_64-pc-windows-msvc`, so
+# building the `*-windows-gnu` target looks like a cross build to the
+# `pkg-config` crate, which then refuses to run. Allow it: the pkg-config on
+# PATH is MSYS2's MinGW-w64 one and already points at the right prefix.
+export PKG_CONFIG_ALLOW_CROSS=1
+
+# MSYS2 sets MSYSTEM_PREFIX to the active environment (e.g. /ucrt64, /mingw64).
+prefix="${MSYSTEM_PREFIX:-/mingw64}"
+
 echo "=== toolchain ==="
 rustc --version
 cargo --version
@@ -38,7 +47,7 @@ while [ "${#frontier[@]}" -gt 0 ]; do
             seen[$base]=1
             cp -f "$dll" "$dist/"
             next+=("$dist/$base")
-        done < <(ldd "$f" 2>/dev/null | grep -oE '/mingw64/[^ ]+\.dll' | sort -u || true)
+        done < <(ldd "$f" 2>/dev/null | grep -oE "${prefix}/[^ ]+\.dll" | sort -u || true)
     done
     frontier=("${next[@]}")
 done
