@@ -1,1 +1,4 @@
 /target
+
+# self-contained Linux bundle output
+/dist

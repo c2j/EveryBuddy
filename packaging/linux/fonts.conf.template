@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- Only the fonts inside the bundle. The host is assumed to have none, which
+     is the point of shipping one; the aliases exist so that "sans-serif" and
+     the app's font stack still resolve to it. Appending the system font
+     directories here would make the app pick up the desktop's fonts instead —
+     better looking on a real desktop, but it makes text metrics depend on the
+     machine, and the measured geometry depends on text metrics. -->
+<fontconfig>
+  <dir>@FONTS@</dir>
+  <cachedir>@CACHE@</cachedir>
+  <alias><family>sans-serif</family><prefer><family>DejaVu Sans</family></prefer></alias>
+  <alias><family>Sans</family><prefer><family>DejaVu Sans</family></prefer></alias>
+  <alias><family>system-ui</family><prefer><family>DejaVu Sans</family></prefer></alias>
+  <alias><family>sans</family><prefer><family>DejaVu Sans</family></prefer></alias>
+</fontconfig>

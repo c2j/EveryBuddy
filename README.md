@@ -125,6 +125,15 @@ pop up — so the audit reads them through the input grab instead.
 dropdown has *content*, because a popover whose children were never shown still
 has chrome and still reports `visible=true`.
 
+Renders can also be read as pixels rather than looked at:
+`node docs/ui-spec/pngpx.js <file.png> [rows] [cols]` prints a grid of RGB
+values. That is how the Linux bundle's screenshot was checked against the
+measured colours (`#f7f7f7` sidebar, `#ffffff` route) — and how a stripe that
+looked wrong turned out to be an artefact of the image viewer rather than
+anything in the file. Capturing the X server's root window instead (`xwd` piped
+through `netpbm`) is not a substitute: under Xvfb it produced sheared,
+unreliable images.
+
 Synthesising that key needs care, which is why the flag exists. GTK drops key
 events whose window is missing or unmapped (`event_window_is_still_viewable`),
 silently, before any handler runs; and `gtk_test_widget_send_key` cannot target
@@ -175,6 +184,32 @@ because both look like \"that control is broken\" and neither raises anything:
 | `docs/ui-spec/capture_dom.js` | read-only CDP capture of the real client (DOM + computed styles) |
 | `docs/ui-spec/query_layout.js` | query tool for that capture; reports CSS px |
 | `docs/ui-spec/watch_dom.js` | continuous capture: dedupes DOM snapshots frame by frame |
+| `docs/ui-spec/pngpx.js` | prints a grid of pixels from a PNG — the way to answer "is that stripe a stray element, an uninitialised surface or a font difference?" |
+| `packaging/linux/` | builds and verifies the self-contained Linux bundle (Docker: glibc 2.28 build, bare-host test) |
+
+## Self-contained Linux bundle
+
+`packaging/linux/package.sh` compiles the app inside `debian:10` — glibc 2.28,
+the oldest supported target, because the glibc symbols a binary asks for are
+those of the environment it was built in — and stages `dist/app`: the binary, 72
+shared libraries (GTK 3, GLib, Pango, Cairo, HarfBuzz…), fonts, icons, compiled
+GSettings schemas, and a `run` script that resolves every path relative to
+itself.
+
+`packaging/linux/verify.sh` then runs that tree on a *different*, bare Debian 10
+— no GTK, no Pango, no Cairo, no fontconfig, no fonts — and prints what the host
+still had to provide. The answer is six libraries, all glibc's own, which are
+deliberately left to the system: they are forward compatible, and bundling libc
+breaks name resolution.
+
+Both scripts need Docker and nothing else; neither needs GTK on the host. What
+the bundle has to contain, and the traps that cost time to find (the theme is
+compiled into `libgtk-3-0`, schemas must be compiled *together with* their enum
+files, two caches are full of build-time absolute paths), is written up in
+[`packaging/linux/README.md`](packaging/linux/README.md).
+
+The bundle asks glibc for `GLIBC_2.28` exactly: it runs on 2.28 and newer, with
+no headroom below that.
 
 ## Prebuilt binaries
 
@@ -190,11 +225,15 @@ the results as a GitHub release:
 The Linux binaries are built inside a `debian:10` container, so they only
 require glibc >= 2.28; the GTK 3 runtime itself (`libgtk-3-0` on Debian,
 `gtk3` on Fedora) must be installed by the system. The Windows build zips every
-required GTK 3 DLL next to `notebook.exe`, so it is self-contained.
+required GTK 3 DLL next to `notebook.exe`, so it is self-contained. Both
+statements describe the `notebook` demo — the app's own bundle above carries its
+GTK 3 with it instead of requiring the system's.
 
-Windows 7 is **not** supported: MSYS2 dropped Windows 7/8.0 in May 2024
-(`msys2-runtime` moved to Cygwin 3.5), so there is no maintained GTK 3 runtime
-for it.
+Windows 7 is **not** supported by this CI route: MSYS2 dropped Windows 7/8.0 in
+May 2024 (`msys2-runtime` moved to Cygwin 3.5). Whether a *MinGW-w64* GTK 3 build
+could still target Win7 — the build environment and the target machine are not
+the same thing — is unresolved, and Win7/8.1 is a stated requirement, so the
+spec records the conflict rather than a verdict (§2, §10-23).
 
 ## Layout
 

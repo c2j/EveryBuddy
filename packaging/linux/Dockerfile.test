@@ -1,0 +1,13 @@
+# The target a self-contained bundle is tested against: bare Debian 10, no GTK,
+# no Pango, no Cairo, no fontconfig, no fonts. Xvfb is the display, because
+# something has to be.
+FROM debian:10
+
+RUN printf 'deb http://archive.debian.org/debian buster main\n' > /etc/apt/sources.list \
+ && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99-archive \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      xvfb xauth \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY packaging/linux/ /src/

@@ -52,8 +52,8 @@
 | 平台 | 引擎 | 说明 |
 |---|---|---|
 | macOS | GTK 3（Homebrew `gtk+3` 3.24.x） | **已实测**：CJK 输入、字体、渲染、CSS 加载均正常 |
-| Windows | GTK 3（MSYS2 构建） | 无 Win7 门槛，不受 Chromium 109 天花板约束 |
-| Linux | GTK 3 | 只需 GTK 3 + 系统图形栈，**不需要** WebKitGTK |
+| Windows | GTK 3（MSYS2 构建） | **未实测且存疑**：README「Prebuilt binaries」记着 MSYS2 自 2024-05 起不再支持 Win7/8.0，因此"没有可维护的 GTK 3 运行时"；这与本表原先"无 Win7 门槛"的说法直接冲突。二者必有一错，只有真机实测能定（缺口 23）。注意构建环境与目标机是两件事：MinGW-w64 产物未必受 MSYS2 运行时约束，但 GLib 新版可能已调用 Win8+ API。 |
+| Linux | GTK 3（自带整套栈） | **已实测**：自带 GTK 3 + schema + 图标 + 字体，在裸 glibc 2.28 上可运行，不依赖系统 GTK（§2.1） |
 
 **代价**：GTK 不是 Web 引擎，`tokens.css` 不能直接用（见 §3.5）。保真度靠 **token 对齐 + 逐屏校准**，而不是靠复用产品 CSS。
 
@@ -61,9 +61,23 @@
 
 ### 2.1 待确认的风险：Linux "完全自包含"
 
-目标 Linux 要求**完全自包含、不依赖系统库**。GTK 3 严格来说也是系统依赖。
+目标 Linux 要求**完全自包含、不依赖系统库**。GTK 3 严格来说也是系统依赖，好消息是这整套栈**可以**自带。
 
-好消息是 GTK 栈**可以**自带（私有前缀 + `rpath` / `LD_LIBRARY_PATH`），这正是它相对 Web 引擎的优势所在；但**尚未在目标环境实测**（见 §10）。
+**已实测（C 探针，非本程序）**：在 `debian:10`（Debian 10.13 / **glibc 2.28**，正好是要求的下限）里用 `libgtk-3-dev`（GTK **3.24.5**）编译一个等价探针，按下面清单打包成 74MB / 72 个 `.so` 的目录树后，在**另一个裸 `debian:10`**（`dpkg` 里没有任何 gtk/pango/cairo/fontconfig/harfbuzz/glib 包，**0 个字体文件**）里由 Xvfb 启动成功：GTK 起来、CSS 解析、窗口 1440×868、**CJK 字形正常渲染**（非豆腐块），并渲染出 PNG。
+
+- 依赖：65 个已解析库中只有 6 个来自宿主，且正是刻意留给系统的 glibc 家族（`libc/libm/libpthread/librt/libdl/libresolv`）；glibc 应留在系统（向前兼容，且自带 libc 会破坏 NSS）。**要求的最小符号版本 = `GLIBC_2.25`**（≤ 2.28 ✓）。
+- 必须在 glibc 2.28 的镜像里构建：符号版本由构建环境决定，在更新的发行版上编出来的二进制到 2.28 上直接起不来。rustup 自带工具链的 glibc 基线（2.17）比镜像更老，因此不冲突。
+- 需要自己打包的 GTK **数据**：`org.gtk.Settings.*` 等 GSettings schema（**必须 `glib-compile-schemas` 编译**，且要连非 `*.gschema.xml` 的 enum 文件一起，否则后者报 "not (yet) defined"）、hicolor 图标、输入法模块、gdk-pixbuf loader，以及字体。**Adwaita 主题不用管**——它作为 GResource 编译在 `libgtk-3-0` 里。
+- 两份 cache（immodules / pixbuf loaders）里是**构建期绝对路径**，需要用占位符 + 启动器在运行时改写；fontconfig 需要一个只有自带字体的配置与可写 cachedir。
+- 字体必须自带（我们不带产品字体）：DejaVu 覆盖拉丁、WenQuanYi Micro Hei 覆盖 CJK。宿主假定零字体。
+- 两个坑：`gdk-pixbuf-query-loaders` / `gtk-query-immodules-3.0` 在 Debian 上装在 multiarch libdir 下、**不在 PATH**；Debian 10 已 EOL，apt 要指向 `archive.debian.org` 并放宽 valid-until。
+- **CJK 输入法**：Debian 默认的 immodules 只有 xim / cedilla 等，**没有 `im-ibus`**（它跟着 `ibus` 包走）。要支持中文输入需自带 `im-ibus.so` + `libibus-1.0.so.0`，或依赖已自带的 XIM。
+
+**本程序已实测**：`cargo build --release --bin evobuddy` 在 `debian:10` + GTK 3.24.5 上零错误（gtk-rs 0.19，58 秒），打包成的 74MB / 72 `.so` 目录树在**另一个裸机上**用 `EB_SELFTEST=1 EB_SHOT=` 跑通：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`，几何逐项与 macOS 一致（`eb-sidebar 280x868`、`eb-content-topbar 281,0 1159x64`、`eb-composer-card 460,333 800x142`、`eb-detail <hidden>`）。渲染出的 PNG 采样为 `#f7f7f7` 侧栏 / `#ffffff` 路由，与 §4.3 实测值一致；与 macOS 的唯一差异是**文本宽度**（hero 151 vs 137、声明 330 vs 311），因为字体换成了自带的 DejaVu + WenQuanYi——这是"字体必须换"的必然结果（缺口 7）。
+
+**下限没有余量**：整套产物要求的最小符号版本 = `GLIBC_2.28`，正好等于要求的底线（C 探针只需 2.25，多出来的来自 Rust std）。即"2.28 及以上可跑、以下不行"；若要下探到更老的发行版，需要 Rust 侧更低的 target baseline。
+
+打包脚本已进仓库 `packaging/linux/`（`package.sh` 构建+打包、`verify.sh` 裸机验证，细节见该目录 README）。
 
 ## 3. 设计 Token 体系
 
@@ -556,8 +570,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
 10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
-11. **Linux 完全自包含未验证** —— GTK 3 本身也是系统依赖，需自带 GTK 栈（私有前缀 + rpath）。GTK 栈可打包，这是相对 Web 引擎的核心优势，但仍需在 Debian 10 容器里实测（§2.1）。
-12. **CI 仍然只打包 `notebook`** —— `.github/scripts/build-{linux,windows}.sh` 里写死了 `target/release/notebook`，主程序 `evobuddy` 不会被产出。等壳能替代 demo 后，两者需要一起切换（包括去掉 `notebook` bin）。
+11. **Linux 完全自包含：已验证** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。脚本在 `packaging/linux/`。剩余：产物命名 / desktop entry / 图标（当前是个目录而不是能给用户的东西），以及 ibus 输入法（缺口 22）。
+12. **CI 仍然只打包 `notebook`** —— `.github/scripts/build-{linux,windows}.sh` 里写死了 `target/release/notebook`，主程序 `evobuddy` 不会被产出。等壳能替代 demo 后，两者需要一起切换（包括去掉 `notebook` bin）。另外：**Linux 产物必须在 glibc 2.28 的镜像里构建**（GitHub 的 ubuntu-latest runner 会带来过新的符号版本，产物在目标机上起不来），且 CI 需要跑打包与"裸机启动"测试，而不只是 `cargo build`。
 13. **三栏分隔条有 1px 残差** —— 产品的分隔条是 4px **全透明**覆盖层，骑在栏边界上、不扣减栏宽（278–282 / 858–862）；`GtkPaned` 的手柄必然占位，当前折中成 1px 透明手柄 ⇒ 会话栏 579 而非实测的 580（结果面板 579 一致）。要完全对齐需自绘热区（`GtkOverlay` + 事件盒），或接受这 1px。
 14. **会话顶栏内容左内缩 24px 的成因未确认** —— 实测 `workbuddy-topbar-options` 起点 x=304（距栏左 24）、右端 844（距栏右 16），左右不对称；但顶栏计算样式只有 `padding: 0 16px`，多出的 8px 疑似来自 `--mac` 修饰类或 `-options` 的 margin。当前实现未按实测追加这 8px（标题落在 297，产品 304）。
 15. **chip 点击行为是推测** —— 实测点击 chip 既不清空也不导航（§5.2），「点击填入输入框」是实现侧的选择。
@@ -572,6 +586,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 19. **"本构建未实现"提示 popover 是自创 chrome** —— 侧栏搜索 / 小程序、会话顶栏搜索 / 分享、结果面板新建标签、Code assist 这 6 个控件，产品的行为都没采集到（而且产品里全局搜索是**独立窗口** `global-search` 800×640，不是本栏内的东西）。实现侧的选择是：点击弹一个 `eb-notice` popover 明说缺什么，而不是静默无反应——静默会被读成"坏了"（这正是本轮用户反馈"部分能点，部分失效"的来源之一）。这些 popover、`eb-missing-label` 样式与文案都属自创，记录备案。
 20. **结果面板标签体与分区的折叠行为也属实现侧选择** —— 标签体不再是按钮（唯一的标签就是当前标签，点它没有动作），标签里的 `×` 变成真的关闭按钮 `eb-tab-close`（14×14，靠 `button.eb-tab` → `.eb-tab` 的类名改动保持几何不变）；`eb-section-label` 的折叠是照着我写的 tooltip 实现的，产品实测里没抓到过这类点击。
 21. **popover 与 overlay 滚动条在"无头 / 非活跃窗口"环境下的呈现无法完全验证** —— 审计环境没有窗管激活窗口（`window active=false`，还伴随 `Failed to initialize CVDisplayLink`），下拉在修好缺陷 1 后能按内容 sizing、也能在离屏渲染里看到（`menu.png`），但**真实活跃窗口下的呈现与焦点**未验证。同理代码区的横向滚动条在 macOS 上是 GTK 的 **overlay 指示条，静止时透明**，离屏截图看不到，只能用 `hadjustment` 的 `upper > page_size`（579/646）证明可滚动。
+22. **自带 GTK 栈下的 CJK 输入法** —— Debian 10 的默认 immodules 只有 `im-xim` / `im-cedilla` / `im-ipa` 等，**没有 `im-ibus`**（它随 `ibus` 包分发），而 Linux 桌面上的中文输入绝大多数走 ibus。要在自带栈里打中文，得把 `im-ibus.so` 与 `libibus-1.0.so.0` 一并打包（并保证 `GTK_IM_MODULE=ibus` 时能找到），否则只剩已自带的 XIM。目前两者都未做，探针不带输入法。
+23. **Windows 7 / 8.1 未验证，且文档自相矛盾** —— 硬要求里有 Win7/8.1，而 §2 表原先写"GTK 3（MSYS2 构建）无 Win7 门槛"，README「Prebuilt binaries」却写"MSYS2 自 2024-05 起不再支持 Win7/8.0，因此没有可维护的 GTK 3 运行时"。二者必有一错。要分清**构建环境**与**目标机**：Cygwin/msys2-runtime 3.5 不支持 Win7 只影响构建侧；MinGW-w64 产物理论上仍可声明 `_WIN32_WINNT` 兼容 Win7，但新版 GLib 可能已调用 Win8+ API（如 `GetSystemTimePreciseAsFileTime`），这只能真机实测。需要一台 Win7/8.1 虚拟机才能定论，目前无法验证。
 
 **下一步（建议顺序）**
 
