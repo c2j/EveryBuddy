@@ -195,16 +195,26 @@ those of the environment it was built in — and stages a tree in `dist/app`: th
 binary, 72 shared libraries (GTK 3, GLib, Pango, Cairo, HarfBuzz…), fonts, an
 icon theme, compiled GSettings schemas, a placeholder icon, a `.desktop` entry,
 an `install.sh`, and a `run` launcher that resolves every path relative to
-itself. The same tree is tarred to `dist/evobuddy-<version>-linux-<arch>.tar.gz`
-with a SHA-256 beside it; `PLATFORM=linux/arm64` selects the other architecture,
-which is how CI builds both on runners that match it natively.
+itself. The same tree is tarred to `dist/evobuddy-<version>-linux-<arch>.tar.gz`,
+and packed into `dist/evobuddy-<version>-linux-<arch>.AppImage` — one executable
+file, no unpacking, which is the shape most people expect from a release
+download. Each is published with a SHA-256 beside it.
+
+`PLATFORM` defaults to the machine's own architecture, which is not just a
+convenience: an AppImage carries `AI` in the ELF header byte `EI_ABIVERSION`,
+and qemu and Rosetta reject that byte, so no AppImage can be built *or* run
+under an emulation layer. CI builds each architecture on a runner of that
+architecture.
 
 `packaging/linux/verify.sh` then runs that tree on a *different*, bare Debian 10
 — no GTK, no Pango, no Cairo, no fontconfig, no fonts — and prints what the host
 still had to provide. The answer is six libraries, all glibc's own, deliberately
 left to the system: they are forward compatible, and bundling libc breaks name
-resolution. It also runs `install.sh`, because an installer that is never
-exercised is an installer that ships broken — the first version of it did.
+resolution. It runs the AppImage too, without FUSE, and requires it to render
+byte-for-byte what the tree renders, so "the AppImage is the same program" is
+checked rather than assumed. It also runs `install.sh`, because an installer
+that is never exercised is an installer that ships broken — the first version of
+it did.
 
 Both scripts need Docker and nothing else; neither needs GTK on the host. What
 the bundle has to contain, and the traps that cost time to find (the theme is
@@ -221,11 +231,16 @@ Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml): it calls the
 same `package.sh` / `verify.sh` a developer runs locally, and publishes the
 results as a GitHub release.
 
-| artifact                            | built in                 | notes                                          |
-| ----------------------------------- | ------------------------ | ---------------------------------------------- |
-| `evobuddy-<v>-linux-x86_64.tar.gz`  | Debian 10 (glibc 2.28)   | self-contained, glibc >= 2.28, x86_64          |
-| `evobuddy-<v>-linux-aarch64.tar.gz` | Debian 10 (glibc 2.28)   | self-contained, glibc >= 2.28, arm64           |
-| `evobuddy-windows-x86_64.zip`       | MSYS2 UCRT64 + MinGW-w64 | Windows 10+; **not** self-contained yet        |
+| artifact                                  | built in                 | notes                                          |
+| ----------------------------------------- | ------------------------ | ---------------------------------------------- |
+| `evobuddy-<v>-linux-x86_64.AppImage`      | Debian 10 (glibc 2.28)   | one file, self-contained, glibc >= 2.28, x86_64 |
+| `evobuddy-<v>-linux-x86_64.tar.gz`        | Debian 10 (glibc 2.28)   | the same tree, self-contained, x86_64           |
+| `evobuddy-<v>-linux-aarch64.AppImage`     | Debian 10 (glibc 2.28)   | one file, self-contained, glibc >= 2.28, arm64  |
+| `evobuddy-<v>-linux-aarch64.tar.gz`       | Debian 10 (glibc 2.28)   | the same tree, self-contained, arm64            |
+| `evobuddy-<v>-windows-x86_64.zip`         | MSYS2 UCRT64 + MinGW-w64 | Windows 10+; **not** self-contained yet         |
+
+Every artifact has a `.sha256` beside it. The Windows zip is the odd one out by
+necessity: GTK 3 cannot be linked into a single `.exe`, so it stays a folder.
 
 The Linux artifacts *are* the bundle described above. CI does not merely
 `cargo build` them: it builds the bundle and then runs it on a bare Debian 10,

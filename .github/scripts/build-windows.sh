@@ -85,8 +85,9 @@ Requires Windows 10 or newer, as built.
 Run: evobuddy.exe
 EOF
 
-rm -f "evobuddy-windows-x86_64.zip"
-(cd "$dist" && zip -r -q "../evobuddy-windows-x86_64.zip" "evobuddy-$version")
+rm -f "evobuddy-$version-windows-x86_64.zip" "evobuddy-$version-windows-x86_64.zip.sha256"
+(cd "$dist" && zip -r -q "../evobuddy-$version-windows-x86_64.zip" "evobuddy-$version")
+sha256sum "evobuddy-$version-windows-x86_64.zip" > "evobuddy-$version-windows-x86_64.zip.sha256"
 
 echo "=== artifact ==="
-ls -l evobuddy-windows-x86_64.zip
+ls -l "evobuddy-$version-windows-x86_64.zip" "evobuddy-$version-windows-x86_64.zip.sha256"

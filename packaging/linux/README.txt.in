@@ -19,6 +19,10 @@ Run
 ---
     ./run
 
+If you would rather have a single file to download and run, use the
+`evobuddy-@VERSION@-linux-@ARCH@.AppImage` next to this archive: it contains
+this very tree and needs no unpacking.
+
 Install for the current user (launcher on PATH + menu entry):
 
     ./install.sh              # under ~/.local

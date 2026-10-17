@@ -116,9 +116,36 @@ rm -f "/out/$app-$version-linux-$arch.tar.gz" "/out/$app-$version-linux-$arch.ta
 tar -C /tmp/stage -czf "/out/$app-$version-linux-$arch.tar.gz" "$app-$version"
 (cd /out && sha256sum "$app-$version-linux-$arch.tar.gz" > "$app-$version-linux-$arch.tar.gz.sha256")
 
+echo "== appimage =="
+# One executable file holding the whole tree: nothing to unpack, nothing to
+# install, no system GTK. An AppDir is that same tree with three files at its
+# root — AppRun (what actually gets executed), the desktop entry, and the icon.
+appdir=/tmp/appimg/$app.AppDir
+out_appimage="/out/$app-$version-linux-$arch.AppImage"
+rm -rf "$appdir" "$out_appimage" "$out_appimage.sha256"
+mkdir -p "$appdir"
+cp -a "$prefix/." "$appdir/"
+cp "$prefix/share/applications/$app.desktop" "$appdir/$app.desktop"
+if [ -f "$prefix/share/icons/hicolor/256x256/apps/$app.png" ]; then
+  cp "$prefix/share/icons/hicolor/256x256/apps/$app.png" "$appdir/$app.png"
+  cp "$prefix/share/icons/hicolor/256x256/apps/$app.png" "$appdir/.DirIcon"
+fi
+printf '#!/bin/sh\nexec "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/run" "$@"\n' > "$appdir/AppRun"
+chmod +x "$appdir/AppRun"
+
+# ARCH selects the runtime to embed. --runtime-file is the runtime fetched when
+# this image was built, so packaging never reaches the network.
+# --no-appstream because there is no AppStream metadata to validate.
+ARCH=$arch appimagetool --appimage-extract-and-run --no-appstream \
+  --runtime-file "/usr/local/lib/appimage/runtime-$arch" \
+  "$appdir" "$out_appimage"
+(cd /out && sha256sum "$(basename "$out_appimage")" > "$(basename "$out_appimage").sha256")
+
 echo "== result =="
 du -sh "$prefix" | sed 's/^/  tree: /'
 ls -lh "/out/$app-$version-linux-$arch.tar.gz" | awk '{print "  archive: " $5}'
+ls -lh "$out_appimage" | awk '{print "  appimage: " $5}'
+file -b "$out_appimage" | sed 's/^/  appimage is: /'
 
 echo "== glibc symbol versions the bundle needs =="
 # readelf finds nothing in a few libraries (libcairo-gobject, libicudata), and

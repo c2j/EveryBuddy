@@ -57,9 +57,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: evobuddy-linux-${{ matrix.arch }}
-          path: |
-            dist/evobuddy-*-linux-*.tar.gz
-            dist/evobuddy-*-linux-*.tar.gz.sha256
+          # The ones that name a file: everything is evobuddy-<version>-linux-*.
+          path: dist/evobuddy-*-linux-*
           if-no-files-found: error
 
   windows:
@@ -98,7 +97,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: evobuddy-windows-x86_64
-          path: evobuddy-windows-x86_64.zip
+          path: evobuddy-*-windows-*
           if-no-files-found: error
 
   release:

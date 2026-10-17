@@ -1,6 +1,14 @@
 # Linux bundle
 
-`dist/app` is a directory that runs on a machine with no GTK, no Pango, no
+Two artifacts come out of `package.sh`, both self-contained:
+
+- `dist/evobuddy-<v>-linux-<arch>.AppImage` — one executable file. `chmod +x`
+  and run it; nothing is unpacked by hand, nothing is installed.
+- `dist/evobuddy-<v>-linux-<arch>.tar.gz` — the same tree as a directory, for
+  `install.sh`, for packagers, and for anyone who would rather not run an
+  AppImage.
+
+`dist/app` is that directory: it runs on a machine with no GTK, no Pango, no
 Cairo, no fontconfig and no fonts. It carries all of them plus the app:
 
 ```
@@ -15,16 +23,22 @@ app/
   etc/fonts.conf.template
 ```
 
-```sh
-./package.sh   # build on glibc 2.28, stage dist/app and dist/evobuddy-<v>-linux-<arch>.tar.gz
-./verify.sh    # run dist/app on a bare Debian 10 and print what it needed
+The AppImage is the same tree with three files added at its root — `AppRun`
+(what the runtime executes), `evobuddy.desktop`, and the icon, plus `.DirIcon`.
 
-PLATFORM=linux/arm64 ./package.sh && PLATFORM=linux/arm64 ./verify.sh
+```sh
+./package.sh   # build on glibc 2.28: dist/app, the .tar.gz and the .AppImage
+./verify.sh    # run both artifacts on a bare Debian 10 and print what they needed
+
+PLATFORM=linux/amd64 ./package.sh && PLATFORM=linux/amd64 ./verify.sh
 ```
 
 Both need Docker; neither needs GTK on the host. `bundle.sh`, `run.sh`,
 `install.sh` and `test.sh` run *inside* the containers. CI calls exactly these
 two scripts, so a developer and the release path cannot drift apart.
+
+`PLATFORM` defaults to this machine's own architecture, and that default is
+load-bearing rather than a convenience — see the AppImage notes below.
 
 ## Why it is built in a container
 
@@ -50,6 +64,24 @@ and would need Rust's own target support for anything older.
 - **The generator tools are off PATH.** Debian installs
   `gdk-pixbuf-query-loaders` and `gtk-query-immodules-3.0` under the multiarch
   libdir, not in `/usr/bin`.
+- **A bundle whose shape people ask for is a single file.** A directory tree
+  needs unpacking before anything runs, which reads as "this is not a binary".
+  An AppImage is one executable: the same tree plus `AppRun`, an embedded
+  squashfs payload, and a runtime that mounts it. The runtime is fetched per
+  architecture at image build time; `--appimage-extract-and-run` is how it is
+  invoked in the build and test containers, since neither has FUSE — and neither
+  will every target machine, so that path is the one the test exercises.
+- **No AppImage can be built or run under an emulation layer.** Every AppImage
+  runtime carries `AI` in the ELF header byte `EI_ABIVERSION` (that marker *is*
+  the format). A real kernel ignores it; qemu and Rosetta reject the file with
+  "Exec format error". Hence the host-native `PLATFORM` default, and hence
+  `test.sh` asking the environment whether it can run an AppImage at all before
+  running one — so an emulation limit is reported as one, not as a defect in the
+  artifact. CI's runners are the real architecture, so the AppImage runs there.
+- **The two artifacts are asserted to be the same program.** `test.sh` renders
+  the tree and the AppImage in the same bare container and requires the two PNGs
+  to be byte-identical, so "the AppImage is the same app" is checked rather than
+  assumed.
 - **glibc stays on the host.** libc, libm, the dynamic loader and the NSS
   modules are *not* bundled: they are forward compatible, and a bundled libc
   breaks name resolution. Everything else is.

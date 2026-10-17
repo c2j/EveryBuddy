@@ -77,7 +77,9 @@
 
 **下限没有余量**：整套产物要求的最小符号版本 = `GLIBC_2.28`，正好等于要求的底线（C 探针只需 2.25，多出来的来自 Rust std）。即"2.28 及以上可跑、以下不行"；若要下探到更老的发行版，需要 Rust 侧更低的 target baseline。
 
-打包脚本在仓库 `packaging/linux/`：`package.sh` 构建并在 `dist/app` 摆出自包含目录树，同时产出 `dist/evobuddy-<版本>-linux-<arch>.tar.gz` + SHA-256（内含 `run`、`install.sh`、desktop entry、占位图标）；`verify.sh` 在裸 Debian 10 上跑它。**CI 现在直接调用这两个脚本**（缺口 12），所以发布路径和开发者路径不可能各写一份。
+打包脚本在仓库 `packaging/linux/`：`package.sh` 构建并在 `dist/app` 摆出自包含目录树，同时产出 `dist/evobuddy-<版本>-linux-<arch>.tar.gz` + SHA-256（内含 `run`、`install.sh`、desktop entry、占位图标），并用 `appimagetool` 把同一棵树封成**单文件** `dist/evobuddy-<版本>-linux-<arch>.AppImage` + SHA-256——一个 ELF，内含 squashfs 载荷，`chmod +x` 后直接运行、无需解包（目录树下载下来"不是二进制文件而是一个目录"，这正是用户反馈的形态问题）。`verify.sh` 在裸 Debian 10 上把**两个产物**都跑一遍，并要求两者渲染出的 PNG 逐字节相同，于是"AppImage 就是同一个程序"是被检查的，不是被假设的。
+
+`PLATFORM` 默认取**本机架构**，这不是图省事：AppImage runtime 会在 ELF 头 `EI_ABIVERSION` 字节里写 `AI`（这就是该格式的标记），真实内核忽略它，但 qemu 与 Rosetta 会以 `Exec format error` 拒绝——**任何 AppImage 都无法在模拟层下构建或运行**。所以原生架构是唯一能验证它的地方，CI 也在真实 runner 上按架构各建一份；`test.sh` 会先问环境"这里能不能运行 AppImage"，能则跑并要求渲染一致，不能则明说是模拟层限制而不是产物缺陷。**CI 现在直接调用这两个脚本**（缺口 12），所以发布路径和开发者路径不可能各写一份。
 
 ## 3. 设计 Token 体系
 
@@ -570,12 +572,14 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
 10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
-11. **Linux 完全自包含：已验证** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256），脚本在 `packaging/linux/`。剩余：ibus 输入法（缺口 22）。
+11. **Linux 完全自包含：已验证** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 
 **已在 GitHub 上跑通（v0.2.0，run 39022034107）**：四个任务全绿，两台 runner（ubuntu-24.04 x86_64 / ubuntu-24.04-arm aarch64）都在**裸 Debian 10.13**（无 gtk/pango/cairo/fontconfig 包、**0 个字体文件**）里跑通了各自的产物：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`、66 个已解析库中 6 个来自宿主（全是 glibc 家族）、最大符号 `GLIBC_2.28`，且 `install.sh` 实跑通过。产物 30M / 29M，已连同 SHA-256 与 Windows zip 发布在 release 里。
 
 **CI 第一次跑就抓到一个真 bug**（也印证了"必须真跑一次"）：`bundle.sh` 收尾的 `readelf` 统计在 `set -e` + `pipefail` 下必然退出 1（个别库如 `libcairo-gobject` 没有 `GLIBC_` 版本信息，`grep` 返回 1），顺带还把统计结果打印成了截断的错误集合。它躲过了此前所有本地验证，因为本地都是 `./package.sh | tail`——管道把退出码换成了 `tail` 的。教训已记进 `packaging/linux/README.md`。
+
+**"下载下来是个目录"（v0.2.0 的用户反馈）→ 单文件 AppImage**：用户要的是"揭开后就是一个可执行文件"。GTK 3 无法静态链接成一个 `.exe`/ELF（它按需 dlopen 输入法模块、pixbuf loader 与主题），所以目录树是必然的；单文件且仍自包含的标准答案是 AppImage——同一棵树 + `AppRun` + 内嵌 squashfs + 一个 runtime。踩到的坑值得记下：`appimagetool` 与 runtime 都是 **static-pie 且 `EI_ABIVERSION` = `AI`**，真实内核忽略该字节，而本机 amd64 容器（Rosetta）直接 `Exec format error`；用 `gcc -static` / `-static-pie` 的对照实验排除了"静态二进制在此环境不可用"，最终用 `od` 逐字节对比定位到那个字节。结论：**模拟层下无法构建也无法运行 AppImage**，于是把 `PLATFORM` 默认改成宿主原生架构（在 Apple Silicon 上即 arm64，全流程原生可验证），x86_64 交给 CI 的真实 runner。顺带把 Windows zip 也补上版本号与 `.sha256`（此前只有 Linux 产物有校验和）。
 13. **三栏分隔条有 1px 残差** —— 产品的分隔条是 4px **全透明**覆盖层，骑在栏边界上、不扣减栏宽（278–282 / 858–862）；`GtkPaned` 的手柄必然占位，当前折中成 1px 透明手柄 ⇒ 会话栏 579 而非实测的 580（结果面板 579 一致）。要完全对齐需自绘热区（`GtkOverlay` + 事件盒），或接受这 1px。
 14. **会话顶栏内容左内缩 24px 的成因未确认** —— 实测 `workbuddy-topbar-options` 起点 x=304（距栏左 24）、右端 844（距栏右 16），左右不对称；但顶栏计算样式只有 `padding: 0 16px`，多出的 8px 疑似来自 `--mac` 修饰类或 `-options` 的 margin。当前实现未按实测追加这 8px（标题落在 297，产品 304）。
 15. **chip 点击行为是推测** —— 实测点击 chip 既不清空也不导航（§5.2），「点击填入输入框」是实现侧的选择。
@@ -592,7 +596,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 21. **popover 与 overlay 滚动条在"无头 / 非活跃窗口"环境下的呈现无法完全验证** —— 审计环境没有窗管激活窗口（`window active=false`，还伴随 `Failed to initialize CVDisplayLink`），下拉在修好缺陷 1 后能按内容 sizing、也能在离屏渲染里看到（`menu.png`），但**真实活跃窗口下的呈现与焦点**未验证。同理代码区的横向滚动条在 macOS 上是 GTK 的 **overlay 指示条，静止时透明**，离屏截图看不到，只能用 `hadjustment` 的 `upper > page_size`（579/646）证明可滚动。
 22. **自带 GTK 栈下的 CJK 输入法** —— Debian 10 的默认 immodules 只有 `im-xim` / `im-cedilla` / `im-ipa` 等，**没有 `im-ibus`**（它随 `ibus` 包分发），而 Linux 桌面上的中文输入绝大多数走 ibus。要在自带栈里打中文，得把 `im-ibus.so` 与 `libibus-1.0.so.0` 一并打包（并保证 `GTK_IM_MODULE=ibus` 时能找到），否则只剩已自带的 XIM。目前两者都未做，探针不带输入法。
 23. **Windows 7 / 8.1 未验证，且文档自相矛盾** —— 硬要求里有 Win7/8.1，而 §2 表原先写"GTK 3（MSYS2 构建）无 Win7 门槛"，README「Prebuilt binaries」却写"MSYS2 自 2024-05 起不再支持 Win7/8.0，因此没有可维护的 GTK 3 运行时"。二者必有一错。要分清**构建环境**与**目标机**：Cygwin/msys2-runtime 3.5 不支持 Win7 只影响构建侧；MinGW-w64 产物理论上仍可声明 `_WIN32_WINNT` 兼容 Win7，但新版 GLib 可能已调用 Win8+ API（如 `GetSystemTimePreciseAsFileTime`），这只能真机实测。需要一台 Win7/8.1 虚拟机才能定论，目前无法验证。
-24. **Windows 产物并不自包含（且未验证）** —— `evobuddy-windows-x86_64.zip` 目前只带 GTK 3 的 DLL 与 exe，**不带 GTK 的数据文件**：GSettings schema、immodules、gdk-pixbuf loader cache、图标主题、字体。缺 `org.gtk.Settings.*` 时 GTK 会直接拒绝启动，所以这个 zip 在没装过 MSYS2/GTK 的机器上大概率起不来。Linux 侧靠启动器在运行时重写两份 cache 里的绝对路径；Windows 需要等价的 `.cmd` 启动器 + 真机验证，因此**刻意没有照抄一份没验证过的实现**。CI 里该任务设为 `continue-on-error`（不阻塞 Linux 发布），产物自带的 README 也如实写明"未验证、非自包含"。另外 UCRT64 目标是 Win10+，与缺口 23 的 Win7/8.1 问题叠加。
+24. **Windows 产物并不自包含（且未验证）** —— `evobuddy-<版本>-windows-x86_64.zip` 目前只带 GTK 3 的 DLL 与 exe，**不带 GTK 的数据文件**：GSettings schema、immodules、gdk-pixbuf loader cache、图标主题、字体。缺 `org.gtk.Settings.*` 时 GTK 会直接拒绝启动，所以这个 zip 在没装过 MSYS2/GTK 的机器上大概率起不来。Linux 侧靠启动器在运行时重写两份 cache 里的绝对路径；Windows 需要等价的 `.cmd` 启动器 + 真机验证，因此**刻意没有照抄一份没验证过的实现**。CI 里该任务设为 `continue-on-error`（不阻塞 Linux 发布），产物自带的 README 也如实写明"未验证、非自包含"。另外 UCRT64 目标是 Win10+，与缺口 23 的 Win7/8.1 问题叠加。（v0.2.1 起该 zip 带上了版本号并补了 `.sha256`，与 Linux 产物对齐；但"单文件"对 Windows 无解——GTK 3 无法静态链接进一个 exe。）
 
 **下一步（建议顺序）**
 
