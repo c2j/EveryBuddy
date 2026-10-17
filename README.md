@@ -1,16 +1,18 @@
-# Notebook
+# EvoBuddy
 
 A GTK 3 desktop application written in Rust with [gtk-rs](https://gtk-rs.org/),
-based on the upstream `notebook` example from
-[gtk3-rs](https://github.com/gtk-rs/gtk3-rs/tree/master/examples/notebook).
+replicating the UI of the Tencent WorkBuddy AI desktop client.
 
-It shows how to use `gtk::Notebook`. The window contains a tabbed notebook with
-three sheets ("sheet 1", "sheet 2", "sheet 3"). Each page is a multi-line text
-editor, and each tab header has a close button that removes the corresponding
-page when clicked. The editors accept CJK input (e.g. Chinese typed through the
-system IME).
+The app is `evobuddy` (display name **EvoBuddy**). The repository also keeps the
+upstream `notebook` example from
+[gtk3-rs](https://github.com/gtk-rs/gtk3-rs/tree/master/examples/notebook) as the
+validated GTK 3 + CJK-input baseline; it now lives in `src/bin/notebook/` and is
+documented further down.
 
-![screenshot](screenshot.png)
+```bash
+cargo run                 # runs evobuddy (default-run)
+cargo run --bin notebook  # the CJK baseline demo
+```
 
 ## Requirements
 
@@ -44,6 +46,136 @@ sudo dnf install gtk3-devel
 cargo run --bin notebook
 ```
 
+## The EvoBuddy shell
+
+`evobuddy` is the actual application: a UI replica of the WorkBuddy AI desktop
+client, rebuilt against live CDP captures of the real client rather than guessed
+from class names. The measurements, the design-token system and the legal
+boundaries are written up in [`docs/ui-spec/ui-spec.md`](docs/ui-spec/ui-spec.md)
+(§4.3 for the welcome screen, §4.4 for the conversation screen).
+
+So far it implements two states of the main workspace:
+
+- **Welcome screen** — sidebar + centred landing column (hero, `Work | Code`
+  segmented control, suggestion chips, composer).
+- **Conversation screen** — a three-pane layout: sidebar 280 | conversation 580 |
+  artifact panel 580, with a captured chat state (user/agent turns, a collapsed
+  tool row, a table block, the composer, and a file artifact in the panel).
+
+Sending from the welcome screen creates a task, opens the conversation and opens
+the artifact panel. Product copy, icons and the mascot are **not** reproduced;
+EvoBuddy has its own placeholder wording and text-glyph icons.
+
+### Smoke test
+
+GTK fails *silently* in the ways that matter here: one malformed line discards
+the entire stylesheet, and a misspelled `@define-color` name quietly falls back
+to the default theme — both still look like a plausible UI. So there is a
+self-test:
+
+```bash
+EB_SELFTEST=1 cargo run
+```
+
+It prints whether the CSS parsed, resolves the colour names the shell depends
+on, and reports the absolute geometry of every probed widget, then quits. Add
+`EB_SHOT=<path.png>` to also render the window to a PNG via Cairo — that is the
+only check that catches a colour applied to the wrong node or text clipped by a
+too-small allocation:
+
+```bash
+EB_DEMO=1 EB_SELFTEST=1 EB_SHOT=/tmp/evobuddy-chat.png cargo run
+```
+
+`EB_DEMO=1` submits a message first, so the conversation state is photographed
+too. `EB_ENTER=1` verifies the other half — that Enter actually sends — by
+synthesising a Return, and prints the route before and after:
+
+```bash
+EB_ENTER=1 EB_SELFTEST=1 cargo run
+# enter: before=welcome hint-cleared=true
+# enter: after=conversation (want conversation), buffer="Ask anything…"
+```
+
+Any `EB_*` flag attaches the harness, so the explicit `EB_SELFTEST=1` is only
+needed when nothing else is set.
+
+`EB_CLICK=1` walks the shell and clicks every interactive surface in turn,
+printing what changed after each one — the closest thing here to a person poking
+at the UI:
+
+```bash
+EB_CLICK=1 cargo run
+# click: chip[0]                  composer="Help me plan and build a small desktop utility."
+# click: segmented 'Code'         active segments: [1]
+# click: sidebar collapse         sidebar visible=false reveal visible=true (glyph "▶" visible=true)
+# click: sidebar search           ... menu open: visible=true alloc=324x80, notice="Global search is …"
+# click: artifact tab close (x)   detail visible=false tabs=1
+```
+
+It asserts nothing on its own: it prints, and you read the column. That is
+deliberate — most of the checks that matter (\"did the panel close\", \"did the
+route change\") are only meaningful next to the label, and a golden file would
+rot the moment the wording changes. `EB_CLICK_SIGNAL=1` emits `clicked` directly
+instead of synthesising a press and a release with a window and a device.
+
+Popovers are not in the widget walk — GTK parents them to the window when they
+pop up — so the audit reads them through the input grab instead.
+`EB_MENU_SHOT=<path.png>` renders one open menu: the only way to see that a
+dropdown has *content*, because a popover whose children were never shown still
+has chrome and still reports `visible=true`.
+
+Synthesising that key needs care, which is why the flag exists. GTK drops key
+events whose window is missing or unmapped (`event_window_is_still_viewable`),
+silently, before any handler runs; and `gtk_test_widget_send_key` cannot target
+the editor at all, because it resolves the keymap through
+`gtk_widget_get_window` — and a text view is a windowless widget. So the harness
+builds a `GdkEventKey`, attaches the toplevel's window to it, and delivers it to
+the editor. The composer's focus-in also has to be faked: GTK only sends it to
+the toplevel's focus widget when the window is *active*, which a bare
+`cargo run` has no window manager to arrange.
+
+Both run from an idle callback on purpose: a widget receives `::size-allocate`
+before its children are allocated, so reading layout from the signal handler
+sees a half-built tree. The screenshot path also re-runs allocation with the
+window's current size before drawing: `gtk_widget_draw` *silently draws nothing*
+for a widget whose allocation is still pending, and GTK's own paint path never
+hits that assertion, so the bug is invisible in the running app and shows up
+only as an empty PNG (spec §10-17).
+
+Two GTK traps found by that audit are worth knowing before touching this code,
+because both look like \"that control is broken\" and neither raises anything:
+
+- `gtk_widget_show_all()` **returns immediately** for a widget marked
+  `no_show_all`, and does not descend into it either. So a popover or a button
+  hidden that way and shown later has *never shown its children*: the dropdown
+  pops up as an empty box (a constant 66x42 requisition, whatever it holds) and
+  the button renders as a blank square. `widgets::hide_from_show_all()` shows the
+  subtree first and only then opts it out; the same ordering applies to folding
+  a section, which is why `sidebar::fill_content` hides collapsed bodies *after*
+  its `show_all()`.
+- A non-wrapping `GtkTextView` reports the width of the lines it has *laid out*,
+  and it can never lay out more than it was allocated — so its request settles at
+  the allocation and a long line is clipped with nothing to scroll to. The
+  artifact panel measures its widest line with Pango and requests that width.
+
+### Files
+
+| path | role |
+| ---- | ---- |
+| `src/main.rs` | thin entry point: CSS, window, wiring, `EB_*` switches |
+| `src/spec.rs` | every measured geometry literal, plus copy constants |
+| `src/model.rs` | app state: scenes, routes, tasks, turns, artifacts |
+| `src/shell.rs` | assembly, the paned three-pane layout, repaint |
+| `src/welcome.rs`, `src/conversation.rs`, `src/detail.rs` | the three regions |
+| `src/sidebar.rs`, `src/composer.rs`, `src/widgets.rs` | shared pieces |
+| `src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
+| `ui/gtk.css` | colours, type, radii, shadows (GTK CSS is not web CSS — no `var()`, no `flex`, no `gap`) |
+| `docs/ui-spec/gtk/` | generated `@define-color` sets (light/dark), built by `build_gtk_tokens.js` |
+| `docs/ui-spec/capture_dom.js` | read-only CDP capture of the real client (DOM + computed styles) |
+| `docs/ui-spec/query_layout.js` | query tool for that capture; reports CSS px |
+| `docs/ui-spec/watch_dom.js` | continuous capture: dedupes DOM snapshots frame by frame |
+
 ## Prebuilt binaries
 
 Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml) and publishes
@@ -73,14 +205,29 @@ for it.
 │   └── workflows/build.yml # tag-only: build Linux + Windows, publish a release
 ├── Cargo.toml
 ├── README.md
+├── docs
+│   └── ui-spec      # replication spec, design tokens, CDP capture/query tools
 ├── screenshot.png        # macOS
 ├── screenshot-linux.png  # Linux
-└── src
-    ├── main.rs      # entry point: window + one text editor page per tab
-    └── notebook.rs  # `Notebook` wrapper with closable tabs
+├── src
+│   ├── main.rs      # `evobuddy`: entry point (CSS, window, wiring)
+│   ├── spec.rs      # measured geometry + copy constants
+│   ├── model.rs     # app state (scenes, routes, tasks, turns, artifacts)
+│   ├── shell.rs     # assembly, three-pane layout, repaint
+│   ├── welcome.rs   # welcome screen (sidebar + centred landing column)
+│   ├── conversation.rs  # conversation pane (topbar, messages, table, tool row)
+│   ├── detail.rs    # artifact panel (tabs, editor toolbar, gutter + code)
+│   ├── sidebar.rs   # sidebar nav, sections and task rows
+│   ├── composer.rs  # composer card, picker row, Enter-to-send
+│   ├── widgets.rs   # shared helpers (hbox/vbox, classes, glyph buttons)
+│   ├── selftest.rs  # EB_* harness (geometry, shots, click audit)
+│   └── bin
+│       └── notebook # the CJK baseline demo (main.rs + notebook.rs)
+└── ui
+    └── gtk.css      # shell stylesheet for `evobuddy`
 ```
 
-## How it works
+## How the notebook demo works
 
 - `main.rs` first calls `ensure_gtk_im_modules` (see
   [Chinese (CJK) input](#chinese-cjk-input)), then creates a `gtk::Application`

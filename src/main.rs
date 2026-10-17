@@ -2,39 +2,79 @@
 // binary does not open an extra console window. Ignored on other platforms.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-mod notebook;
+//! EvoBuddy — the desktop client's main workspace.
+//!
+//! Rebuilt against a live CDP capture of the product rather than guessed from
+//! class names. The capture, the derived numbers and the list of known
+//! deviations live in `docs/ui-spec/ui-spec.md`.
+//!
+//! Split of responsibility:
+//!
+//! | module           | holds                                              |
+//! |------------------|----------------------------------------------------|
+//! | `spec`           | every measured number and every string             |
+//! | `ui/gtk.css`     | colours, type, radii, shadows (+ generated tokens) |
+//! | the view modules | structure, in `GtkBox` spacing and margins         |
+//! | `model`          | application state and the transitions between screens |
+//! | `shell`          | assembly, signal wiring, state -> widget refresh   |
+//! | `selftest`       | the `EB_SELFTEST` smoke test and the PNG renderer  |
+//!
+//! Geometry lives in Rust rather than CSS because GTK CSS has no flexbox and no
+//! `gap`; colours live in CSS because they are what the token pipeline produces.
+
+mod composer;
+mod conversation;
+mod detail;
+mod model;
+mod selftest;
+mod shell;
+mod sidebar;
+mod spec;
+mod welcome;
+mod widgets;
+
+use std::rc::Rc;
 
 use gtk::prelude::*;
 
-use notebook::Notebook;
+/// Generated colour set. See `docs/ui-spec/build_gtk_tokens.js`.
+///
+/// Resolved via `CARGO_MANIFEST_DIR` rather than a relative path so the includes
+/// keep working if this file moves.
+const TOKENS_CSS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/docs/ui-spec/gtk/tokens-light.css"
+));
+/// Hand-written rules for the parts the token set cannot express.
+const SHELL_CSS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/ui/gtk.css"));
 
-/// Hint shown in every editor. It doubles as a check that CJK glyphs render.
-const EDITOR_HINT: &str = "在此输入内容（支持中文输入）";
+/// The message submitted by `EB_DEMO=1`, so the conversation state can be
+/// photographed without a human typing into it.
+const DEMO_PROMPT: &str = "Show me what a task's conversation looks like.";
 
 fn main() {
     ensure_gtk_im_modules();
 
-    let application = gtk::Application::new(
-        Some("com.github.gtk-rs.examples.notebook"),
-        Default::default(),
-    );
-
+    let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
+    application.connect_startup(|_| load_css());
     application.connect_activate(build_ui);
-
     application.run();
 }
 
 /// Point GTK at its input-method module cache, so IME input works.
 ///
-/// GTK derives its installation prefix from the path of the running
-/// executable. A cargo binary such as `target/debug/notebook` lives outside the
-/// GTK install tree, so GTK cannot find `immodules.cache`: its input-method
-/// table is empty, it silently falls back to the "simple" context, and typing
-/// with an IME (Chinese, Japanese, Korean, ...) does nothing.
+/// GTK derives its installation prefix from the path of the running executable.
+/// A cargo binary such as `target/debug/evobuddy` lives outside the GTK install
+/// tree, so GTK cannot find `immodules.cache`: its input-method table is empty,
+/// it silently falls back to the "simple" context, and typing with an IME
+/// (Chinese, Japanese, Korean, ...) does nothing.
 ///
 /// We locate the *loaded* libgtk with `dladdr`, derive its `lib/` directory and
 /// set `GTK_IM_MODULE_FILE` to the matching cache. Any user-supplied setting
 /// (`GTK_IM_MODULE_FILE` or `GTK_EXE_PREFIX`) takes precedence.
+///
+/// Duplicated in `src/bin/notebook/main.rs`; the two binaries should be unified
+/// behind a shared module before the demo is dropped.
 #[cfg(target_os = "macos")]
 fn ensure_gtk_im_modules() {
     use std::ffi::{c_char, CStr};
@@ -80,42 +120,50 @@ fn ensure_gtk_im_modules() {
 #[cfg(not(target_os = "macos"))]
 fn ensure_gtk_im_modules() {}
 
-fn build_ui(application: &gtk::Application) {
-    let window = gtk::ApplicationWindow::new(application);
+fn load_css() {
+    let provider = gtk::CssProvider::new();
+    let css = format!("{TOKENS_CSS}\n{SHELL_CSS}");
 
-    window.set_title("Notebook");
-    window.set_position(gtk::WindowPosition::Center);
-    window.set_default_size(640, 480);
-
-    let mut notebook = Notebook::new();
-
-    for i in 1..4 {
-        let title = format!("sheet {i}");
-        notebook.create_tab(&title, build_editor().upcast());
+    // Never swallow this. A rejected stylesheet disables *all* styling, GTK
+    // prints nothing of its own accord, and the app falls back to the default
+    // theme — which looks plausible enough to pass a visual check.
+    match provider.load_from_data(css.as_bytes()) {
+        Ok(()) => {
+            if std::env::var_os("EB_SELFTEST").is_some() {
+                println!("css: parsed {} bytes", css.len());
+            }
+        }
+        Err(error) => eprintln!("css: LOAD FAILED, styling disabled: {error}"),
     }
 
-    window.add(&notebook.notebook);
-    window.show_all();
+    match gtk::gdk::Screen::default() {
+        Some(screen) => gtk::StyleContext::add_provider_for_screen(
+            &screen,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        ),
+        None => eprintln!("css: no default screen, styling will not apply"),
+    }
 }
 
-/// One editor page: a scrollable, wrapping multi-line text view.
-///
-/// CJK input itself needs no widget-specific code: once GTK's `im-quartz`
-/// module is reachable (see `ensure_gtk_im_modules`) the text view accepts IME
-/// composition, and fontconfig supplies the CJK fonts for rendering.
-fn build_editor() -> gtk::ScrolledWindow {
-    let buffer = gtk::TextBuffer::new(gtk::TextTagTable::NONE);
-    buffer.set_text(EDITOR_HINT);
+fn build_ui(application: &gtk::Application) {
+    let store = model::store(model::App::new());
+    let (views, probes) = shell::build(application, &store);
+    let views = Rc::new(views);
 
-    let text_view = gtk::TextView::with_buffer(&buffer);
-    text_view.set_wrap_mode(gtk::WrapMode::WordChar);
-    text_view.set_left_margin(8);
-    text_view.set_right_margin(8);
-    text_view.set_top_margin(8);
-    text_view.set_bottom_margin(8);
+    // Attach before the first `show_all`, so the harness still sees the very
+    // first allocation.
+    if selftest::requested() {
+        selftest::attach(&views, &probes, application);
+    }
 
-    let scrolled = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
-    scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-    scrolled.add(&text_view);
-    scrolled
+    shell::finish(&views, &store);
+
+    if std::env::var_os("EB_DEMO").is_some()
+        && std::env::var_os("EB_CLICK").is_none()
+        && std::env::var_os("EB_ENTER").is_none()
+    {
+        store.borrow_mut().submit(DEMO_PROMPT);
+        views.refresh(&store);
+    }
 }

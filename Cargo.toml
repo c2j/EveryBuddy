@@ -1,16 +1,23 @@
 [package]
-name = "notebook"
+name = "evobuddy"
 version = "0.1.0"
 edition = "2021"
-description = "A GTK 3 desktop application based on the gtk3-rs `notebook` example"
+description = "EvoBuddy — a GTK 3 desktop client, UI-replicating the WorkBuddy AI desktop app"
 license = "MIT"
+default-run = "evobuddy"
 
-[[bin]]
-name = "notebook"
-path = "src/main.rs"
+# Two binaries, both auto-discovered:
+#   src/main.rs                    -> `evobuddy` (the application; `cargo run`)
+#   src/bin/notebook/main.rs       -> `notebook`  (the gtk-rs example, kept as the
+#                                    validated GTK 3 + CJK-input baseline)
 
 [dependencies]
 gtk = "0.19"
+
+# Only used by the EB_SELFTEST=1 / EB_SHOT=<path> smoke test, which renders the
+# window to a PNG so the layout can be checked visually. The `png` feature is
+# off by default in cairo-rs, but the crate itself is already in the gtk tree.
+cairo-rs = { version = "0.22", features = ["png"] }
 
 # Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
 [target.'cfg(target_os = "macos")'.dependencies]
