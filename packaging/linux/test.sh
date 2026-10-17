@@ -29,3 +29,12 @@ xvfb-run -a --server-args="-screen 0 1920x1080x24" env "$@" "$prefix/run" 2>&1 |
 
 echo "== renders =="
 ls -la /out/*.png 2>/dev/null | sed 's/^/  /' || echo "  (no png)"
+
+# install.sh is only exercised here: it copies the tree, links the launcher and
+# registers the menu entry, and a typo in it would otherwise ship unnoticed.
+echo "== install.sh =="
+rm -rf /tmp/inst-prefix
+"$prefix/install.sh" /tmp/inst-prefix 2>&1 | sed 's/^/  /'
+ls -l /tmp/inst-prefix/bin/evobuddy | sed 's/^/  /'
+ls /tmp/inst-prefix/share/applications/ /tmp/inst-prefix/share/icons/hicolor/*/apps/ | sed 's/^/  /'
+echo "  resolved Exec: $(sed -n 's/^Exec=//p' /tmp/inst-prefix/share/applications/evobuddy.desktop)"

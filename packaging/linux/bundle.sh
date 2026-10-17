@@ -1,20 +1,39 @@
 #!/bin/bash
-# Stage a fully self-contained GTK 3 tree under /out/app around an already
-# built binary.
+# Stage a fully self-contained GTK 3 tree under /out/app around an already built
+# binary, and tar it up as /out/<name>-<version>-linux-<arch>.tar.gz.
 #
-#   bundle.sh <binary> [name]
+#   bundle.sh <binary> [name] [version] [arch]
 #
-# Runs inside the Debian 10 build image (Dockerfile.build).
+# Runs inside the Debian 10 build image (Dockerfile.build). package.sh supplies
+# the version and arch; on their own they are read from the source and the
+# current machine.
 set -euo pipefail
 
-src_bin=${1:?usage: bundle.sh <binary> [name]}
+src_bin=${1:?usage: bundle.sh <binary> [name] [version] [arch]}
 app=${2:-evobuddy}
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+version=${3:-$(sed -n 's/^version *= *"\(.*\)"/\1/p' /src/Cargo.toml | head -1)}
+arch=${4:-$(uname -m)}
 prefix=/out/app
+stage=/tmp/stage/$app-$version
 
-rm -rf "$prefix"
-mkdir -p "$prefix"/{bin,lib,etc,share/fonts,share/glib-2.0/schemas,share/icons}
+rm -rf "$prefix" "$stage"
+mkdir -p "$prefix"/{bin,lib,etc,share/fonts,share/glib-2.0/schemas,share/icons,share/applications}
+mkdir -p "$prefix/share/icons/hicolor/scalable/apps" "$prefix/share/icons/hicolor/256x256/apps"
+
 cp "$src_bin" "$prefix/bin/$app"
+strip --strip-unneeded "$prefix/bin/$app" 2>/dev/null || true
+
+# Icon and menu entry. The desktop file's Exec is the bare name, resolved
+# through PATH, which install.sh arranges.
+cp "$here/evobuddy.svg" "$prefix/share/icons/hicolor/scalable/apps/$app.svg"
+if command -v rsvg-convert >/dev/null 2>&1; then
+  rsvg-convert -w 256 -h 256 -o "$prefix/share/icons/hicolor/256x256/apps/$app.png" \
+    "$here/evobuddy.svg"
+fi
+cp "$here/evobuddy.desktop" "$prefix/share/applications/$app.desktop"
+install -m755 "$here/install.sh" "$prefix/install.sh"
+sed "s|@VERSION@|$version|; s|@ARCH@|$arch|" "$here/README.txt.in" > "$prefix/README.txt"
 
 echo "== GTK data =="
 # The default theme (Adwaita) is compiled into libgtk-3-0 as a GResource, so it
@@ -29,9 +48,9 @@ cp -r /usr/share/icons/hicolor "$prefix/share/icons/" 2>/dev/null || true
 cp /usr/share/glib-2.0/schemas/*.xml "$prefix/share/glib-2.0/schemas/"
 glib-compile-schemas "$prefix/share/glib-2.0/schemas"
 
-# Input-method modules (CJK typing) and gdk-pixbuf loaders (any image at all).
-# Debian's default set has no im-ibus: GTK only ships xim and friends, and ibus
-# comes with its own package. XIM is therefore what works out of the box.
+# Input-method modules (CJK typing) and gdk-pixbuf loaders (any image at all,
+# SVG icons included). Debian's immodules have no im-ibus: GTK ships xim and
+# friends, ibus brings its own, so XIM is what works out of the box.
 immodules=$(find /usr/lib -path '*gtk-3.0/3.0.0/immodules' -type d | head -1)
 loaders=$(find /usr/lib -path '*gdk-pixbuf-2.0*loaders' -type d | head -1)
 mkdir -p "$prefix/lib/gtk-3.0/3.0.0" "$prefix/lib/gdk-pixbuf-2.0/2.10.0/loaders"
@@ -84,11 +103,22 @@ while :; do
   done
   [ "$added" = 1 ] || break
 done
-echo "  $(find "$prefix/lib" -maxdepth 1 -name '*.so*' | wc -l) libraries, $(du -sh "$prefix" | cut -f1) total"
+echo "  $(find "$prefix/lib" -maxdepth 1 -name '*.so*' | wc -l) libraries"
 
 cp "$here/fonts.conf.template" "$prefix/etc/fonts.conf.template"
 sed "s|@@APP@@|$app|" "$here/run.sh" > "$prefix/run"
 chmod +x "$prefix/run"
+
+echo "== archive =="
+mkdir -p "$stage"
+cp -a "$prefix/." "$stage/"
+rm -f "/out/$app-$version-linux-$arch.tar.gz" "/out/$app-$version-linux-$arch.tar.gz.sha256"
+tar -C /tmp/stage -czf "/out/$app-$version-linux-$arch.tar.gz" "$app-$version"
+(cd /out && sha256sum "$app-$version-linux-$arch.tar.gz" > "$app-$version-linux-$arch.tar.gz.sha256")
+
+echo "== result =="
+du -sh "$prefix" | sed 's/^/  tree: /'
+ls -lh "/out/$app-$version-linux-$arch.tar.gz" | awk '{print "  archive: " $5}'
 
 echo "== glibc symbol versions the bundle needs =="
 for f in "$prefix/bin/$app" "$prefix/lib"/*.so*; do

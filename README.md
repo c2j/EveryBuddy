@@ -191,16 +191,20 @@ because both look like \"that control is broken\" and neither raises anything:
 
 `packaging/linux/package.sh` compiles the app inside `debian:10` — glibc 2.28,
 the oldest supported target, because the glibc symbols a binary asks for are
-those of the environment it was built in — and stages `dist/app`: the binary, 72
-shared libraries (GTK 3, GLib, Pango, Cairo, HarfBuzz…), fonts, icons, compiled
-GSettings schemas, and a `run` script that resolves every path relative to
-itself.
+those of the environment it was built in — and stages a tree in `dist/app`: the
+binary, 72 shared libraries (GTK 3, GLib, Pango, Cairo, HarfBuzz…), fonts, an
+icon theme, compiled GSettings schemas, a placeholder icon, a `.desktop` entry,
+an `install.sh`, and a `run` launcher that resolves every path relative to
+itself. The same tree is tarred to `dist/evobuddy-<version>-linux-<arch>.tar.gz`
+with a SHA-256 beside it; `PLATFORM=linux/arm64` selects the other architecture,
+which is how CI builds both on runners that match it natively.
 
 `packaging/linux/verify.sh` then runs that tree on a *different*, bare Debian 10
 — no GTK, no Pango, no Cairo, no fontconfig, no fonts — and prints what the host
-still had to provide. The answer is six libraries, all glibc's own, which are
-deliberately left to the system: they are forward compatible, and bundling libc
-breaks name resolution.
+still had to provide. The answer is six libraries, all glibc's own, deliberately
+left to the system: they are forward compatible, and bundling libc breaks name
+resolution. It also runs `install.sh`, because an installer that is never
+exercised is an installer that ships broken — the first version of it did.
 
 Both scripts need Docker and nothing else; neither needs GTK on the host. What
 the bundle has to contain, and the traps that cost time to find (the theme is
@@ -213,39 +217,47 @@ no headroom below that.
 
 ## Prebuilt binaries
 
-Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml) and publishes
-the results as a GitHub release:
+Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml): it calls the
+same `package.sh` / `verify.sh` a developer runs locally, and publishes the
+results as a GitHub release.
 
-| artifact                       | built on                | notes                                     |
-| ------------------------------ | ----------------------- | ----------------------------------------- |
-| `notebook-linux-x86_64.tar.gz` | Debian 10 (glibc 2.28)  | runs on glibc >= 2.28, x86_64             |
-| `notebook-linux-aarch64.tar.gz`| Debian 10 (glibc 2.28)  | runs on glibc >= 2.28, arm64              |
-| `notebook-windows-x86_64.zip`  | MSYS2 MinGW-w64 GTK 3   | Windows 10+ x86_64, GTK 3 DLLs bundled    |
+| artifact                            | built in                 | notes                                          |
+| ----------------------------------- | ------------------------ | ---------------------------------------------- |
+| `evobuddy-<v>-linux-x86_64.tar.gz`  | Debian 10 (glibc 2.28)   | self-contained, glibc >= 2.28, x86_64          |
+| `evobuddy-<v>-linux-aarch64.tar.gz` | Debian 10 (glibc 2.28)   | self-contained, glibc >= 2.28, arm64           |
+| `evobuddy-windows-x86_64.zip`       | MSYS2 UCRT64 + MinGW-w64 | Windows 10+; **not** self-contained yet        |
 
-The Linux binaries are built inside a `debian:10` container, so they only
-require glibc >= 2.28; the GTK 3 runtime itself (`libgtk-3-0` on Debian,
-`gtk3` on Fedora) must be installed by the system. The Windows build zips every
-required GTK 3 DLL next to `notebook.exe`, so it is self-contained. Both
-statements describe the `notebook` demo — the app's own bundle above carries its
-GTK 3 with it instead of requiring the system's.
+The Linux artifacts *are* the bundle described above. CI does not merely
+`cargo build` them: it builds the bundle and then runs it on a bare Debian 10,
+so "self-contained" is enforced on every tag instead of remembered.
 
-Windows 7 is **not** supported by this CI route: MSYS2 dropped Windows 7/8.0 in
-May 2024 (`msys2-runtime` moved to Cygwin 3.5). Whether a *MinGW-w64* GTK 3 build
-could still target Win7 — the build environment and the target machine are not
-the same thing — is unresolved, and Win7/8.1 is a stated requirement, so the
-spec records the conflict rather than a verdict (§2, §10-23).
+The Windows artifact is a soft failure on purpose, and its own README says so:
+it carries every GTK 3 DLL but not GTK's *data* files (GSettings schemas, input
+methods, the gdk-pixbuf loader cache), so a DLL-only zip will not start on a
+machine without GTK installed. The Linux launcher rewrites those caches at run
+time; doing the same for Windows needs a `.cmd` launcher and a real Windows
+machine to test on.
+
+Windows 7/8.1 — a stated requirement — is likewise unresolved: MSYS2 dropped
+Windows 7/8.0 in May 2024 (`msys2-runtime` moved to Cygwin 3.5), and UCRT64
+targets Windows 10+. Whether a MinGW-w64 GTK 3 build could still target Win7
+(the build environment and the target machine are not the same thing) is
+unknown. The spec records both as open gaps (§10-23, §10-24) rather than
+guessing.
 
 ## Layout
 
 ```
 .
 ├── .github
-│   ├── scripts             # build scripts run inside the CI containers/shells
-│   └── workflows/build.yml # tag-only: build Linux + Windows, publish a release
+│   ├── scripts/build-windows.sh  # MSYS2 UCRT64 + MinGW-w64; unverified, see README
+│   └── workflows/build.yml       # tag-only: bundle both platforms, test, publish
 ├── Cargo.toml
 ├── README.md
 ├── docs
 │   └── ui-spec      # replication spec, design tokens, CDP capture/query tools
+├── packaging
+│   └── linux        # package.sh / verify.sh: glibc 2.28 build, bundle, bare-host test
 ├── screenshot.png        # macOS
 ├── screenshot-linux.png  # Linux
 ├── src

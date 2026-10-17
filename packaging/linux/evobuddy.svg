@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- A deliberately empty placeholder mark, drawn for this project: no brand
+       asset is reproduced, and it is meant to look like nothing in particular
+       until there is a real icon. Neutral grey on purpose, so it does not read
+       as the client's mark. -->
+  <rect width="256" height="256" rx="56" fill="#2f3437"/>
+  <rect x="58" y="82" width="140" height="92" rx="22" fill="none" stroke="#d7dbdd" stroke-width="14"/>
+  <circle cx="128" cy="128" r="15" fill="#d7dbdd"/>
+</svg>

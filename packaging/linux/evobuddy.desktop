@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=EvoBuddy
+Comment=Desktop client UI study build
+Exec=evobuddy
+Icon=evobuddy
+Terminal=false
+Categories=Utility;
+StartupNotify=true

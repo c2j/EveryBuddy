@@ -6,19 +6,25 @@ Cairo, no fontconfig and no fonts. It carries all of them plus the app:
 ```
 app/
   run                  # the entry point; sets every path relative to itself
+  install.sh           # optional: copy under ~/.local, link, register the menu
+  README.txt
   bin/evobuddy
   lib/                 # GTK 3, GLib, Pango, Cairo, GDK, HarfBuzz, ... (72 .so)
-  share/               # fonts, hicolor icons, compiled GSettings schemas
+  share/               # fonts, hicolor + app icons, compiled GSettings schemas
+  share/applications/evobuddy.desktop
   etc/fonts.conf.template
 ```
 
 ```sh
-./package.sh   # build on glibc 2.28, stage dist/app
+./package.sh   # build on glibc 2.28, stage dist/app and dist/evobuddy-<v>-linux-<arch>.tar.gz
 ./verify.sh    # run dist/app on a bare Debian 10 and print what it needed
+
+PLATFORM=linux/arm64 ./package.sh && PLATFORM=linux/arm64 ./verify.sh
 ```
 
-Both need Docker; neither needs GTK on the host. `bundle.sh`, `run.sh` and
-`test.sh` run *inside* the containers.
+Both need Docker; neither needs GTK on the host. `bundle.sh`, `run.sh`,
+`install.sh` and `test.sh` run *inside* the containers. CI calls exactly these
+two scripts, so a developer and the release path cannot drift apart.
 
 ## Why it is built in a container
 
@@ -54,12 +60,16 @@ and would need Rust's own target support for anything older.
   metrics — and therefore the measured geometry — depend on the machine.
 - **No `im-ibus`.** Debian's GTK ships `im-xim` and friends, but ibus brings its
   own module, so CJK typing inside the bundle currently goes through XIM.
+- **The output must belong to the caller.** `docker run --user` is not cosmetic
+  here: a root-owned `dist/app` cannot be deleted by the user who built it, and
+  the next `package.sh` run starts by deleting it.
+- **POSIX `sh` in the bundle.** `install.sh` and `run` run under dash on Debian,
+  so the CI step syntax-checks them with `dash -n`; bash-only syntax would
+  otherwise only fail on a user's machine.
 - **Debian 10 is EOL.** apt has to point at `archive.debian.org` and tolerate
   expired valid-until dates.
 
 ## Not done yet
 
 - Input-method support for ibus (`im-ibus.so` + `libibus-1.0.so.0`).
-- A launcher entry, an icon and a versioned artifact name: this is a directory,
-  not yet something to hand to a user.
-- Windows and macOS packaging.
+- Windows: the same treatment, plus Windows 7/8.1. See the top-level README.

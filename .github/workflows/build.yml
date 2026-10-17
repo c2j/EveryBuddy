@@ -20,37 +20,57 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Both targets are built inside Debian 10 (glibc 2.28), so the
-          # binaries run on any system with glibc >= 2.28.
+          # packaging/linux/package.sh builds inside Debian 10 (glibc 2.28), on
+          # the runner's own architecture, so the resulting bundle runs on any
+          # system with glibc >= 2.28.
           - arch: x86_64
             runner: ubuntu-24.04
+            platform: linux/amd64
           - arch: aarch64
             runner: ubuntu-24.04-arm
+            platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build in Debian 10 (glibc 2.28) for linux-${{ matrix.arch }}
-        env:
-          ARCH: ${{ matrix.arch }}
+      - name: Check that the scripts parse
         run: |
-          docker run --rm \
-            -v "$PWD":/src \
-            -w /src \
-            -e ARCH="$ARCH" \
-            -e HOST_UID="$(id -u)" \
-            -e HOST_GID="$(id -g)" \
-            debian:10 \
-            bash /src/.github/scripts/build-linux.sh
+          bash -n packaging/linux/*.sh .github/scripts/*.sh
+          # install.sh and run.sh run under /bin/sh (dash) in the bundle, where
+          # bash-specific syntax would fail at run time rather than here.
+          docker run --rm -v "$PWD":/src:ro debian:10 \
+            dash -n /src/packaging/linux/install.sh /src/packaging/linux/run.sh
+
+      - name: Build the bundle (Debian 10, glibc 2.28)
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: packaging/linux/package.sh
+
+      # The requirement is a tree that runs with nothing installed, so the test
+      # is a second container that has none of it — no GTK, no Pango, no Cairo,
+      # no fontconfig, no fonts — running the app's own selftest, which prints
+      # the geometry it is supposed to have.
+      - name: Run it on a bare Debian 10
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: packaging/linux/verify.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: notebook-linux-${{ matrix.arch }}
-          path: notebook-linux-${{ matrix.arch }}.tar.gz
+          name: evobuddy-linux-${{ matrix.arch }}
+          path: |
+            dist/evobuddy-*-linux-*.tar.gz
+            dist/evobuddy-*-linux-*.tar.gz.sha256
           if-no-files-found: error
 
   windows:
     name: windows-x86_64
     runs-on: windows-2022
+    # Soft failure on purpose: this job builds and bundles the app the same way
+    # the notebook demo was built, but nothing in this workflow can test the
+    # result, and it is not self-contained the way the Linux bundle is (see
+    # .github/scripts/build-windows.sh). Windows 7/8.1 — a stated requirement —
+    # is unresolved (spec §10-23, §10-24). Do not let it block the release.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -60,8 +80,8 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          # UCRT64 is the current MSYS2 environment (MINGW64 is deprecated and
-          # UCRT64 targets Windows 10+, matching this build's requirement).
+          # UCRT64 is the current MSYS2 environment (MINGW64 is deprecated, and
+          # UCRT64 targets Windows 10+).
           msystem: UCRT64
           update: true
           path-type: inherit
@@ -77,8 +97,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: notebook-windows-x86_64
-          path: notebook-windows-x86_64.zip
+          name: evobuddy-windows-x86_64
+          path: evobuddy-windows-x86_64.zip
           if-no-files-found: error
 
   release:

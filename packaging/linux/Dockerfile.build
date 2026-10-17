@@ -7,12 +7,15 @@ FROM debian:10
 
 # Buster is EOL and has moved to the archive, whose Release files have expired
 # valid-until dates.
+#
+# librsvg2-bin is here for rsvg-convert (rendering the icon) and, with it, the
+# SVG gdk-pixbuf loader, which the bundle copies along with the other loaders.
 RUN printf 'deb http://archive.debian.org/debian buster main\ndeb http://archive.debian.org/debian-security buster/updates main\n' > /etc/apt/sources.list \
  && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99-archive \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       build-essential pkg-config libgtk-3-dev libgtk-3-bin libglib2.0-bin \
-      fonts-dejavu-core fonts-wqy-microhei ca-certificates curl file \
+      fonts-dejavu-core fonts-wqy-microhei librsvg2-bin ca-certificates curl file \
  && rm -rf /var/lib/apt/lists/*
 
 # Rust's own glibc baseline (2.17) is older than this image's 2.28, so a stock

@@ -1,0 +1,30 @@
+EvoBuddy @VERSION@ (linux-@ARCH@)
+=================================
+
+A UI study build: the interface of a desktop client, reproduced natively in
+GTK 3. Wording and icons are placeholders; no brand assets are reproduced.
+
+Self-contained
+--------------
+This bundle carries GTK 3 and every library it needs, its own fonts, its icon
+theme and its compiled GSettings schemas. It wants glibc >= 2.28, an X display
+and nothing else — no GTK, no fontconfig and no fonts of any kind need to be
+installed. The libraries still taken from the host are glibc's own, on purpose:
+they are forward compatible, and bundling libc breaks name resolution.
+
+It was verified by running exactly this tree on a machine with none of the
+above, which is the only way that claim means anything.
+
+Run
+---
+    ./run
+
+Install for the current user (launcher on PATH + menu entry):
+
+    ./install.sh              # under ~/.local
+    ./install.sh /some/prefix
+
+Known gaps
+----------
+CJK input goes through XIM: the bundle has GTK's input-method modules, but not
+ibus's, which ships separately.
