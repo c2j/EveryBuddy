@@ -572,6 +572,10 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
 11. **Linux 完全自包含：已验证** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256），脚本在 `packaging/linux/`。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
+
+**已在 GitHub 上跑通（v0.2.0，run 39022034107）**：四个任务全绿，两台 runner（ubuntu-24.04 x86_64 / ubuntu-24.04-arm aarch64）都在**裸 Debian 10.13**（无 gtk/pango/cairo/fontconfig 包、**0 个字体文件**）里跑通了各自的产物：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`、66 个已解析库中 6 个来自宿主（全是 glibc 家族）、最大符号 `GLIBC_2.28`，且 `install.sh` 实跑通过。产物 30M / 29M，已连同 SHA-256 与 Windows zip 发布在 release 里。
+
+**CI 第一次跑就抓到一个真 bug**（也印证了"必须真跑一次"）：`bundle.sh` 收尾的 `readelf` 统计在 `set -e` + `pipefail` 下必然退出 1（个别库如 `libcairo-gobject` 没有 `GLIBC_` 版本信息，`grep` 返回 1），顺带还把统计结果打印成了截断的错误集合。它躲过了此前所有本地验证，因为本地都是 `./package.sh | tail`——管道把退出码换成了 `tail` 的。教训已记进 `packaging/linux/README.md`。
 13. **三栏分隔条有 1px 残差** —— 产品的分隔条是 4px **全透明**覆盖层，骑在栏边界上、不扣减栏宽（278–282 / 858–862）；`GtkPaned` 的手柄必然占位，当前折中成 1px 透明手柄 ⇒ 会话栏 579 而非实测的 580（结果面板 579 一致）。要完全对齐需自绘热区（`GtkOverlay` + 事件盒），或接受这 1px。
 14. **会话顶栏内容左内缩 24px 的成因未确认** —— 实测 `workbuddy-topbar-options` 起点 x=304（距栏左 24）、右端 844（距栏右 16），左右不对称；但顶栏计算样式只有 `padding: 0 16px`，多出的 8px 疑似来自 `--mac` 修饰类或 `-options` 的 margin。当前实现未按实测追加这 8px（标题落在 297，产品 304）。
 15. **chip 点击行为是推测** —— 实测点击 chip 既不清空也不导航（§5.2），「点击填入输入框」是实现侧的选择。

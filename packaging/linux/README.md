@@ -63,6 +63,12 @@ and would need Rust's own target support for anything older.
 - **The output must belong to the caller.** `docker run --user` is not cosmetic
   here: a root-owned `dist/app` cannot be deleted by the user who built it, and
   the next `package.sh` run starts by deleting it.
+- **A report must not be able to fail the build.** The closing `readelf` loop
+  finds no `GLIBC_` string in a few libraries (libcairo-gobject, libicudata), so
+  `grep` exits 1; under `set -e` with `pipefail` that failed the whole bundle
+  *after* printing a truncated answer. It survived several local runs because
+  they piped the script through `tail`, which reports tail's exit status, not the
+  script's. CI found it on its first tag, which is what CI is for.
 - **POSIX `sh` in the bundle.** `install.sh` and `run` run under dash on Debian,
   so the CI step syntax-checks them with `dash -n`; bash-only syntax would
   otherwise only fail on a user's machine.
