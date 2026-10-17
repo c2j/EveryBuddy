@@ -21,7 +21,7 @@ echo "== what the bundle needs from the host =="
 total=$(LD_LIBRARY_PATH="$prefix/lib" ldd "$prefix/bin/$app" | grep -c '=> /' || true)
 outside=$(LD_LIBRARY_PATH="$prefix/lib" ldd "$prefix/bin/$app" | awk '/=> \//{print $3}' | grep -v "^$prefix/" | wc -l)
 echo "  $total shared libraries, $outside from outside the bundle:"
-LD_LIBRARY_PATH="$prefix/lib" ldd "$prefix/bin/$app" | awk '/=> \//{print $3}' | grep -v "^$prefix/" | sed 's/^/    /'
+LD_LIBRARY_PATH="$prefix/lib" ldd "$prefix/bin/$app" | awk '/=> \//{print $3}' | grep -v "^$prefix/" | sed 's/^/    /' || true
 
 rm -f /out/*.png
 echo "== run under Xvfb =="

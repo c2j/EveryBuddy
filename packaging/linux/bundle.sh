@@ -121,6 +121,9 @@ du -sh "$prefix" | sed 's/^/  tree: /'
 ls -lh "/out/$app-$version-linux-$arch.tar.gz" | awk '{print "  archive: " $5}'
 
 echo "== glibc symbol versions the bundle needs =="
+# readelf finds nothing in a few libraries (libcairo-gobject, libicudata), and
+# under `set -e` that would abort the loop part-way, print a truncated answer and
+# fail the whole bundle. A report must not be able to fail the build.
 for f in "$prefix/bin/$app" "$prefix/lib"/*.so*; do
-  readelf --version-info "$f" 2>/dev/null | grep -o 'GLIBC_[0-9.]*'
+  readelf --version-info "$f" 2>/dev/null | grep -o 'GLIBC_[0-9.]*' || true
 done | sort -uV | tail -3 | sed 's/^/  /'
