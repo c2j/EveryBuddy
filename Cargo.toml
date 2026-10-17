@@ -1,6 +1,6 @@
 [package]
 name = "evobuddy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "EvoBuddy — a GTK 3 desktop client, UI-replicating the WorkBuddy AI desktop app"
 license = "MIT"
