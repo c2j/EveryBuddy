@@ -63,7 +63,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 6. **M2.0a + P0.4**:`AnswerSource` 改为事件流契约;M2.0a 时 demo 保持 `5b0eef6b…` 等值(M2.2 后 baseline 变为 `fc267c54…`);fake streaming agent、完成/取消 harness、模型/事件/取消测试全部落地;Linux 与 macOS verify 都跑 fake streaming/cancel/stop/panic。
 7. **M2.0b**:`AgentRuntime` 专用线程 + current-thread tokio;`AgentSink` 改为容量 64 的有界队列;`start` panic 经 `catch_unwind` 转 `Failed`;send 按钮流式期间变 stop;Linux/macOS verify 增加 stop 与 panic 用例。
 8. **M2.1 采集**:WorkBuddy AI 5.8.4 的 8 个状态已落 spec §5.3 与 fixtures;修正了 752/500 会话宽度;`cr-status-chips`/`--summary` 未出现。
-9. **P1a + M2.2(进行中)**:token 生成器新增 metrics(json/rs/css)与 CI 防漂移;`Block::Diff`/`Block::Exec`、diff/exec/table 渲染器、752/500 会话宽度与 832/580 输入区已落地;`EB_DEMO_BLOCKS=1` 覆盖新块,Linux/macOS verify 通过。`cr-collapse` 组与 usage popover 仍待做。
+9. **P1a + M2.2(进行中)**:token 生成器新增 metrics(json/rs/css)与 CI 防漂移;`Block::Diff`/`Block::Exec`/`Block::Group`、diff/exec/table 渲染器、752/500 会话宽度与 832/580 输入区、usage 环/最小 popover 已落地;`EB_DEMO_BLOCKS=1` 覆盖新块,Linux/macOS verify 通过。四类 usage 分解与贡献面仍待做。
 
 ## 三、后续规划
 
@@ -76,7 +76,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - **P0.1 `EB_ASSERT=1`**(已完成):按平台断言几何/颜色,以退出码驱动 CI。Linux(Xvfb 1920×1080)断言精确窗口与固定块;macOS runner 屏幕更小时只断言屏幕无关不变量。
 - **P0.2 `EB_CLICK_ASSERT=1`**(已完成):对 26 步的 label 与稳定观察值做断言,忽略 toplevels、popover 坐标、代码区滚动宽度等易变数值;Linux 裸机与 macOS verify 都已接线并通过。
 - **P0.3 快速检查**(已完成):新增 `.github/workflows/check.yml`,push/PR 跑 `cargo test --workspace`;tag-only 的发布链保持独立,不把发布条件放宽。测试包含 26 步期望表覆盖与"缺一个观察值必须失败"的负向用例。
-- **P0.4 假插件测试**(已完成):`EB_FAKE_AGENT=1` 的慢流 fake agent + `EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS`/`EB_FAKE_STOP_AFTER_MS`/`EB_FAKE_PANIC_START` harness;Linux 与 macOS verify 都验证完成、取消、UI stop 与启动 panic;`eb-api` 4 个、demo-agent 5 个测试覆盖事件顺序、取消、sink 关闭、有界队列背压与第二 demo 的三种新块。
+- **P0.4 假插件测试**(已完成):`EB_FAKE_AGENT=1` 的慢流 fake agent + `EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS`/`EB_FAKE_STOP_AFTER_MS`/`EB_FAKE_PANIC_START` harness;Linux 与 macOS verify 都验证完成、取消、UI stop 与启动 panic;`eb-api` 5 个、demo-agent 5 个测试覆盖事件顺序、取消、sink 关闭、有界队列背压与第二 demo 的三种新块。
 - 验收:P0.1/P0.2 在 Linux 与 macOS 的 `verify` 脚本里执行;P0.4 额外跑 fake streaming/API cancel/UI stop/start panic。正向验证已完成;故意改坏几何/交互的完整负向演练仍可补做。
 
 ### M2 真实异步 agent + 会话内容块(大)⭐ 推荐下一步
@@ -95,7 +95,8 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - ✅ `Block::Diff` / `Block::Exec` 数据模型;diff 行级 add/remove/context;demo 第二个回答覆盖三种块。
 - ✅ diff 卡(浅绿、行级配色、252 视口)、exec 卡(`#f2f2f2`、300 视口、200 行输出)、table 字号/表头样式。
 - ✅ 会话 frame 752(无 artifact)/500(有 artifact),输入区 832/580;`EB_ASSERT` 已断言 `eb-messages`/`eb-chat-card` 宽度;Linux/macOS verify 增加 `EB_DEMO_BLOCKS=1`。
-- ⏳ 尚未做:`cr-collapse` 工具组(收/展/完成)、`cr-context-usage` 环与 popover、`ConversationBlock` 贡献面、未知块 fallback。
+- ✅ `cr-collapse` 工具组(收/展,chevron 在标题后)、`cr-context-usage` 环(仅在 agent 上报 Usage 时显示)与最小 popover;demo 第二个回答用 Group 包住 diff/exec/table。
+- ⏳ 尚未做:usage popover 的五类分解(采集到但事件流没有分类数据)、`ConversationBlock` 贡献面、未知块 fallback、旧 CSS 字面量迁移。
 
 **验收**:每块几何与配色进 spec,并进入 `EB_SELFTEST` / `EB_CLICK_ASSERT` 的断言范围;M2.0c 的 fake agent 在 CI 可跑。
 
@@ -155,6 +156,6 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
 3. ~~M2.1 采集:清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md)~~(已完成,2026-10-18;结果见 spec §5.3 与 fixture)。
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
-5. **M2.2**:内容块数据模型 + 渲染器(进行中;diff/exec/table 与 752/500 布局已落,collapse/usage 待做)。
+5. **M2.2**:内容块数据模型 + 渲染器(进行中;diff/exec/table、752/500 布局、collapse 组与 usage 环已落;usage 分类/贡献面待做)。
 6. **P1a 缺口6 已完成**(生成 metrics + CI 校验;旧 CSS 迁移留后);缺口 3/4 与 P3 可穿插;P1b/P2/P4/P5 按依赖推进。
 7. **发布合规闸门**:根 LICENSE、第三方许可、SBOM/LGPL source offer。

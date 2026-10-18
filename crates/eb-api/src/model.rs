@@ -52,6 +52,8 @@ pub struct Task {
     pub meta: String,
     pub turns: Vec<Turn>,
     pub artifact: Option<Artifact>,
+    /// The last context-usage reading reported by the agent, if any.
+    pub usage: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -102,6 +104,13 @@ pub enum Block {
         command: String,
         output: String,
         exit_code: Option<i32>,
+    },
+    /// A collapsible tool group (`cr-collapse`). `collapsed` is the initial
+    /// state; the widget toggles locally.
+    Group {
+        title: String,
+        blocks: Vec<Block>,
+        collapsed: bool,
     },
     Table {
         headers: Vec<String>,
@@ -205,6 +214,7 @@ impl App {
                 },
             ],
             artifact: None,
+            usage: None,
         });
 
         self.nav = None;
@@ -217,6 +227,14 @@ impl App {
     /// task or turn is gone (for example after the user opened another task).
     pub fn apply_agent_event(&mut self, index: usize, event: crate::AgentEvent) -> bool {
         use crate::AgentEvent;
+
+        if let AgentEvent::Usage { used, total } = event {
+            let Some(task) = self.tasks.get_mut(index) else {
+                return false;
+            };
+            task.usage = Some((used, total));
+            return true;
+        }
 
         // The artifact lives on the task, not the turn; handle it before the
         // mutable borrow of the turn below.
@@ -257,10 +275,7 @@ impl App {
                 }
             }
             AgentEvent::Block { block } => blocks.push(block),
-            AgentEvent::Usage { used: _, total: _ } => {
-                // Kept for the usage ring in M2.2; the initial model has no
-                // per-turn meter to render yet.
-            }
+            AgentEvent::Usage { .. } => unreachable!("handled above"),
             AgentEvent::Finished => {
                 *streaming = false;
                 *status = None;
@@ -354,6 +369,20 @@ mod tests {
         ));
         assert!(task.artifact.is_some());
         assert!(app.detail_visible);
+    }
+
+    #[test]
+    fn usage_event_updates_the_task_meter() {
+        let mut app = App::new();
+        let index = app.begin_task("hello").unwrap();
+        assert!(app.apply_agent_event(
+            index,
+            AgentEvent::Usage {
+                used: 42,
+                total: 100,
+            },
+        ));
+        assert_eq!(app.tasks[index].usage, Some((42, 100)));
     }
 
     #[test]

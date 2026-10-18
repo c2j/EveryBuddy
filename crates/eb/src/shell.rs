@@ -364,6 +364,13 @@ impl Views {
         self.welcome_composer.set_scene(app.scene);
         self.chat_composer.set_scene(app.scene);
 
+        let usage = match &app.route {
+            Route::Task(index) => app.tasks.get(*index).and_then(|task| task.usage),
+            _ => None,
+        };
+        self.welcome_composer.set_usage(None);
+        self.chat_composer.set_usage(usage);
+
         // ---- sidebar list ------------------------------------------------
         let rows: Vec<TaskRow> = app
             .tasks

@@ -88,6 +88,12 @@ impl AnswerSource for DemoAgent {
         if let Some(artifact) = artifact {
             let _ = sink.send(AgentEvent::Artifact { artifact });
         }
+        if nth % 2 == 1 {
+            let _ = sink.send(AgentEvent::Usage {
+                used: 42,
+                total: 100,
+            });
+        }
         let _ = sink.send(AgentEvent::Finished);
         Box::new(NoopHandle)
     }
@@ -217,30 +223,36 @@ fn placeholder_answer(nth: usize) -> (Vec<Block>, Option<Artifact>) {
                      diff, a command with a scrollable output, and a table."
                         .to_string(),
                 ),
-                Block::Diff {
-                    path: "demo/main.rs".to_string(),
-                    added: 7,
-                    removed: 1,
-                    lines: vec![
-                        DiffLine::Context("fn main() {".to_string()),
-                        DiffLine::Remove("    let old = 1;".to_string()),
-                        DiffLine::Add("    // EvoBuddy placeholder diff.".to_string()),
-                        DiffLine::Add("    let value = 42;".to_string()),
-                        DiffLine::Context("    println!(\"{value}\");".to_string()),
-                        DiffLine::Context("}".to_string()),
-                    ],
-                },
-                Block::Exec {
-                    command: "seq 1 20".to_string(),
-                    output,
-                    exit_code: Some(0),
-                },
-                Block::Table {
-                    headers: vec!["Block".to_string(), "Renders as".to_string()],
-                    rows: vec![
-                        vec!["Diff".to_string(), "Light-green card".to_string()],
-                        vec!["Exec".to_string(), "Scrollable command output".to_string()],
-                        vec!["Table".to_string(), "Rounded card".to_string()],
+                Block::Group {
+                    title: "Completed just now".to_string(),
+                    collapsed: false,
+                    blocks: vec![
+                        Block::Diff {
+                            path: "demo/main.rs".to_string(),
+                            added: 7,
+                            removed: 1,
+                            lines: vec![
+                                DiffLine::Context("fn main() {".to_string()),
+                                DiffLine::Remove("    let old = 1;".to_string()),
+                                DiffLine::Add("    // EvoBuddy placeholder diff.".to_string()),
+                                DiffLine::Add("    let value = 42;".to_string()),
+                                DiffLine::Context("    println!(\"{value}\");".to_string()),
+                                DiffLine::Context("}".to_string()),
+                            ],
+                        },
+                        Block::Exec {
+                            command: "seq 1 20".to_string(),
+                            output,
+                            exit_code: Some(0),
+                        },
+                        Block::Table {
+                            headers: vec!["Block".to_string(), "Renders as".to_string()],
+                            rows: vec![
+                                vec!["Diff".to_string(), "Light-green card".to_string()],
+                                vec!["Exec".to_string(), "Scrollable command output".to_string()],
+                                vec!["Table".to_string(), "Rounded card".to_string()],
+                            ],
+                        },
                     ],
                 },
             ],
@@ -350,24 +362,21 @@ mod tests {
         let (sink, stream) = AgentSink::channel();
         let _second = agent.start("hello", sink);
         let events = drain(&stream);
-        assert!(events.iter().any(|event| matches!(
-            event,
-            AgentEvent::Block {
-                block: Block::Diff { .. }
-            }
-        )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            AgentEvent::Block {
-                block: Block::Exec { .. }
-            }
-        )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            AgentEvent::Block {
-                block: Block::Table { .. }
-            }
-        )));
+        let blocks: Vec<&Block> = events
+            .iter()
+            .filter_map(|event| match event {
+                AgentEvent::Block { block } => Some(block),
+                _ => None,
+            })
+            .collect();
+        let group = blocks.iter().find_map(|block| match block {
+            Block::Group { blocks, .. } => Some(blocks.as_slice()),
+            _ => None,
+        });
+        let nested = group.expect("the second demo should group its tool blocks");
+        assert!(nested.iter().any(|block| matches!(block, Block::Diff { .. })));
+        assert!(nested.iter().any(|block| matches!(block, Block::Exec { .. })));
+        assert!(nested.iter().any(|block| matches!(block, Block::Table { .. })));
         assert!(!events
             .iter()
             .any(|event| matches!(event, AgentEvent::Artifact { .. })));

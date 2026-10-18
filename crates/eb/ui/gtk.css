@@ -613,6 +613,48 @@ button.eb-icon-mini:hover {
   font-size: 12px;
 }
 
+/* Context usage: a 32x32 button with a 16x16 ring. The ring itself is drawn
+ * by the widget; this class only supplies the hit target and hover. */
+button.eb-context-usage {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 16px;
+}
+
+button.eb-context-usage:hover {
+  background-color: @bg_tertiary;
+}
+
+.eb-usage-title {
+  color: @eb_text_primary;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eb-usage-detail {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+
+/* Collapse header: 26.25px, 8px gap, 15px/400 at rgba(0,0,0,.5). */
+button.eb-group-header {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+  min-height: 26px;
+}
+
+.eb-group-title,
+.eb-group-chevron {
+  color: @eb_text_tertiary;
+  font-size: 15px;
+}
+
 /* ------------------------------------------------------- diff / exec blocks -- */
 
 /* M2.1 capture (ui-spec §5.3): a 752x278 card for 12 lines, radius 16,

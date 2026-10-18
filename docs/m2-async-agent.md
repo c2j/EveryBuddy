@@ -83,7 +83,7 @@ pub trait AnswerSource: Send + Sync + 'static {
 - 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`;
 - `Contribs` 仍是挂载期快照,运行期贡献热更新未做(agent 内容走 `AgentEvent`)。
 
-测试:`eb-api` 4 个(事件增量、失败、空 prompt、有界队列背压),demo-agent 5 个
+测试:`eb-api` 5 个(事件增量、失败、空 prompt、有界队列背压、Usage),demo-agent 5 个
 (完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
 
 ## 3. 线程模型

@@ -17,6 +17,7 @@
 //! and each block carries 14px of vertical margin, which is what produces the
 //! captured 53px rhythm for a one-line block.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -279,6 +280,11 @@ fn block_widget(block: &Block) -> gtk::Widget {
             output,
             exit_code,
         } => exec_block(command, output, *exit_code).upcast(),
+        Block::Group {
+            title,
+            blocks,
+            collapsed,
+        } => group_block(title, blocks, *collapsed).upcast(),
         Block::Table { headers, rows } => table(headers, rows).upcast(),
     };
     widget.set_margin_top(14);
@@ -400,6 +406,48 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
 
     scroll.add(&body);
     scroll
+}
+
+/// A collapsible tool group: a 26.25px header with a chevron/title and the
+/// nested blocks below. The header is a flat button; the group starts in the
+/// state the plugin declared and toggles locally.
+fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
+    let root = vbox(0);
+    class(&root, "eb-group");
+
+    let header = flat_button("eb-group-header");
+    header.set_tooltip_text(Some("Toggle tool details"));
+    let row = hbox(8);
+    row.set_valign(gtk::Align::Center);
+    let chevron = text(if collapsed { "›" } else { "⌄" }, "eb-group-chevron");
+    row.pack_start(&text(title, "eb-group-title"), false, false, 0);
+    row.pack_start(&chevron, false, false, 0);
+    header.add(&row);
+
+    let content = vbox(0);
+    class(&content, "eb-group-content");
+    for block in blocks {
+        content.pack_start(&block_widget(block), false, false, 0);
+    }
+    let expanded = Rc::new(Cell::new(!collapsed));
+    if collapsed {
+        hide_from_show_all(&content);
+    }
+    header.connect_clicked({
+        let content = content.clone();
+        let chevron = chevron.clone();
+        let expanded = expanded.clone();
+        move |_| {
+            let next = !expanded.get();
+            expanded.set(next);
+            content.set_visible(next);
+            chevron.set_text(if next { "⌄" } else { "›" });
+        }
+    });
+
+    root.pack_start(&header, false, false, 0);
+    root.pack_start(&content, false, false, 0);
+    root
 }
 
 fn table(headers: &[String], rows: &[Vec<String>]) -> gtk::Box {
