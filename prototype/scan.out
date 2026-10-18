@@ -1,0 +1,250 @@
+repo                     /Users/c2j/Projects/Desktop_Projects/CODE/deepseek-harness
+packages                 342 (342 with src, 48 authority, 227 plugin-side host packages)
+src files scanned        2484
+
+--- coupling buckets (plugin-side host packages) ---
+  no authority value import                    144  (63.4%)
+  authority values (facade-safe only)            0  (0.0%)
+  authority values (needs JS behavior)          83  (36.6%)
+  authority identity (instanceof/extends/new)   95  (41.9%)
+  uses waterfall                                 6  (2.6%)
+  touches ctx.session directly                   8  (3.5%)
+  B-viable as-is                                91  (40.1%)
+  breaks under a Rust kernel (any reason)      136  (59.9%)
+
+--- authority runtime symbols imported by plugins (module#symbol  valueFiles  identityFiles) ---
+@deepseek-ai/dsh-llm
+    createUserMessage                      files=  35  identity=  0  pkgs=33
+    LlmError                               files=  26  identity= 97  pkgs=10
+    HarnessError                           files=  23  identity= 35  pkgs=17
+    ReasoningEffortId                      files=  14  identity=  0  pkgs=11
+    errorChain                             files=  11  identity=  0  pkgs=8
+    BlockAssembler                         files=   7  identity=  7  pkgs=7
+    contentHasImage                        files=   5  identity=  0  pkgs=4
+    boundContextSummary                    files=   5  identity=  0  pkgs=5
+    attributionHeaders                     files=   5  identity=  0  pkgs=3
+    offloadedImageText                     files=   4  identity=  0  pkgs=3
+    requestImageHandleText                 files=   4  identity=  0  pkgs=3
+    expandAssistantStream                  files=   4  identity=  0  pkgs=4
+    AssistantStreamAccumulator             files=   3  identity=  3  pkgs=3
+    freezeMessage                          files=   3  identity=  0  pkgs=3
+    IMAGE_OFFLOAD_REQUIRED_CODE            files=   3  identity=  0  pkgs=3
+    ToolCallId                             files=   3  identity=  0  pkgs=3
+    LlmAdapter                             files=   3  identity=  3  pkgs=3
+    resolveRetryPolicy                     files=   3  identity=  0  pkgs=3
+    resolveImageAttachmentAccess           files=   3  identity=  0  pkgs=3
+    APP_IDENTITY                           files=   3  identity=  0  pkgs=2
+    CONTEXT_WINDOW_EXCEEDED_CODE           files=   2  identity=  0  pkgs=2
+    RetryPolicySchema                      files=   2  identity=  0  pkgs=2
+    projectOffloadedImages                 files=   2  identity=  0  pkgs=2
+    requiredImageOffload                   files=   2  identity=  0  pkgs=2
+    isContextWindowExceededError           files=   2  identity=  0  pkgs=2
+    isQuotaExceededError                   files=   2  identity=  0  pkgs=2
+    QUOTA_EXCEEDED_CODE                    files=   2  identity=  0  pkgs=2
+    assertUsableApiKey                     files=   2  identity=  0  pkgs=2
+    assistantStreamChunks                  files=   1  identity=  0  pkgs=1
+    createAssistantMessage                 files=   1  identity=  0  pkgs=1
+    createDeveloperMessage                 files=   1  identity=  0  pkgs=1
+    markAgentLoopRequest                   files=   1  identity=  0  pkgs=1
+    LlmAttemptId                           files=   1  identity=  0  pkgs=1
+    createSystemMessage                    files=   1  identity=  0  pkgs=1
+    createToolResultMessage                files=   1  identity=  0  pkgs=1
+    callConfigEquals                       files=   1  identity=  0  pkgs=1
+    textOnlyImageText                      files=   1  identity=  0  pkgs=1
+    ProviderRequestId                      files=   1  identity=  0  pkgs=1
+    ACCOUNT_QUOTA_EXCEEDED_CODE            files=   1  identity=  0  pkgs=1
+    INVALID_CREDENTIAL_CODE                files=   1  identity=  0  pkgs=1
+    normalizeApiKey                        files=   1  identity=  0  pkgs=1
+    EMPTY_RESPONSE_CODE                    files=   1  identity=  0  pkgs=1
+    assembleAssistantStream                files=   1  identity=  0  pkgs=1
+    lastAssistantStreamChunk               files=   1  identity=  0  pkgs=1
+    assistantStreamFirstTokenTime          files=   1  identity=  0  pkgs=1
+    isAgentLoopRequest                     files=   1  identity=  0  pkgs=1
+    joinAssistantStreamText                files=   1  identity=  0  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-app-boot
+    composeEntries                         files=   5  identity=  0  pkgs=3
+    bundlePatchPaths                       files=   4  identity=  0  pkgs=2
+    readProfilePatches                     files=   3  identity=  0  pkgs=3
+    readProfileManifest                    files=   3  identity=  0  pkgs=2
+    resolveBundleDir                       files=   3  identity=  0  pkgs=2
+    loadOverlayPatches                     files=   3  identity=  0  pkgs=2
+    evaluatePluginCompatibility            files=   3  identity=  0  pkgs=2
+    getDshRuntimeVersion                   files=   3  identity=  0  pkgs=2
+    PROFILE_PATCH_FILENAME                 files=   2  identity=  0  pkgs=2
+    OPTIONAL_BUNDLES                       files=   2  identity=  0  pkgs=2
+    readProfileVersionExemptions           files=   2  identity=  0  pkgs=1
+    PROFILE_TEMPLATES                      files=   2  identity=  0  pkgs=2
+    loadProfileDirectory                   files=   1  identity=  0  pkgs=1
+    reconcileProfilePatches                files=   1  identity=  0  pkgs=1
+    recomposeProfile                       files=   1  identity=  0  pkgs=1
+    readPluginMeta                         files=   1  identity=  0  pkgs=1
+    readProfileCompatibility               files=   1  identity=  0  pkgs=1
+    setProfileVersionExemption             files=   1  identity=  0  pkgs=1
+    PROFILE_COMPATIBILITY_FILENAME         files=   1  identity=  0  pkgs=1
+    OFFICIAL_ON_DEMAND_CATALOG             files=   1  identity=  0  pkgs=1
+    ResolutionRestartRequired              files=   1  identity=  1  pkgs=1
+    DEFAULT_PROFILE_BUNDLES                files=   1  identity=  0  pkgs=1
+    initProfile                            files=   1  identity=  0  pkgs=1
+    resolveProfileDir                      files=   1  identity=  0  pkgs=1
+    pluginCompatibilityWarning             files=   1  identity=  0  pkgs=1
+    loadOptionalPatches                    files=   1  identity=  0  pkgs=1
+    readBundlePatches                      files=   1  identity=  0  pkgs=1
+    auditStartupEntries                    files=   1  identity=  0  pkgs=1
+    createConfigProjector                  files=   1  identity=  0  pkgs=1
+    isNativeConfigSchema                   files=   1  identity=  0  pkgs=1
+    LOADER_EXPRESSION_SCHEMA               files=   1  identity=  0  pkgs=1
+    prepareProfileEntries                  files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session
+    SessionSeq                             files=  28  identity=  0  pkgs=23
+    SessionLogOffset                       files=  17  identity=  0  pkgs=14
+    SESSION_FORMAT_VERSION                 files=   9  identity=  0  pkgs=7
+    SessionId                              files=   5  identity=  0  pkgs=5
+    isSurfaceEvent                         files=   4  identity=  0  pkgs=2
+    Session                                files=   4  identity=  0  pkgs=4
+    KNOWN_SESSION_EVENT_TYPES              files=   4  identity=  0  pkgs=4
+    canonicalHeader                        files=   3  identity=  0  pkgs=2
+    deriveEventMessage                     files=   3  identity=  0  pkgs=1
+    headerEquals                           files=   2  identity=  0  pkgs=2
+    interruptedTurnClosers                 files=   2  identity=  0  pkgs=2
+    foldSurface                            files=   2  identity=  0  pkgs=1
+    snapshotSessionEvent                   files=   2  identity=  0  pkgs=1
+    isAppendSurfaceEvent                   files=   1  identity=  0  pkgs=1
+    ToolCallRecovery                       files=   1  identity=  1  pkgs=1
+    SessionPreparation                     files=   1  identity=  0  pkgs=1
+    isReplacementSurfaceEvent              files=   1  identity=  0  pkgs=1
+    appendPluginRecord                     files=   1  identity=  0  pkgs=1
+    pluginRecordOf                         files=   1  identity=  0  pkgs=1
+    TOOL_OUTCOME_UNKNOWN                   files=   1  identity=  0  pkgs=1
+    adoptSessionEvent                      files=   1  identity=  0  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+    decodeSeqRanges                        files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-persistence
+    SessionPersistenceNotFoundError        files=   5  identity=  6  pkgs=4
+    SessionFormatUnsupportedError          files=   2  identity= 10  pkgs=1
+    sessionFormatVersionRefusal            files=   2  identity=  0  pkgs=1
+    validateStoredEvents                   files=   2  identity=  0  pkgs=1
+    SessionPersistenceRevision             files=   2  identity=  0  pkgs=1
+    SessionAlreadyExistsError              files=   2  identity=  2  pkgs=1
+    SessionAlreadyOwnedError               files=   2  identity=  4  pkgs=1
+    SessionPersistence                     files=   1  identity=  1  pkgs=1
+    SessionPersistenceCorruptionError      files=   1  identity=  6  pkgs=1
+    assertStoredId                         files=   1  identity=  0  pkgs=1
+    materializeCreateHeader                files=   1  identity=  0  pkgs=1
+    assertContiguous                       files=   1  identity=  0  pkgs=1
+    materializeAppendBatch                 files=   1  identity=  0  pkgs=1
+    SessionHandleClosedError               files=   1  identity=  2  pkgs=1
+    SessionReadOnlyError                   files=   1  identity=  2  pkgs=1
+@deepseek-ai/dsh-tools
+    defineTool                             files=  40  identity=  0  pkgs=32
+    assertObjectJsonSchema                 files=   4  identity=  0  pkgs=3
+    validateJsonSchemaValue                files=   3  identity=  0  pkgs=3
+    assertSupportedJsonSchema              files=   3  identity=  0  pkgs=2
+    TOOL_ABORTED_BEFORE_DISPATCH           files=   2  identity=  0  pkgs=2
+    TOOL_ABORTED                           files=   2  identity=  0  pkgs=2
+    TOOL_RUNTIME_SCHEDULER                 files=   1  identity=  0  pkgs=1
+    RUN_CODE_NAME                          files=   1  identity=  0  pkgs=1
+    ToolArgsError                          files=   1  identity=  1  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+    JsonSchemaError                        files=   1  identity=  1  pkgs=1
+@deepseek-ai/dsh-session-format
+    SessionFormatError                     files=  29  identity=355  pkgs=5
+    isSessionFormatJsonObject              files=  18  identity=  0  pkgs=4
+    sessionFormatCount                     files=  18  identity=  0  pkgs=4
+    SessionFormatUnsupportedMigrationError files=  16  identity= 34  pkgs=5
+    sessionFormatSafeInteger               files=   6  identity=  0  pkgs=3
+    sessionFormatLogFilename               files=   4  identity=  0  pkgs=4
+    createSessionFormatCatalog             files=   4  identity=  0  pkgs=2
+    snapshotSessionFormatJson              files=   4  identity=  0  pkgs=3
+    defineSessionFormatMigration           files=   4  identity=  0  pkgs=4
+    parseSessionFormatLogFilename          files=   3  identity=  0  pkgs=3
+    SessionFormatEventCollector            files=   1  identity=  1  pkgs=1
+@deepseek-ai/dsh-session-format-v0-to-v1
+    releasedV0SessionFormatCodec           files=   2  identity=  0  pkgs=1
+    releasedV1SessionFormatCodec           files=   2  identity=  0  pkgs=1
+    sessionFormatV0ToV1                    files=   2  identity=  0  pkgs=1
+    RELEASED_V0_EVENT_DISPOSITIONS         files=   2  identity=  0  pkgs=1
+    assertReleasedPayloadSemantics         files=   2  identity=  0  pkgs=2
+    assertReleasedSurfaceMetadata          files=   2  identity=  0  pkgs=2
+    defineReleasedPayloadDisposition       files=   1  identity=  0  pkgs=1
+    assertReleasedEventPayload             files=   1  identity=  0  pkgs=1
+    assertReleasedV1Header                 files=   1  identity=  0  pkgs=1
+    isReleasedAssistantChunkRun            files=   1  identity=  0  pkgs=1
+    assertReleasedArtifactRelationships    files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-format-v3-to-v4
+    historicalChildCatalogSource           files=   2  identity=  0  pkgs=2
+    sessionFormatV3ToV4                    files=   2  identity=  0  pkgs=1
+    createSessionFormatV3ToV4              files=   1  identity=  0  pkgs=1
+    assertReleasedV4Header                 files=   1  identity=  0  pkgs=1
+    releasedV4SessionFormatCodec           files=   1  identity=  0  pkgs=1
+    restoreReleasedV4Artifact              files=   1  identity=  0  pkgs=1
+    RELEASED_V3_EVENT_TYPES                files=   1  identity=  0  pkgs=1
+    assertV4RowAdmission                   files=   1  identity=  0  pkgs=1
+    assertReleasedV4Relationships          files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-system-prompt
+    joinContextSections                    files=   1  identity=  0  pkgs=1
+    renderContextSections                  files=   1  identity=  0  pkgs=1
+    renderPrompt                           files=   1  identity=  0  pkgs=1
+    PERSONA_PREFIX_SECTION                 files=   1  identity=  0  pkgs=1
+    PERSONA_SUFFIX_SECTION                 files=   1  identity=  0  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-llm-deepseek
+    resolveAdapterOptions                  files=   4  identity=  0  pkgs=2
+    deepSeekConfigFields                   files=   2  identity=  0  pkgs=2
+    catalogModelInfo                       files=   2  identity=  0  pkgs=2
+    registerDeepSeekProvider               files=   2  identity=  0  pkgs=2
+    catalogModelFields                     files=   1  identity=  0  pkgs=1
+    plainOptions                           files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-agent
+    installModelSelection                  files=   3  identity=  0  pkgs=3
+    agentEvents                            files=   2  identity=  0  pkgs=2
+    assembleContextFor                     files=   1  identity=  0  pkgs=1
+    foldConsumedWork                       files=   1  identity=  0  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-format-v1-to-v2
+    releasedV2SessionFormatCodec           files=   3  identity=  0  pkgs=2
+    sessionFormatV1ToV2                    files=   2  identity=  0  pkgs=1
+    assertReleasedV2Header                 files=   2  identity=  0  pkgs=1
+    RELEASED_V2_EVENT_DISPOSITIONS         files=   1  identity=  0  pkgs=1
+    restoreReleasedV2Artifact              files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-format-v2-to-v3
+    releasedV3SessionFormatCodec           files=   2  identity=  0  pkgs=1
+    sessionFormatV2ToV3                    files=   2  identity=  0  pkgs=1
+    assertReleasedV3Header                 files=   2  identity=  0  pkgs=2
+    restoreReleasedV3Artifact              files=   1  identity=  0  pkgs=1
+    releasedV2SessionFormatCodec           files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-title
+    SessionTitleProviderId                 files=   3  identity=  0  pkgs=3
+    normalizeSessionTitle                  files=   2  identity=  0  pkgs=2
+    SessionTitleInvalidError               files=   1  identity=  1  pkgs=1
+    foldSessionTitle                       files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-session-format-catalog
+    sessionFormatCatalog                   files=   5  identity=  0  pkgs=3
+    createSessionFormatCatalogWithChildren files=   3  identity=  0  pkgs=3
+    historicalSessionFormatCatalog         files=   2  identity=  0  pkgs=2
+    SessionFormatUnsupportedMigrationError files=   2  identity=  3  pkgs=2
+@deepseek-ai/dsh-session-title-llm
+    executeSessionTitleLlm                 files=   2  identity=  0  pkgs=2
+    resolveSessionTitleLlmConfig           files=   2  identity=  0  pkgs=2
+    SessionTitleLlmConfigFields            files=   2  identity=  0  pkgs=2
+@deepseek-ai/dsh-cmdline
+    parseCmdline                           files=   4  identity=  0  pkgs=4
+    exitOnStdinEnd                         files=   2  identity=  0  pkgs=2
+@deepseek-ai/dsh-session-telemetry
+    SessionTelemetryBackend                files=   1  identity=  1  pkgs=1
+    SessionTelemetryCoordinator            files=   1  identity=  1  pkgs=1
+@deepseek-ai/dsh-session-projection
+    SessionProjectionRegistry              files=   1  identity=  0  pkgs=1
+    default                                files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-llm-deepseek-api-key
+    *                                      files=   1  identity=  0  pkgs=1
+@deepseek-ai/dsh-agent-loop
+    default                                files=   1  identity=  0  pkgs=1
+
+--- kernel runtime symbols imported by plugins ---
+  @deepseek-ai/cordis: *, Context, FiberState, Inject, Service, getTraceable, resolveConfig, symbols
+  @deepseek-ai/cordis-plugin-group: default
+  @deepseek-ai/cordis-plugin-include: applyEntryPatches, default, entryListSchema
+  @deepseek-ai/cordis-plugin-loader: EntryGroup, EntryTree, ModuleLoader, default, evaluate, interpolate, isJsExpr
+
+full report: /Users/c2j/Projects/Desktop_Projects/CODE/deepseek-harness/EvoBuddy/report.json

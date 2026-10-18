@@ -1,0 +1,27 @@
+[package]
+name = "evobuddy-kernel"
+version = "0.1.0"
+edition = "2024"
+description = "EvoBuddy core: a Cordis-semantics plugin runtime in Rust, compiled to wasm32-wasip1"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "evobuddy_kernel"
+
+[dependencies]
+# Cordis core paradigms in Rust. Vendored because upstream declares tokio features
+# (`net`, `process`, `rt-multi-thread`) that rutis never uses and that cannot exist
+# on a single-threaded wasm target. See ../probes/README.md for the measurements.
+rutis = { path = "../../vendor/rutis" }
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+aho-corasick = "1"
+memchr = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

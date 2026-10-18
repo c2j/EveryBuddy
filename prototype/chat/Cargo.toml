@@ -1,0 +1,17 @@
+[package]
+name = "evobuddy-chat"
+version = "0.1.0"
+edition = "2024"
+description = "EvoBuddy 最小大模型对话:原生 Rust 进程,内核能力 + Anthropic Messages 线协议"
+license = "MIT"
+
+[dependencies]
+# 同一份内核:原生 rlib。demo-03 里的 Node 存量栈在这里不出现——
+# 循环、线协议、工具执行全是原生 Rust。
+evobuddy-kernel = { path = "../kernel" }
+ureq = { version = "3", features = ["json"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true

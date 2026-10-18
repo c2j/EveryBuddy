@@ -1,0 +1,14 @@
+[package]
+name = "ccore"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cordis-core = "0.6.1"
+futures = "0.3.34"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"

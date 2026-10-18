@@ -1,0 +1,42 @@
+[package]
+name = "evobuddy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy — a GTK 3 desktop client, UI-replicating the WorkBuddy AI desktop app"
+default-run = "evobuddy"
+
+# Two binaries, both auto-discovered:
+#   src/main.rs                    -> `evobuddy` (the application; `cargo run`)
+#   src/bin/notebook/main.rs       -> `notebook`  (the gtk-rs example, kept as the
+#                                    validated GTK 3 + CJK-input baseline)
+
+[dependencies]
+gtk = "0.19"
+
+# The plugin runtime (vendored; see vendor/rutis). The host is the embedder.
+rutis = { path = "../../vendor/rutis" }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "time", "macros"] }
+
+# Only used by the EB_SELFTEST=1 / EB_SHOT=<path> smoke test, which renders the
+# window to a PNG so the layout can be checked visually. The `png` feature is
+# off by default in cairo-rs, but the crate itself is already in the gtk tree.
+cairo-rs = { version = "0.22", features = ["png"] }
+
+# The plugin surface and the built-in plugins. The host must never reach into a
+# plugin crate; plugins must never reach back here — that direction is what the
+# workspace layout enforces.
+#
+# NOTE: these must stay in THIS table. Anything below the
+# `[target.'cfg(...)'.dependencies]` header belongs to that target only, and on
+# every other platform the crate would compile as if the plugin system did not
+# exist.
+eb-api = { path = "../eb-api" }
+eb-plugin-nav = { path = "../plugins/eb-plugin-nav" }
+eb-plugin-notices = { path = "../plugins/eb-plugin-notices" }
+eb-plugin-composer = { path = "../plugins/eb-plugin-composer" }
+eb-plugin-demo-agent = { path = "../plugins/eb-plugin-demo-agent" }
+
+# Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

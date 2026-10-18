@@ -1,0 +1,19 @@
+[package]
+name = "rutis"
+version = "0.11.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Cordis core paradigms in idiomatic Rust (local fork: wasm-compatible tokio feature set)"
+license = "MIT"
+
+[lib]
+name = "rutis"
+path = "src/lib.rs"
+
+[dependencies]
+# Upstream asks for ["rt-multi-thread","sync","macros","time","net","process","io-util"].
+# `net` and `process` are never used by rutis; `rt-multi-thread` cannot exist on a
+# single-threaded wasm target. The remaining set is exactly what tokio allows on wasm.
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time", "macros", "io-util"] }
+tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
+thiserror = "2"

@@ -44,8 +44,10 @@ RUN case "$(uname -m)" in \
  && chmod +x /usr/local/bin/appimagetool "/usr/local/lib/appimage/runtime-$appimage_arch"
 
 COPY Cargo.toml Cargo.lock /src/
-COPY src/ /src/src/
-COPY ui/ /src/ui/
+# The workspace: the GTK host (with its ui/ resource), the plugin surface, and
+# the built-in plugins.
+COPY crates/ /src/crates/
+COPY vendor/ /src/vendor/
 COPY docs/ui-spec/gtk/ /src/docs/ui-spec/gtk/
 COPY packaging/linux/ /src/packaging/linux/
 # The app icon moved to packaging/ (the macOS bundle renders it too); the

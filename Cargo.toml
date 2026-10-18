@@ -1,27 +1,32 @@
-[package]
-name = "evobuddy"
-version = "0.3.0"
+# EvoBuddy builds as a Cargo workspace: the GTK host (`crates/eb`), the plugin
+# surface (`crates/eb-api`), and the built-in plugins (`crates/plugins/*`). The
+# plugin crates must never depend on the host — Cargo enforces the boundary that
+# "everything is a plugin" is about.
+#
+# The plugin runtime is rutis, vendored at `vendor/rutis` (see that crate's
+# README for the one deliberate delta from upstream: a narrowed tokio feature
+# list). The measurement workspace that picked it lives in `prototype/`.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/eb",
+    "crates/eb-api",
+    "crates/plugins/eb-plugin-nav",
+    "crates/plugins/eb-plugin-notices",
+    "crates/plugins/eb-plugin-composer",
+    "crates/plugins/eb-plugin-demo-agent",
+]
+# The vendored plugin runtime is a path dependency, not a member: building its
+# own test target would drag in its dev-dependencies (tokio's multi-thread
+# runtime), which the vendored fork deliberately narrows away. `prototype/` is
+# the measurement workspace and carries its own Cargo tree.
+exclude = ["vendor", "prototype"]
+
+[workspace.package]
+version = "0.4.0"
 edition = "2021"
-description = "EvoBuddy — a GTK 3 desktop client, UI-replicating the WorkBuddy AI desktop app"
 license = "MIT"
-default-run = "evobuddy"
-
-# Two binaries, both auto-discovered:
-#   src/main.rs                    -> `evobuddy` (the application; `cargo run`)
-#   src/bin/notebook/main.rs       -> `notebook`  (the gtk-rs example, kept as the
-#                                    validated GTK 3 + CJK-input baseline)
-
-[dependencies]
-gtk = "0.19"
-
-# Only used by the EB_SELFTEST=1 / EB_SHOT=<path> smoke test, which renders the
-# window to a PNG so the layout can be checked visually. The `png` feature is
-# off by default in cairo-rs, but the crate itself is already in the gtk tree.
-cairo-rs = { version = "0.22", features = ["png"] }
-
-# Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
-[target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
 
 [profile.release]
 lto = true

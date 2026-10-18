@@ -25,6 +25,7 @@ case "$(uname -m)" in
   arm64) arch=arm64 ;;
   *)     arch=x86_64 ;;
 esac
+# The version lives in the workspace's [workspace.package] (root Cargo.toml).
 version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
 
 die() { echo "bundle.sh: $*" >&2; exit 1; }
@@ -41,7 +42,7 @@ echo "== build =="
 # -headerpad_max_install_names: the load commands are rewritten after linking,
 # and the linker must leave room for the replacement strings.
 RUSTFLAGS="-C link-arg=-Wl,-headerpad_max_install_names" \
-  cargo build --release --locked --manifest-path "$root/Cargo.toml" --bin "$app"
+  cargo build --release --locked --manifest-path "$root/crates/eb/Cargo.toml" --bin "$app"
 exe="$root/target/release/$app"
 
 rm -rf "$appdir" "$dist"/evobuddy-*-macos-*.tar.gz* "$dist/README.txt"

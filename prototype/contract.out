@@ -1,0 +1,90 @@
+  33 pairs -> sync-hard  24 (72.7%)  provider-not-found 5
+ 135 pairs -> sync-hard  78 (57.8%)  provider-not-found 18
+ 278 pairs -> sync-hard 139 (50.0%)  provider-not-found 38
+
+--- top 40 Host pairs: contract draft + sync verdict ---
+pair                                    async?  syncSites  awaited  provider            signature
+logger.warn                             ?          104        0  -                   NOT FOUND
+tools.register                          no          67        0  core/tools          register(definition: ToolDefinition): () => void
+agents.get                              no          31        0  core/agent          get(id: SessionId): Agent | undefined
+systemPrompt.section                    no          27        0  core/system-prompt  section(section: PromptSection): () => void
+systemPrompt.getSectionOrder            no          27        0  core/system-prompt  getSectionOrder(name: PromptSectionOrderName): number
+workingDirectory.ensure                 yes          1       23  session/working-directoryensure(agent: Agent, signal: AbortSignal?): Promise<string>
+sessions.list                           no          15        1  core/session        list(): Session[]
+sessions.get                            no           6        0  core/session        get(id: SessionId): Session | undefined
+tools.get                               no          14        1  core/tools          get(name: string, scope: ScopeKey?): ToolDefinition | undefi
+logger.error                            ?           13        0  -                   NOT FOUND
+sessionProjections.stateOf              no          15        0  session/session-projectionstateOf(session: Session, key: K): SessionProjectionStateMap
+ssh.request                             yes          3       12  ssh/ssh             request(method: string, params: unknown, result: z.ZodType<T
+subprocess.spawn                        no           4        0  subprocess/subprocessspawn(spec: SubprocessSpawnSpec): SubprocessHandle
+sessionProjections.register             no          13        0  session/session-projectionregister(definition: Omit<ProjectionDefinition<K, S>, 'wire'
+fs.resolve                              yes          0       12  fs/fs               resolve(path: string, opts: { cwd?: string; signal?: AbortSi
+fs.processPath                          no           6        0  fs/fs               processPath(target: FsTarget): string
+sessions.flush                          yes          0       12  core/session        flush(session: Session): Promise<boolean>
+sandboxPolicy.resolve                   no           7        0  sandbox/sandbox-policyresolve(request: SandboxPolicyRequest): SandboxExecutionPoli
+logger.info                             ?            7        0  -                   NOT FOUND
+webServer.register                      no           9        0  host/webserver      register(route: WebRoute): () => void
+loader.entries                          ?            6        0  -                   NOT FOUND
+llm.resolveModelInfo                    yes          0        9  llm/llm             resolveModelInfo(provider: string, model: string, signal: Ab
+events.dispatch                         ?            8        0  -                   NOT FOUND
+sandbox.confine                         yes          2        5  sandbox/sandbox     confine(argv: readonly string[], policy: SandboxPolicy, sign
+agents.list                             no           7        0  core/agent          list(): Agent[]
+subprocess.resolveExecutable            yes          0        7  subprocess/subprocessresolveExecutable(command: string, env: Readonly<Record<stri
+shell.resolve                           no           0        1  shell/shell         resolve(request: ShellExecRequest): ShellExecSpec
+terminals.read                          no           5        0  terminal/terminal   read(owner: Agent, id: TerminalSessionId, request: TerminalR
+attachments.imageLimits                 no           2        0  attachment/attachmentimageLimits: ImageAttachmentLimits
+credentials.readRecord                  yes          0        7  credentials/credentialsreadRecord(key: CredentialKey): Promise<CredentialRecord | u
+commands.register                       no           6        0  interaction/commandsregister(definition: CommandDefinition): () => void
+subagents.registerProvider              no           6        0  subagent/subagent   registerProvider(provider: SubagentProvider): () => void
+sandboxPolicy.defaultMode               no           6        0  sandbox/sandbox-policydefaultMode: SandboxMode
+fs.stat                                 yes          0        6  fs/fs               stat(target: FsTarget, signal: AbortSignal?): Promise<FsInfo
+agents.currentInitiator                 no           4        0  core/agent          currentInitiator(): Agent | undefined
+shell.sandboxMode                       no           6        0  shell/shell         get sandboxMode(): SandboxMode | undefined
+tokenMeter.measure                      no           1        0  llm/token-meter     measure(session: Session, requestHeader: EpochHeader?): Toke
+sessionPersistence.stat                 yes          0        5  session/session-persistencestat(id: SessionId, options: SessionPersistenceStatOptions?)
+loader.await                            ?            1        4  -                   NOT FOUND
+slots.provideRoot                       no           5        0  client/ui-renderer  provideRoot(contribution: RootStandardSourceContribution): (
+
+sync-hard pairs (must return without await): 139 of 278
+  logger.warn                            sync=104 awaited=0  -
+  tools.register                         sync=67 awaited=0  core/tools
+  systemPrompt.section                   sync=27 awaited=0  core/system-prompt
+  systemPrompt.getSectionOrder           sync=27 awaited=0  core/system-prompt
+  agents.get                             sync=31 awaited=0  core/agent
+  sessionProjections.stateOf             sync=15 awaited=0  session/session-projection
+  sessions.list                          sync=15 awaited=1  core/session
+  subprocess.spawn                       sync=4 awaited=0  subprocess/subprocess
+  sessionProjections.register            sync=13 awaited=0  session/session-projection
+  sessions.get                           sync=6 awaited=0  core/session
+  tools.get                              sync=14 awaited=1  core/tools
+  logger.error                           sync=13 awaited=0  -
+  sandboxPolicy.resolve                  sync=7 awaited=0  sandbox/sandbox-policy
+  events.dispatch                        sync=8 awaited=0  -
+  fs.processPath                         sync=6 awaited=0  fs/fs
+  webServer.register                     sync=9 awaited=0  host/webserver
+  loader.entries                         sync=6 awaited=0  -
+  logger.info                            sync=7 awaited=0  -
+  agents.list                            sync=7 awaited=0  core/agent
+  commands.register                      sync=6 awaited=0  interaction/commands
+  subagents.registerProvider             sync=6 awaited=0  subagent/subagent
+  sandboxPolicy.defaultMode              sync=6 awaited=0  sandbox/sandbox-policy
+  loader.await                           sync=1 awaited=4  -
+  slots.provideRoot                      sync=5 awaited=0  client/ui-renderer
+  agents.currentInitiator                sync=4 awaited=0  core/agent
+  tools.schemas                          sync=5 awaited=0  core/tools
+  agents.roots                           sync=3 awaited=0  core/agent
+  logger.debug                           sync=4 awaited=0  -
+  skills.registerProvider                sync=4 awaited=0  skill/skill
+  web.registerSearchProvider             sync=4 awaited=0  web/web
+  terminals.read                         sync=5 awaited=0  terminal/terminal
+  subagents.getProvider                  sync=3 awaited=0  subagent/subagent
+  terminals.startSend                    sync=1 awaited=0  terminal/terminal
+  terminals.list                         sync=1 awaited=0  terminal/terminal
+  goals.get                              sync=5 awaited=0  goal/goal
+  systemPrompt.context                   sync=4 awaited=0  core/system-prompt
+  systemPrompt.getContextOrder           sync=4 awaited=0  core/system-prompt
+  llm.listProviders                      sync=3 awaited=0  llm/llm
+  storageDomain.open                     sync=1 awaited=2  -
+  computerUse.register                   sync=3 awaited=0  computer-use/computer-use
+
+full report: /Users/c2j/Projects/Desktop_Projects/CODE/deepseek-harness/EvoBuddy/contract.json

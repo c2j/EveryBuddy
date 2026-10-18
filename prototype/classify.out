@@ -1,0 +1,41 @@
+plugin-side host packages            227
+  blocked by an authority symbol     7
+  blocked by waterfall               6
+  blocked by direct ctx.session      8
+  BLOCKED (union)                    19   8.4%
+  RUN UNCHANGED on a Rust kernel     208   91.6%
+
+--- blocked by an authority symbol ---
+  compaction/compaction-basic                          llm#BlockAssembler
+  experimental/auto-review                             llm#BlockAssembler
+  experimental/translator                              llm#BlockAssembler
+  session-query/session-query                          session#Session
+  ssh/ssh                                              session-projection#SessionProjectionRegistry
+  test-support/agent-loop-testkit                      session#default, system-prompt#default
+  test-support/llm-replay                              llm#LlmAdapter
+
+--- blocked by waterfall ---
+  compaction/compaction-basic                          1 call site(s)
+  fs/tool-fs                                           2 call site(s)
+  fs/tool-str-replace-editor                           3 call site(s)
+  interaction/user-approval                            1 call site(s)
+  interaction/user-questions                           2 call site(s)
+  workspace/workspace                                  1 call site(s)
+
+--- blocked by direct ctx.session access ---
+  acp/acp                                              3 access(es)
+  compaction/compaction-image-offload                  1 access(es)
+  experimental/auto-review                             1 access(es)
+  experimental/client-ui-agent-team                    1 access(es)
+  experimental/session-inspector                       1 access(es)
+  goal/goal-round-driver                               1 access(es)
+  interaction/permission-presets                       1 access(es)
+  test-support/loader-smoke                            1 access(es)
+
+--- authority symbol frequency across the blocked set ---
+  llm#BlockAssembler                                         3
+  session#Session                                            1
+  session-projection#SessionProjectionRegistry               1
+  session#default                                            1
+  system-prompt#default                                      1
+  llm#LlmAdapter                                             1

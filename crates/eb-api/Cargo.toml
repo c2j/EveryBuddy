@@ -1,0 +1,11 @@
+[package]
+name = "eb-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's plugin surface: the data vocabulary, contribution traits and mount handle between the GTK host and its plugins"
+
+[dependencies]
+# The plugin runtime. Plugins see it only through `Ui`; the host is the embedder
+# and owns the runtime.
+rutis = { path = "../../vendor/rutis" }

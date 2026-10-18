@@ -1,0 +1,128 @@
+distinct services touched          118 (74 Host, 39 Client, 5 Cordis runtime)
+distinct service.member pairs      455
+declared as an injected service    113
+
+--- HOST-side services ---
+service               pkgs  members  declared  top members
+sessions                 40       14       yes  list(22), binding(24), get(21), flush(12), subagentAddress(6), scope(4)
+tools                    36        7       yes  register(68), get(20), schemas(5), restrict(2), execute(2), list(1)
+systemPrompt             20        5       yes  section(27), getSectionOrder(27), context(4), getContextOrder(4), suppressRuntimeContext(1)
+agents                   25        9       yes  get(43), list(7), currentInitiator(6), roots(5), create(4), resume(3)
+fs                        9       13       yes  resolve(14), processPath(13), stat(6), writeText(5), lstat(3), readBytes(3)
+sessionProjections       22        4       yes  stateOf(18), register(14), snapshot(2), hydrate(1)
+workingDirectory         22        3       yes  ensure(24), set(3), get(1)
+subprocess               15        4       yes  spawn(14), resolveExecutable(7), spawnTerminal(2), terminalEnvironment(1)
+subagents                14       11       yes  registerProvider(6), getProvider(5), waitForChildren(3), interrupt(2), startActivation(2), resolveMaxDepth(3)
+loader                   11        7       yes  entries(10), await(5), resolve(2), remove(2), internal(3), create(1)
+llm                      13        8       yes  resolveModelInfo(9), listProviders(4), stream(2), imageRequestTarget(1), listConfigurableProviders(1), imageRequestPricing(1)
+sandboxPolicy            11        4       yes  resolve(12), defaultMode(6), overrideOf(1), workspaceRoot(1)
+terminals                 4        7       yes  read(7), startSend(5), list(5), spawn(3), kill(3), signal(1)
+goals                     3        9       yes  get(5), pause(3), block(4), create(3), edit(2), resume(2)
+webServer                10        7       yes  register(10), host(2), protocol(2), getOrigin(1), registerUpgrade(1), renderIndex(1)
+jobs                      4       13       yes  kill(2), start(2), list(2), map(2), watchRows(1), observe(1)
+attachments               7        9       yes  imageLimits(7), saveImages(2), readImage(1), admitEncodedFile(1), saveFileStream(1), isAttachmentError(1)
+sessionQuery              5       10       yes  observeSession(4), readEvent(2), filterSessions(2), listSessions(1), readSurface(1), searchSessions(1)
+sessionPersistence        6        4       yes  stat(5), open(3), list(2), identity(4)
+shell                     4        3       yes  resolve(7), execute(5), sandboxMode(6)
+credentials               6        6       yes  resolve(3), modifyRecord(2), readRecord(7), deleteRecord(3), describeRecord(1), describe(1)
+agentPresets              5        8       yes  mount(2), resolve(1), acquireScope(1), compositionInventory(1), register(1), composedPreset(1)
+web                       6        4       yes  registerSearchProvider(4), registerFetchProvider(2), search(2), fetch(1)
+connection                6        5       yes  fetch(5), authorizeIndex(2), authenticatedUrl(1), requestRejection(1), allowsRemoteAuthorities(1)
+sandbox                   7        1       yes  confine(8)
+commands                  7        2       yes  register(6), registerFileReceiptResolver(1)
+skills                    5        4       yes  registerProvider(4), get(2), list(1), snapshot(1)
+permissionPresets         3        4       yes  current(3), set(2), registerAuto(1), resolve(1)
+userQuestions             4        2       yes  ask(5), askTimed(1)
+ssh                       3        3       yes  request(15), dispose(2), connectStream(1)
+sessionController         3        4       yes  resolveAgent(2), workspaceDesktop(3), workspacePathApplications(1), openWorkspacePath(1)
+root                      4        5         -  accessor(1), sessionProjections(1), fiber(1), loader(1), reflect(1)
+storage                   3        2       yes  backend(3), mount(1)
+storageDomain             3        1       yes  open(3)
+computerUse               3        1       yes  register(3)
+tokenMeter                3        2       yes  measure(6), estimateMessage(1)
+pluginPackages            3        2         -  packageOf(2), metaOf(2)
+shellEnv                  3        2       yes  collect(2), register(1)
+deepseekAccount           3        2       yes  resolveToken(2), getDeviceIdentity(1)
+
+--- CLIENT-side services ---
+service               pkgs  members  declared  top members
+slots                    61       13       yes  register(243), inject(176), subscribe(9), entries(11), provideRoot(5), registerFactory(6)
+locale                   55        5       yes  register(63), bind(49), subscribe(7), getSnapshot(5), resolveText(4)
+remote                   31       31       yes  $on(48), settings(6), session(6), $host(4), $stream(3), $mount(3)
+uiConversation           14       10       yes  events(33), binding(7), userText(5), imageUrl(3), views(3), peekImageUrl(2)
+configForms              18        4       yes  get(21), developerTools(10), describe(6), whileServed(5)
+shortcuts                11       11       yes  register(9), catalog(11), edit(1), recording(1), describeBinding(1), registerFixed(1)
+sidebarRight             10        9       yes  openResource(9), commandTarget(3), openTabFromTarget(3), openTab(3), openTabs(3), tabsIn(1)
+layout                    5        6       yes  panelInfo(6), selectPanel(4), beginNavigation(2), toggleSidebar(1), openRightbar(1), closeRightbar(1)
+sidebarRightTabs         10        2       yes  register(9), get(1)
+productAnalytics          8        2         -  track(12), enabled(2)
+uiWorkspace               7        5       yes  openSession(6), listDirectory(1), createDirectory(1), pickDirectory(1), startSession(1)
+uiSession                 7        3       yes  provide(3), registerPendingInteraction(2), adapter(2)
+children                  3        3         -  map(2), length(2), push(1)
+theme                     4        2       yes  getTheme(4), exportInspectTokens(1)
+modules                   3        1       yes  entries(5)
+resources                 3        2       yes  register(2), pin(1)
+
+--- top 60 service.member pairs (all sides) ---
+logger.warn                                    host= 53 client=  7  call= 154  read=   0
+slots.register                                 host=  0 client= 56  call= 243  read=   0
+slots.inject                                   host=  0 client= 55  call= 176  read=   0
+locale.register                                host=  0 client= 54  call=  63  read=   0
+locale.bind                                    host=  0 client= 37  call=  49  read=   0
+tools.register                                 host= 33 client=  0  call=  68  read=   0
+workingDirectory.ensure                        host= 22 client=  0  call=  24  read=   0
+remote.$on                                     host=  0 client= 20  call=  48  read=   0
+systemPrompt.section                           host= 19 client=  1  call=  27  read=   0
+systemPrompt.getSectionOrder                   host= 19 client=  1  call=  27  read=   0
+agents.get                                     host= 18 client=  1  call=  43  read=   0
+sessionProjections.stateOf                     host= 16 client=  0  call=  18  read=   0
+sessions.list                                  host=  5 client= 10  call=   8  read=  14
+sessions.binding                               host=  0 client= 14  call=  24  read=   0
+configForms.get                                host=  0 client= 14  call=  21  read=   0
+subprocess.spawn                               host= 13 client=  0  call=  14  read=   0
+sessionProjections.register                    host= 12 client=  0  call=  14  read=   0
+sessions.get                                   host= 11 client=  0  call=  21  read=   0
+tools.get                                      host= 10 client=  0  call=  20  read=   0
+logger.error                                   host=  6 client=  4  call=  19  read=   0
+sessions.flush                                 host= 10 client=  0  call=  12  read=   0
+sandboxPolicy.resolve                          host=  9 client=  0  call=  12  read=   0
+sidebarRightTabs.register                      host=  0 client=  9  call=   9  read=   0
+shortcuts.register                             host=  0 client=  9  call=   9  read=   0
+uiConversation.events                          host=  0 client=  9  call=   0  read=  33
+productAnalytics.track                         host=  0 client=  8  call=  12  read=   0
+llm.resolveModelInfo                           host=  8 client=  0  call=   9  read=   0
+reflect.provide                                host=  0 client=  8  call=   9  read=   0
+events.dispatch                                host=  7 client=  1  call=   8  read=   0
+shortcuts.catalog                              host=  0 client=  8  call=   0  read=  11
+fs.resolve                                     host=  7 client=  0  call=  14  read=   0
+fs.processPath                                 host=  7 client=  0  call=  13  read=   0
+webServer.register                             host=  4 client=  3  call=  10  read=   0
+loader.entries                                 host=  5 client=  2  call=  10  read=   0
+slots.subscribe                                host=  0 client=  7  call=   9  read=   0
+sandbox.confine                                host=  7 client=  0  call=   8  read=   0
+logger.info                                    host=  6 client=  0  call=  12  read=   0
+slots.entries                                  host=  0 client=  6  call=  11  read=   0
+sidebarRight.openResource                      host=  0 client=  6  call=   9  read=   0
+locale.subscribe                               host=  0 client=  6  call=   7  read=   0
+agents.list                                    host=  6 client=  0  call=   7  read=   0
+subprocess.resolveExecutable                   host=  6 client=  0  call=   7  read=   0
+commands.register                              host=  6 client=  0  call=   6  read=   0
+subagents.registerProvider                     host=  6 client=  0  call=   6  read=   0
+configForms.developerTools                     host=  0 client=  6  call=   0  read=  10
+sandboxPolicy.defaultMode                      host=  6 client=  0  call=   0  read=   6
+uiConversation.binding                         host=  0 client=  5  call=   7  read=   0
+uiWorkspace.openSession                        host=  0 client=  5  call=   6  read=   0
+configForms.describe                           host=  0 client=  5  call=   6  read=   0
+fs.stat                                        host=  5 client=  0  call=   6  read=   0
+sessionPersistence.stat                        host=  5 client=  0  call=   5  read=   0
+loader.await                                   host=  4 client=  1  call=   5  read=   0
+slots.provideRoot                              host=  1 client=  4  call=   5  read=   0
+configForms.whileServed                        host=  0 client=  5  call=   5  read=   0
+remote.settings                                host=  0 client=  5  call=   0  read=   6
+remote.session                                 host=  0 client=  5  call=   0  read=   6
+slots.registerFactory                          host=  0 client=  4  call=   6  read=   0
+sessions.subagentAddress                       host=  0 client=  4  call=   6  read=   0
+agents.currentInitiator                        host=  4 client=  0  call=   6  read=   0
+locale.getSnapshot                             host=  0 client=  4  call=   5  read=   0
+
+full report: /Users/c2j/Projects/Desktop_Projects/CODE/deepseek-harness/EvoBuddy/service-surface.json

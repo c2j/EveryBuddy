@@ -1,0 +1,9 @@
+[package]
+name = "eb-plugin-composer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's built-in composer plugin: dropdown contents, pill copy, hints and the scenario chips"
+
+[dependencies]
+eb-api = { path = "../../eb-api" }

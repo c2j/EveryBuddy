@@ -104,6 +104,13 @@ and would need Rust's own target support for anything older.
 - **POSIX `sh` in the bundle.** `install.sh` and `run` run under dash on Debian,
   so the CI step syntax-checks them with `dash -n`; bash-only syntax would
   otherwise only fail on a user's machine.
+- **A `[target.'cfg(...)'.dependencies]` header swallows every dependency
+  declared after it.** The plugin-surface dependencies were once listed below
+  the macOS-only `libc` entry — valid TOML, wrong section — so the crate
+  compiled *on macOS* (where the cfg is true) and failed in the Debian build
+  container with "unlinked crate `eb_api`". The container caught it on the
+  first build after the move, which is the whole argument for building in the
+  oldest target's environment instead of trusting a local pass.
 - **Debian 10 is EOL.** apt has to point at `archive.debian.org` and tolerate
   expired valid-until dates.
 

@@ -26,6 +26,8 @@ case "$platform" in
   *) arch=x86_64 ;;
 esac
 
+# The version lives in the workspace's [workspace.package] (root Cargo.toml);
+# crates/eb inherits it with `version.workspace = true`.
 version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
 tag="evobuddy-build-$arch"
 

@@ -1,0 +1,6044 @@
+{
+ "services": 118,
+ "host": [
+  "sessions",
+  "tools",
+  "systemPrompt",
+  "agents",
+  "fs",
+  "sessionProjections",
+  "workingDirectory",
+  "subprocess",
+  "subagents",
+  "loader",
+  "llm",
+  "sandboxPolicy",
+  "terminals",
+  "goals",
+  "webServer",
+  "jobs",
+  "attachments",
+  "sessionQuery",
+  "sessionPersistence",
+  "agentTeams",
+  "shell",
+  "credentials",
+  "agentPresets",
+  "web",
+  "connection",
+  "speechToText",
+  "sandbox",
+  "commands",
+  "skills",
+  "permissionPresets",
+  "userQuestions",
+  "ssh",
+  "sessionController",
+  "schedule",
+  "root",
+  "storage",
+  "translator",
+  "storageDomain",
+  "computerUse",
+  "tokenMeter",
+  "workspaceFiles",
+  "pluginPackages",
+  "shellEnv",
+  "deepseekAccount",
+  "authorization",
+  "approval",
+  "settings",
+  "cordisInspect",
+  "workflowEngine",
+  "agentDefaultModel",
+  "cmdlineArgs",
+  "browserUse",
+  "spillStore",
+  "sessionTitle",
+  "lsp",
+  "sessionProjectionCache",
+  "ptcRuntime",
+  "profileContext",
+  "toolResultPruner",
+  "compaction",
+  "webApp",
+  "claudeCodeMods",
+  "worktrees",
+  "workspaceRegistry",
+  "webhookRuntime",
+  "typertGateway",
+  "otel",
+  "subagentModelSelection",
+  "agentLoop",
+  "tagName",
+  "deepseekLlmApiExtensions",
+  "typert",
+  "session",
+  "options"
+ ],
+ "client": [
+  "slots",
+  "locale",
+  "remote",
+  "uiConversation",
+  "configForms",
+  "shortcuts",
+  "sidebarRight",
+  "layout",
+  "sidebarRightTabs",
+  "productAnalytics",
+  "uiWorkspace",
+  "dynamicCordisRunner",
+  "uiSession",
+  "children",
+  "clientModules",
+  "webTerminals",
+  "theme",
+  "args",
+  "modules",
+  "resources",
+  "remoteAccess",
+  "conversation",
+  "workspaceChanges",
+  "userQuestionPanels",
+  "row",
+  "documentPreviews",
+  "productTelemetry",
+  "chatFileMentions",
+  "inputTriggers",
+  "fileUpload",
+  "style",
+  "current",
+  "pluginNavigation",
+  "feedbackUi",
+  "ownerDocument",
+  "tabs",
+  "workspaces",
+  "element",
+  "entry"
+ ],
+ "kernel": [
+  "logger",
+  "reflect",
+  "events",
+  "fiber",
+  "registry"
+ ],
+ "rows": [
+  {
+   "service": "logger",
+   "member": "warn",
+   "call": 154,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "compaction/compaction-basic",
+    "context/agent-instructions",
+    "context/file-reference-local",
+    "credentials/authorization",
+    "credentials/credentials",
+    "credentials/credentials-local",
+    "deliverables/workspace-changes",
+    "experimental/agent-team",
+    "experimental/browser-use-runtime",
+    "experimental/browser-use-stagehand-native",
+    "experimental/claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/hooks-claude-code",
+    "experimental/hooks-codex",
+    "experimental/inspector",
+    "experimental/speech-to-text-sensevoice",
+    "experimental/tool-session-query",
+    "experimental/webhook",
+    "experimental/webhook-github",
+    "feedback/message-feedback",
+    "fs/tool-fs-search",
+    "goal/goal-round-driver",
+    "host/product-telemetry-otel",
+    "host/webserver",
+    "interaction/commands",
+    "interaction/permission-presets",
+    "jobs/jobs",
+    "jobs/jobs-local",
+    "mcp/mcp-client",
+    "plan/plan-mode",
+    "ptc-runtime/ptc-runtime-node",
+    "sandbox/sandbox-local",
+    "schedule/schedule",
+    "shell/tool-bash",
+    "shell/tool-pwsh",
+    "skill/skill",
+    "skill/skill-filesystem",
+    "spill/spill-local",
+    "spill/spill-policy",
+    "storage/storage-domain",
+    "subagent/subagent",
+    "subagent/subagent-acp",
+    "subagent/subagent-claude-code",
+    "subagent/subagent-codex",
+    "subagent/subagent-dsh-sdk",
+    "subagent/tool-subagent",
+    "subprocess/subprocess-local",
+    "typert/registry",
+    "workflow/tool-workflow",
+    "workflow/workflow",
+    "workflow/workflow-ptc",
+    "workspace/workspace"
+   ],
+   "client": [
+    "client/hmr",
+    "client/modules",
+    "client/product-analytics",
+    "client/ui-commands",
+    "experimental/client-ui-claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/inspector"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "register",
+   "call": 243,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/locale",
+    "client/ui-agent-preset",
+    "client/ui-approval",
+    "client/ui-attachment",
+    "client/ui-brand-official",
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-deepseek-model-label-1017",
+    "client/ui-deliverables",
+    "client/ui-directory-picker-browse",
+    "client/ui-directory-picker-native",
+    "client/ui-goal",
+    "client/ui-jobs",
+    "client/ui-layout",
+    "client/ui-message-feedback",
+    "client/ui-open-in-app",
+    "client/ui-permission-presets",
+    "client/ui-plan",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-reference",
+    "client/ui-schedule",
+    "client/ui-secret-mask",
+    "client/ui-settings-account",
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-general",
+    "client/ui-settings-models",
+    "client/ui-settings-plugin-inventory",
+    "client/ui-settings-plugins",
+    "client/ui-settings-session-log",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-shortcuts",
+    "client/ui-sidebar",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-right",
+    "client/ui-sidebar-terminal",
+    "client/ui-skill",
+    "client/ui-subagent",
+    "client/ui-theme",
+    "client/ui-tool",
+    "client/ui-trajectory",
+    "client/ui-user-questions",
+    "client/ui-workflow-run",
+    "client/ui-workspace",
+    "experimental/client-ui-agent-team",
+    "experimental/client-ui-claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/client-ui-voice-input",
+    "experimental/inspector",
+    "experimental/session-inspector",
+    "extensions/ui-cordis",
+    "session-query/session-log-export"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "inject",
+   "call": 176,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/locale",
+    "client/ui-agent-preset",
+    "client/ui-approval",
+    "client/ui-attachment",
+    "client/ui-brand-official",
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-deepseek-model-label-1017",
+    "client/ui-deliverables",
+    "client/ui-directory-picker-browse",
+    "client/ui-directory-picker-native",
+    "client/ui-goal",
+    "client/ui-jobs",
+    "client/ui-message-feedback",
+    "client/ui-open-in-app",
+    "client/ui-permission-presets",
+    "client/ui-plan",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-reference",
+    "client/ui-schedule",
+    "client/ui-secret-mask",
+    "client/ui-settings-account",
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-general",
+    "client/ui-settings-models",
+    "client/ui-settings-plugin-inventory",
+    "client/ui-settings-plugins",
+    "client/ui-settings-session-log",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-shortcuts",
+    "client/ui-sidebar",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-right",
+    "client/ui-sidebar-terminal",
+    "client/ui-skill",
+    "client/ui-subagent",
+    "client/ui-theme",
+    "client/ui-tool",
+    "client/ui-trajectory",
+    "client/ui-user-questions",
+    "client/ui-workflow-run",
+    "client/ui-workspace",
+    "experimental/client-ui-agent-team",
+    "experimental/client-ui-claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/client-ui-voice-input",
+    "experimental/inspector",
+    "experimental/session-inspector",
+    "extensions/ui-cordis",
+    "session-query/session-log-export"
+   ]
+  },
+  {
+   "service": "locale",
+   "member": "register",
+   "call": 63,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-approval",
+    "client/ui-chat",
+    "client/ui-commands",
+    "client/ui-conversation",
+    "client/ui-deepseek-model-label-1017",
+    "client/ui-deliverables",
+    "client/ui-directory-picker-browse",
+    "client/ui-goal",
+    "client/ui-input-trigger",
+    "client/ui-jobs",
+    "client/ui-layout",
+    "client/ui-message-feedback",
+    "client/ui-model-selection",
+    "client/ui-open-in-app",
+    "client/ui-permission-presets",
+    "client/ui-plan",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-reference",
+    "client/ui-schedule",
+    "client/ui-secret-mask",
+    "client/ui-settings-account",
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-general",
+    "client/ui-settings-models",
+    "client/ui-settings-plugin-inventory",
+    "client/ui-settings-plugins",
+    "client/ui-settings-session-log",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-shortcuts",
+    "client/ui-sidebar",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-right",
+    "client/ui-sidebar-terminal",
+    "client/ui-skill",
+    "client/ui-subagent",
+    "client/ui-theme",
+    "client/ui-trajectory",
+    "client/ui-user-questions",
+    "client/ui-workflow-run",
+    "client/ui-workspace",
+    "experimental/client-ui-agent-team",
+    "experimental/client-ui-claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/client-ui-voice-input",
+    "experimental/inspector",
+    "experimental/session-inspector",
+    "extensions/ui-cordis",
+    "session-query/session-log-export"
+   ]
+  },
+  {
+   "service": "locale",
+   "member": "bind",
+   "call": 49,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-approval",
+    "client/ui-chat",
+    "client/ui-commands",
+    "client/ui-conversation",
+    "client/ui-deliverables",
+    "client/ui-directory-picker-browse",
+    "client/ui-layout",
+    "client/ui-model-selection",
+    "client/ui-open-in-app",
+    "client/ui-permission-presets",
+    "client/ui-plan",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-reference",
+    "client/ui-schedule",
+    "client/ui-settings-account",
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-general",
+    "client/ui-settings-models",
+    "client/ui-settings-plugin-inventory",
+    "client/ui-settings-plugins",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-shortcuts",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-right",
+    "client/ui-sidebar-terminal",
+    "client/ui-skill",
+    "client/ui-subagent",
+    "client/ui-trajectory",
+    "client/ui-workspace",
+    "experimental/inspector",
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "tools",
+   "member": "register",
+   "call": 68,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "deliverables/tool-present",
+    "experimental/browser-use-stagehand-native",
+    "experimental/claude-code-mods",
+    "experimental/cua",
+    "experimental/tool-ralph",
+    "experimental/tool-session-query",
+    "experimental/tool-terminal",
+    "experimental/tool-worktree",
+    "extensions/cordis-host-runner",
+    "extensions/tool-cordis",
+    "fs/tool-fs",
+    "fs/tool-fs-search",
+    "fs/tool-str-replace-editor",
+    "goal/tool-goal",
+    "interaction/tool-ask-user",
+    "jobs/tool-jobs",
+    "lsp/tool-lsp",
+    "mcp/mcp-client",
+    "mcp/mcp-resources",
+    "plan/plan-mode",
+    "schedule/tool-schedule",
+    "shell/tool-bash",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh",
+    "shell/tool-pwsh-persistent",
+    "skill/tool-skill",
+    "skill/tool-workspace-dependencies",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "subagent/tool-subagent-control",
+    "todo/tool-todo",
+    "web/tool-web",
+    "workflow/tool-workflow"
+   ],
+   "client": []
+  },
+  {
+   "service": "workingDirectory",
+   "member": "ensure",
+   "call": 24,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/agent-instructions",
+    "context/file-reference-local",
+    "deliverables/tool-present",
+    "experimental/auto-review",
+    "experimental/browser-use-runtime",
+    "experimental/claude-code-mods",
+    "experimental/hooks-claude-code",
+    "experimental/hooks-codex",
+    "experimental/tool-terminal",
+    "experimental/worktree",
+    "fs/tool-fs",
+    "fs/tool-fs-search",
+    "lsp/tool-lsp",
+    "sdk/server",
+    "shell/tool-bash",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh",
+    "shell/tool-pwsh-persistent",
+    "skill/tool-skill",
+    "subagent/subagent",
+    "terminal/terminal-bash",
+    "workflow/workflow-ptc"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "$on",
+   "call": 48,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-approval",
+    "client/ui-commands",
+    "client/ui-goal",
+    "client/ui-model-selection",
+    "client/ui-permission-presets",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-schedule",
+    "client/ui-session",
+    "client/ui-settings",
+    "client/ui-settings-account",
+    "client/ui-settings-models",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-skill",
+    "client/ui-user-questions",
+    "experimental/client-ui-cot-translation",
+    "extensions/cordis-client-runner",
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "systemPrompt",
+   "member": "section",
+   "call": 27,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context",
+    "experimental/browser-use-stagehand-native",
+    "experimental/cua",
+    "experimental/tool-ralph",
+    "experimental/tool-session-query",
+    "experimental/tool-terminal",
+    "fs/tool-fs",
+    "fs/tool-fs-search",
+    "goal/tool-goal",
+    "jobs/tool-jobs",
+    "lsp/tool-lsp",
+    "plan/plan-mode",
+    "preset/persona",
+    "shell/tool-bash",
+    "shell/tool-pwsh",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "web/tool-web",
+    "workflow/tool-workflow"
+   ],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "systemPrompt",
+   "member": "getSectionOrder",
+   "call": 27,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context",
+    "experimental/browser-use-stagehand-native",
+    "experimental/cua",
+    "experimental/tool-ralph",
+    "experimental/tool-session-query",
+    "experimental/tool-terminal",
+    "fs/tool-fs",
+    "fs/tool-fs-search",
+    "goal/tool-goal",
+    "jobs/tool-jobs",
+    "lsp/tool-lsp",
+    "plan/plan-mode",
+    "preset/persona",
+    "shell/tool-bash",
+    "shell/tool-pwsh",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "web/tool-web",
+    "workflow/tool-workflow"
+   ],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "agents",
+   "member": "get",
+   "call": 43,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "bundle/headless",
+    "context/file-reference-local",
+    "experimental/agent-team",
+    "experimental/browser-use-runtime",
+    "experimental/browser-use-stagehand-native",
+    "experimental/claude-code-mods",
+    "experimental/cua",
+    "experimental/hooks-claude-code",
+    "goal/goal",
+    "goal/goal-round-driver",
+    "goal/tool-goal",
+    "interaction/user-questions",
+    "jobs/tool-jobs",
+    "schedule/schedule",
+    "sdk/server",
+    "subagent/subagent",
+    "terminal/terminal"
+   ],
+   "client": [
+    "client/file-upload"
+   ]
+  },
+  {
+   "service": "sessionProjections",
+   "member": "stateOf",
+   "call": 18,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/agent-instructions",
+    "context/harness-dev-context",
+    "context/time-context",
+    "context/tmux-context",
+    "deliverables/tool-present",
+    "experimental/agent-team",
+    "experimental/claude-code-mods",
+    "experimental/hooks-claude-code",
+    "experimental/hooks-codex",
+    "experimental/tool-session-query",
+    "goal/goal",
+    "goal/tool-goal",
+    "interaction/permission-presets",
+    "interaction/user-questions",
+    "plan/plan-mode",
+    "sandbox/sandbox-policy"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessions",
+   "member": "list",
+   "call": 8,
+   "read": 14,
+   "destructured": 0,
+   "host": [
+    "context/session-reference",
+    "experimental/auto-review",
+    "interaction/permission-presets",
+    "session-query/session-query-sqlite",
+    "workspace/workspace"
+   ],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-open-in-app",
+    "client/ui-schedule",
+    "client/ui-session",
+    "client/ui-skill",
+    "client/ui-subagent",
+    "client/ui-user-questions",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "binding",
+   "call": 24,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-chat",
+    "client/ui-commands",
+    "client/ui-conversation",
+    "client/ui-goal",
+    "client/ui-input-trigger",
+    "client/ui-model-selection",
+    "client/ui-permission-presets",
+    "client/ui-plan",
+    "client/ui-skill",
+    "client/ui-trajectory",
+    "client/ui-user-questions",
+    "experimental/client-ui-agent-team",
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "configForms",
+   "member": "get",
+   "call": 21,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/locale",
+    "client/ui-agent-preset",
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-plugin-manager",
+    "client/ui-settings-account",
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-models",
+    "client/ui-settings-session-log",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search",
+    "client/ui-theme",
+    "experimental/client-ui-cot-translation"
+   ]
+  },
+  {
+   "service": "subprocess",
+   "member": "spawn",
+   "call": 14,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "deliverables/workspace-changes",
+    "experimental/claude-code-mods",
+    "experimental/speech-to-text-sensevoice",
+    "experimental/worktree",
+    "fs/tool-fs-search",
+    "lsp/lsp-stdio",
+    "ptc-runtime/ptc-runtime-node",
+    "shell/bash-local",
+    "shell/pwsh-local",
+    "ssh/ssh",
+    "subagent/subagent-acp",
+    "subagent/subagent-claude-code",
+    "subagent/subagent-codex"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionProjections",
+   "member": "register",
+   "call": 14,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context",
+    "context/time-context",
+    "context/tmux-context",
+    "goal/goal",
+    "interaction/permission-presets",
+    "interaction/user-questions",
+    "plan/plan-mode",
+    "preset/agent-preset-registry",
+    "sandbox/sandbox-policy",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "todo/tool-todo"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessions",
+   "member": "get",
+   "call": 21,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "experimental/agent-team",
+    "experimental/translator",
+    "feedback/command-feedback",
+    "feedback/message-feedback",
+    "ptc-runtime/ptc-runtime-node",
+    "session-query/session-query",
+    "session-query/session-query-sqlite",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "workspace/workspace"
+   ],
+   "client": []
+  },
+  {
+   "service": "tools",
+   "member": "get",
+   "call": 20,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/file-reference-local",
+    "experimental/browser-use-runtime",
+    "experimental/claude-code-mods",
+    "fs/tool-fs",
+    "fs/tool-fs-search",
+    "guard/timeout-policy",
+    "skill/tool-skill",
+    "subagent/subagent",
+    "subagent/tool-subagent",
+    "web/tool-web"
+   ],
+   "client": []
+  },
+  {
+   "service": "logger",
+   "member": "error",
+   "call": 19,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector",
+    "host/webserver",
+    "mcp/mcp-client",
+    "settings/settings",
+    "storage/storage-domain",
+    "typert/loader"
+   ],
+   "client": [
+    "client/hmr",
+    "client/modules",
+    "client/ui-settings-plugin-inventory",
+    "experimental/inspector"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "flush",
+   "call": 12,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "bundle/headless",
+    "compaction/compaction-basic",
+    "experimental/agent-team",
+    "experimental/translator",
+    "feedback/message-feedback",
+    "goal/goal-round-driver",
+    "schedule/schedule",
+    "subagent/subagent",
+    "test-support/loader-smoke"
+   ],
+   "client": []
+  },
+  {
+   "service": "sandboxPolicy",
+   "member": "resolve",
+   "call": 12,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/ptc-runtime-python",
+    "experimental/worktree",
+    "fs/fs-sandbox",
+    "ptc-runtime/ptc-runtime-node",
+    "shell/bash-sandbox",
+    "shell/pwsh-sandbox",
+    "ssh/fs-ssh",
+    "terminal/terminal-bash",
+    "workflow/workflow-ptc"
+   ],
+   "client": []
+  },
+  {
+   "service": "sidebarRightTabs",
+   "member": "register",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables",
+    "client/ui-plan",
+    "client/ui-schedule",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-terminal",
+    "client/ui-subagent",
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "register",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-layout",
+    "client/ui-open-in-app",
+    "client/ui-settings-general",
+    "client/ui-shortcuts",
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-terminal",
+    "client/ui-workspace",
+    "experimental/inspector"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "events",
+   "call": 0,
+   "read": 33,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-deliverables",
+    "client/ui-goal",
+    "client/ui-plan",
+    "client/ui-schedule",
+    "client/ui-tool",
+    "client/ui-trajectory",
+    "client/ui-user-questions",
+    "client/ui-workflow-run"
+   ]
+  },
+  {
+   "service": "productAnalytics",
+   "member": "track",
+   "call": 12,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-model-selection",
+    "client/ui-plugin-manager",
+    "client/ui-settings-account",
+    "client/ui-settings-models",
+    "client/ui-sidebar",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "llm",
+   "member": "resolveModelInfo",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "compaction/compaction-basic",
+    "context/session-reference",
+    "experimental/cua",
+    "fs/tool-fs",
+    "mcp/mcp-client",
+    "subagent/subagent",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "reflect",
+   "member": "provide",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/modules",
+    "client/resources",
+    "client/ui-layout",
+    "client/ui-plugin-manager",
+    "client/ui-renderer",
+    "client/ui-sidebar-documentpreview",
+    "client/ui-sidebar-right",
+    "client/ui-user-questions"
+   ]
+  },
+  {
+   "service": "events",
+   "member": "dispatch",
+   "call": 8,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/authorization",
+    "credentials/credentials",
+    "interaction/commands",
+    "interaction/permission-presets",
+    "skill/skill",
+    "subagent/subagent",
+    "workflow/workflow"
+   ],
+   "client": [
+    "client/ui-commands"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "catalog",
+   "call": 0,
+   "read": 11,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-open-in-app",
+    "client/ui-settings-general",
+    "client/ui-shortcuts",
+    "client/ui-sidebar",
+    "client/ui-sidebar-right",
+    "client/ui-sidebar-terminal",
+    "client/ui-workspace",
+    "experimental/inspector"
+   ]
+  },
+  {
+   "service": "fs",
+   "member": "resolve",
+   "call": 14,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "deliverables/tool-present",
+    "document/office-to-pdf",
+    "experimental/worktree",
+    "fs/tool-fs",
+    "fs/tool-str-replace-editor",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "processPath",
+   "call": 13,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "deliverables/tool-present",
+    "deliverables/workspace-changes",
+    "document/office-to-pdf",
+    "experimental/worktree",
+    "fs/tool-fs",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "register",
+   "call": 10,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform",
+    "experimental/inspector",
+    "experimental/webhook-github",
+    "host/open-in-app"
+   ],
+   "client": [
+    "client/connection",
+    "client/hmr",
+    "client/modules"
+   ]
+  },
+  {
+   "service": "loader",
+   "member": "entries",
+   "call": 10,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/translator",
+    "extensions/tool-cordis",
+    "host/plugin-inventory",
+    "test-support/client-runtime",
+    "typert/loader"
+   ],
+   "client": [
+    "client/modules",
+    "client/web"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "subscribe",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation",
+    "client/ui-layout",
+    "client/ui-plugin-manager",
+    "client/ui-settings-general",
+    "client/ui-settings-plugins",
+    "client/ui-sidebar",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "sandbox",
+   "member": "confine",
+   "call": 8,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/ptc-runtime-python",
+    "experimental/worktree",
+    "ptc-runtime/ptc-runtime-node",
+    "shell/bash-sandbox",
+    "shell/pwsh-sandbox",
+    "ssh/ssh",
+    "terminal/terminal-bash"
+   ],
+   "client": []
+  },
+  {
+   "service": "logger",
+   "member": "info",
+   "call": 12,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/compaction-basic",
+    "credentials/credentials-local",
+    "deliverables/workspace-changes",
+    "experimental/claude-code-mods",
+    "mcp/mcp-client",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "slots",
+   "member": "entries",
+   "call": 11,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation",
+    "client/ui-layout",
+    "client/ui-plugin-manager",
+    "client/ui-settings-general",
+    "client/ui-settings-plugins",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "openResource",
+   "call": 9,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-deliverables",
+    "client/ui-plan",
+    "client/ui-reference",
+    "client/ui-skill",
+    "client/ui-subagent"
+   ]
+  },
+  {
+   "service": "locale",
+   "member": "subscribe",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/shortcuts",
+    "client/ui-conversation",
+    "client/ui-plugin-manager",
+    "client/ui-settings-general",
+    "client/ui-settings-plugins",
+    "client/ui-sidebar"
+   ]
+  },
+  {
+   "service": "agents",
+   "member": "list",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/file-reference-local",
+    "experimental/agent-team",
+    "experimental/tool-agent-team",
+    "goal/goal-round-driver",
+    "subagent/subagent",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "subprocess",
+   "member": "resolveExecutable",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "deliverables/workspace-changes",
+    "experimental/worktree",
+    "host/open-in-app",
+    "lsp/lsp-stdio",
+    "ptc-runtime/ptc-runtime-node",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "commands",
+   "member": "register",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/command-compact",
+    "feedback/command-feedback",
+    "goal/command-goal",
+    "interaction/permission-presets",
+    "plan/plan-mode",
+    "session-query/session-log-export"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "registerProvider",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent-acp",
+    "subagent/subagent-claude-code",
+    "subagent/subagent-codex",
+    "subagent/subagent-dsh-sdk",
+    "subagent/subagent-fork-in-process",
+    "subagent/subagent-spawn-in-process"
+   ],
+   "client": []
+  },
+  {
+   "service": "configForms",
+   "member": "developerTools",
+   "call": 0,
+   "read": 10,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-conversation",
+    "client/ui-deliverables",
+    "client/ui-settings-account",
+    "client/ui-settings-general",
+    "client/ui-sidebar-documentpreview"
+   ]
+  },
+  {
+   "service": "sandboxPolicy",
+   "member": "defaultMode",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [
+    "experimental/ptc-runtime-python",
+    "fs/fs-sandbox",
+    "ptc-runtime/ptc-runtime-node",
+    "shell/bash-sandbox",
+    "shell/pwsh-sandbox",
+    "ssh/fs-ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "uiConversation",
+   "member": "binding",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-plan",
+    "client/ui-tool",
+    "client/ui-trajectory",
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "uiWorkspace",
+   "member": "openSession",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-schedule",
+    "client/ui-subagent",
+    "client/ui-workflow-run",
+    "experimental/client-ui-agent-team"
+   ]
+  },
+  {
+   "service": "configForms",
+   "member": "describe",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-permission-presets",
+    "client/ui-plugin-manager",
+    "client/ui-settings-account",
+    "client/ui-settings-general",
+    "client/ui-settings-models"
+   ]
+  },
+  {
+   "service": "fs",
+   "member": "stat",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "deliverables/tool-present",
+    "document/office-to-pdf",
+    "fs/tool-fs",
+    "fs/tool-str-replace-editor",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionPersistence",
+   "member": "stat",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "experimental/translator",
+    "feedback/message-feedback",
+    "session-query/session-query",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "loader",
+   "member": "await",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "bundle/web-app",
+    "sdk/server",
+    "test-support/client-runtime"
+   ],
+   "client": [
+    "client/web"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "provideRoot",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/client-runtime"
+   ],
+   "client": [
+    "client/resources",
+    "client/ui-layout",
+    "client/ui-session",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "configForms",
+   "member": "whileServed",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-settings-agent-loop",
+    "client/ui-settings-session-log",
+    "client/ui-settings-shell",
+    "client/ui-settings-subagent",
+    "client/ui-settings-web-search"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "settings",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-permission-presets",
+    "client/ui-settings",
+    "client/ui-settings-general",
+    "client/ui-settings-models"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "session",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-model-selection",
+    "client/ui-plan",
+    "client/ui-settings-account",
+    "client/ui-settings-models",
+    "client/ui-settings-subagent"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "registerFactory",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-attachment",
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "subagentAddress",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands",
+    "client/ui-model-selection",
+    "client/ui-plan",
+    "client/ui-skill"
+   ]
+  },
+  {
+   "service": "agents",
+   "member": "currentInitiator",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/goal-round-driver",
+    "goal/tool-goal",
+    "web/web-deepseek-api",
+    "web/web-search-deepseek"
+   ],
+   "client": []
+  },
+  {
+   "service": "locale",
+   "member": "getSnapshot",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager",
+    "client/ui-settings-account",
+    "client/ui-settings-general",
+    "client/ui-settings-plugins"
+   ]
+  },
+  {
+   "service": "tools",
+   "member": "schemas",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/browser-use-runtime",
+    "experimental/claude-code-mods",
+    "extensions/cordis-host-runner",
+    "extensions/tool-cordis"
+   ],
+   "client": []
+  },
+  {
+   "service": "userQuestions",
+   "member": "ask",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods",
+    "experimental/cua",
+    "interaction/tool-ask-user",
+    "plan/plan-mode"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "roots",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods",
+    "goal/tool-goal",
+    "interaction/user-questions",
+    "test-support/loader-smoke"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "create",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "bundle/headless",
+    "experimental/webhook",
+    "sdk/server"
+   ],
+   "client": []
+  },
+  {
+   "service": "locale",
+   "member": "resolveText",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-approval",
+    "client/ui-plugin-manager",
+    "client/ui-plugin-market",
+    "client/ui-settings-plugin-inventory"
+   ]
+  },
+  {
+   "service": "logger",
+   "member": "debug",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/authorization",
+    "experimental/claude-code-mods",
+    "experimental/cua",
+    "subprocess/subprocess-local"
+   ],
+   "client": []
+  },
+  {
+   "service": "skills",
+   "member": "registerProvider",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/skill-badge",
+    "sandbox/sandbox-windows-acl",
+    "skill/skill-filesystem",
+    "skill/skill-office"
+   ],
+   "client": []
+  },
+  {
+   "service": "web",
+   "member": "registerSearchProvider",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "web/web-deepseek-api",
+    "web/web-search-deepseek",
+    "web/web-search-exa",
+    "web/web-search-perplexity"
+   ],
+   "client": []
+  },
+  {
+   "service": "uiConversation",
+   "member": "userText",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-goal",
+    "client/ui-reference",
+    "client/ui-secret-mask",
+    "client/ui-skill"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "panelInfo",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-open-in-app",
+    "client/ui-plugin-manager",
+    "client/ui-sidebar-right",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "$host",
+   "call": 0,
+   "read": 4,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-reference",
+    "client/ui-settings-general",
+    "client/ui-tool",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "ssh",
+   "member": "request",
+   "call": 15,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/fs-ssh",
+    "ssh/sandbox-ssh",
+    "ssh/subprocess-ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "shell",
+   "member": "resolve",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/tmux-context",
+    "shell/tool-bash",
+    "shell/tool-pwsh"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "read",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh-persistent"
+   ],
+   "client": []
+  },
+  {
+   "service": "slots",
+   "member": "getVersion",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager",
+    "client/ui-settings-general",
+    "client/ui-settings-plugins"
+   ]
+  },
+  {
+   "service": "shell",
+   "member": "execute",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/tmux-context",
+    "shell/tool-bash",
+    "shell/tool-pwsh"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "getProvider",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-ralph",
+    "subagent/tool-subagent",
+    "workflow/workflow-ptc"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "startSend",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh-persistent"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "list",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh-persistent"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "writeText",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs",
+    "fs/tool-str-replace-editor",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "get",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal",
+    "goal/goal-round-driver",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessions",
+   "member": "scope",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation",
+    "client/ui-model-selection",
+    "client/ui-skill"
+   ]
+  },
+  {
+   "service": "theme",
+   "member": "getTheme",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-layout",
+    "client/ui-settings-account",
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "selectPanel",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager",
+    "client/ui-sidebar",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "systemPrompt",
+   "member": "context",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context",
+    "subagent/subagent",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "systemPrompt",
+   "member": "getContextOrder",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context",
+    "subagent/subagent",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "llm",
+   "member": "listProviders",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/translator",
+    "sdk/server",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "resume",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "bundle/headless",
+    "sdk/server"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "waitForChildren",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "goal/goal-round-driver",
+    "sdk/server"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "$stream",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/product-analytics",
+    "client/ui-settings-account",
+    "experimental/client-ui-voice-input"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "retainInfo",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset",
+    "client/ui-session",
+    "experimental/client-ui-agent-team"
+   ]
+  },
+  {
+   "service": "uiSession",
+   "member": "provide",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "imageUrl",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-conversation",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "using",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands",
+    "client/ui-goal",
+    "client/ui-skill"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "commandTarget",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "openTabFromTarget",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-files",
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "fs",
+   "member": "lstat",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "deliverables/tool-present",
+    "experimental/worktree",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "readBytes",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "document/office-to-pdf",
+    "fs/tool-fs",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "storageDomain",
+   "member": "open",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods",
+    "schedule/schedule",
+    "workspace/workspace"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "$mount",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/client-ui-claude-code-mods",
+    "experimental/client-ui-cot-translation",
+    "experimental/client-ui-voice-input"
+   ]
+  },
+  {
+   "service": "computerUse",
+   "member": "register",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/computer-use-cua-driver-mcp",
+    "experimental/computer-use-cua-driver-native",
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "spawn",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh-persistent"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "kill",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "shell/tool-bash-persistent",
+    "shell/tool-pwsh-persistent"
+   ],
+   "client": []
+  },
+  {
+   "service": "credentials",
+   "member": "resolve",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook-github",
+    "web/web-deepseek-api",
+    "web/web-search-deepseek"
+   ],
+   "client": []
+  },
+  {
+   "service": "workingDirectory",
+   "member": "set",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/worktree",
+    "sdk/server",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "pause",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal",
+    "goal/goal-round-driver",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "attachments",
+   "member": "imageLimits",
+   "call": 0,
+   "read": 7,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "fs/tool-fs"
+   ],
+   "client": [
+    "client/connection"
+   ]
+  },
+  {
+   "service": "connection",
+   "member": "fetch",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": [
+    "client/file-upload",
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "modules",
+   "member": "entries",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr",
+    "client/ui-settings-general",
+    "client/ui-settings-plugin-inventory"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "views",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-tool",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "fiber",
+   "member": "entry",
+   "call": 0,
+   "read": 4,
+   "destructured": 0,
+   "host": [
+    "experimental/cua",
+    "experimental/speech-to-text",
+    "preset/agent-preset-registry"
+   ],
+   "client": []
+  },
+  {
+   "service": "fiber",
+   "member": "state",
+   "call": 0,
+   "read": 4,
+   "destructured": 0,
+   "host": [
+    "goal/goal-round-driver",
+    "shell/tool-bash",
+    "shell/tool-pwsh"
+   ],
+   "client": []
+  },
+  {
+   "service": "shell",
+   "member": "sandboxMode",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [
+    "interaction/permission-presets",
+    "shell/tool-bash",
+    "shell/tool-pwsh"
+   ],
+   "client": []
+  },
+  {
+   "service": "storage",
+   "member": "backend",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [
+    "storage/storage-domain",
+    "storage/storage-json",
+    "storage/storage-sqlite"
+   ],
+   "client": []
+  },
+  {
+   "service": "tokenMeter",
+   "member": "measure",
+   "call": 6,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "compaction/compaction-basic"
+   ],
+   "client": []
+  },
+  {
+   "service": "workspaceFiles",
+   "member": "stat",
+   "call": 5,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "document/office-to-pdf"
+   ],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "sessionQuery",
+   "member": "observeSession",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "fiber",
+   "member": "dispose",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/client-runtime"
+   ],
+   "client": [
+    "client/web"
+   ]
+  },
+  {
+   "service": "fs",
+   "member": "readText",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs",
+    "fs/tool-str-replace-editor"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "block",
+   "call": 4,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/goal-round-driver",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "sidebarRight",
+   "member": "openTab",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-schedule"
+   ]
+  },
+  {
+   "service": "remoteAccess",
+   "member": "source",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-session",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "permissionPresets",
+   "member": "current",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/auto-review",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "workflowEngine",
+   "member": "start",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-ralph",
+    "workflow/tool-workflow"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionPersistence",
+   "member": "open",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/translator",
+    "feedback/message-feedback"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "streamText",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "create",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "attachments",
+   "member": "saveImages",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "mcp/mcp-client"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionPersistence",
+   "member": "list",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp",
+    "workspace/workspace"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentDefaultModel",
+   "member": "currentSelection",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "cmdlineArgs",
+   "member": "get",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/headless",
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessions",
+   "member": "scopeOf",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-approval",
+    "client/ui-user-questions"
+   ]
+  },
+  {
+   "service": "uiSession",
+   "member": "registerPendingInteraction",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-approval",
+    "client/ui-user-questions"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "peekImageUrl",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "inspectSystemPrompt",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "inspectRequestPrompt",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat",
+    "client/ui-trajectory"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "sessionOf",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands",
+    "client/ui-input-trigger"
+   ]
+  },
+  {
+   "service": "sessionQuery",
+   "member": "readEvent",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "children",
+   "member": "map",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-dockkit",
+    "client/ui-primitives"
+   ]
+  },
+  {
+   "service": "jobs",
+   "member": "kill",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": [
+    "client/ui-jobs"
+   ]
+  },
+  {
+   "service": "resources",
+   "member": "register",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plan",
+    "client/ui-subagent"
+   ]
+  },
+  {
+   "service": "llm",
+   "member": "stream",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/compaction-basic",
+    "experimental/auto-review"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionProjections",
+   "member": "snapshot",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/session-reference",
+    "session-query/session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "credentials",
+   "member": "modifyRecord",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/authorization",
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "interrupt",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team",
+    "subagent/tool-subagent-control"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "startActivation",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team",
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "permissionPresets",
+   "member": "set",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/auto-review",
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "tools",
+   "member": "restrict",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/browser-use-runtime",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "browserUse",
+   "member": "register",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/browser-use-runtime",
+    "experimental/browser-use-stagehand-native"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionController",
+   "member": "resolveAgent",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/client-ui-cot-translation",
+    "schedule/schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "connection",
+   "member": "authorizeIndex",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector",
+    "host/frontend-static"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "start",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal",
+    "workflow/tool-workflow"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "mount",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook",
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "pluginPackages",
+   "member": "packageOf",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/tool-cordis",
+    "typert/loader"
+   ],
+   "client": []
+  },
+  {
+   "service": "loader",
+   "member": "resolve",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/tool-cordis",
+    "host/directory-picker-auto"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "editText",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "spillStore",
+   "member": "saveText",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs-search",
+    "spill/spill-policy"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "listDir",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-str-replace-editor",
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "edit",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "resume",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal",
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "withoutInitiator",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/goal-round-driver",
+    "schedule/schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "loader",
+   "member": "remove",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/directory-picker-auto",
+    "test-support/client-runtime"
+   ],
+   "client": []
+  },
+  {
+   "service": "shellEnv",
+   "member": "collect",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "shell/tool-bash",
+    "shell/tool-pwsh"
+   ],
+   "client": []
+  },
+  {
+   "service": "subprocess",
+   "member": "spawnTerminal",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/ssh",
+    "terminal/terminal-bash"
+   ],
+   "client": []
+  },
+  {
+   "service": "web",
+   "member": "registerFetchProvider",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "web/web-deepseek-api",
+    "web/web-fetch-http"
+   ],
+   "client": []
+  },
+  {
+   "service": "deepseekAccount",
+   "member": "resolveToken",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "web/web-deepseek-api",
+    "web/web-search-deepseek"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "host",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [
+    "bundle/web-app",
+    "host/directory-picker-auto"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "protocol",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [
+    "bundle/web-app"
+   ],
+   "client": [
+    "client/connection"
+   ]
+  },
+  {
+   "service": "fiber",
+   "member": "uid",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/locale",
+    "experimental/client-ui-cot-translation"
+   ]
+  },
+  {
+   "service": "loader",
+   "member": "internal",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/modules",
+    "client/web"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "commands",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands",
+    "client/ui-plan"
+   ]
+  },
+  {
+   "service": "conversation",
+   "member": "input",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands",
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "children",
+   "member": "length",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-dockkit",
+    "client/ui-primitives"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "pluginInventory",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager",
+    "client/ui-settings-plugin-inventory"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "credentials",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-settings-models",
+    "client/ui-settings-web-search"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "openTabs",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-browser",
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "uiSession",
+   "member": "adapter",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-right",
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "sessionPersistence",
+   "member": "identity",
+   "call": 0,
+   "read": 4,
+   "destructured": 0,
+   "host": [
+    "experimental/translator",
+    "session-query/session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "fiber",
+   "member": "inject",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [
+    "extensions/cordis-host-runner"
+   ],
+   "client": [
+    "extensions/cordis-client-runner"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "dynamicCordisRunner",
+   "call": 0,
+   "read": 12,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/cordis-client-runner",
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "fs",
+   "member": "sandboxMode",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs",
+    "fs/tool-str-replace-editor"
+   ],
+   "client": []
+  },
+  {
+   "service": "documentPreviews",
+   "member": "register",
+   "call": 8,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-documentpreview"
+   ]
+  },
+  {
+   "service": "credentials",
+   "member": "readRecord",
+   "call": 7,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "clientModules",
+   "member": "graph",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr"
+   ]
+  },
+  {
+   "service": "sessionController",
+   "member": "workspaceDesktop",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "credentials",
+   "member": "deleteRecord",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "resolveMaxDepth",
+   "call": 3,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "clientModules",
+   "member": "onGraphChanged",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr"
+   ]
+  },
+  {
+   "service": "workspaceChanges",
+   "member": "summary",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "webTerminals",
+   "member": "retainTabs",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "beginNavigation",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "toolResultPruner",
+   "member": "pruneSession",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/compaction-basic"
+   ],
+   "client": []
+  },
+  {
+   "service": "tools",
+   "member": "execute",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods"
+   ],
+   "client": []
+  },
+  {
+   "service": "translator",
+   "member": "translate",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/client-ui-cot-translation"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "listMembers",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "waitForChange",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "filterSessions",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "pluginPackages",
+   "member": "metaOf",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/plugin-inventory"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "list",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "map",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "schedule",
+   "member": "list",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "schedule/tool-schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "skills",
+   "member": "get",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "skill/tool-skill"
+   ],
+   "client": []
+  },
+  {
+   "service": "ssh",
+   "member": "dispose",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/subprocess-ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "web",
+   "member": "search",
+   "call": 2,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "web/tool-web"
+   ],
+   "client": []
+  },
+  {
+   "service": "attachments",
+   "member": "readImage",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "acp/acp"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "getOrigin",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/web-app"
+   ],
+   "client": []
+  },
+  {
+   "service": "shellEnv",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/web-app"
+   ],
+   "client": []
+  },
+  {
+   "service": "connection",
+   "member": "authenticatedUrl",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "bundle/web-app"
+   ],
+   "client": []
+  },
+  {
+   "service": "commands",
+   "member": "registerFileReceiptResolver",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/file-upload"
+   ]
+  },
+  {
+   "service": "attachments",
+   "member": "admitEncodedFile",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/file-upload"
+   ]
+  },
+  {
+   "service": "attachments",
+   "member": "saveFileStream",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/file-upload"
+   ]
+  },
+  {
+   "service": "attachments",
+   "member": "isAttachmentError",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/file-upload"
+   ]
+  },
+  {
+   "service": "clientModules",
+   "member": "rebuilt",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr"
+   ]
+  },
+  {
+   "service": "clientModules",
+   "member": "artifactBaseline",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr"
+   ]
+  },
+  {
+   "service": "clientModules",
+   "member": "onRebuilt",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/hmr"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "installLocale",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/locale"
+   ]
+  },
+  {
+   "service": "registry",
+   "member": "delete",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/modules"
+   ]
+  },
+  {
+   "service": "deepseekAccount",
+   "member": "getDeviceIdentity",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/product-analytics"
+   ]
+  },
+  {
+   "service": "productTelemetry",
+   "member": "emit",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/product-analytics"
+   ]
+  },
+  {
+   "service": "chatFileMentions",
+   "member": "forClosing",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "sidebarRightTabs",
+   "member": "get",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "fork",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "args",
+   "member": "settle",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "args",
+   "member": "append",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "args",
+   "member": "refresh",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "inputTriggers",
+   "member": "registerSource",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-commands"
+   ]
+  },
+  {
+   "service": "fileUpload",
+   "member": "upload",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "seedImageUrl",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation"
+   ]
+  },
+  {
+   "service": "sessionController",
+   "member": "workspacePathApplications",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "sessionController",
+   "member": "openWorkspacePath",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "workspaceChanges",
+   "member": "diff",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "uiWorkspace",
+   "member": "listDirectory",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-directory-picker-browse"
+   ]
+  },
+  {
+   "service": "uiWorkspace",
+   "member": "createDirectory",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-directory-picker-browse"
+   ]
+  },
+  {
+   "service": "uiWorkspace",
+   "member": "pickDirectory",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-directory-picker-native"
+   ]
+  },
+  {
+   "service": "style",
+   "member": "getPropertyValue",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-dockkit"
+   ]
+  },
+  {
+   "service": "jobs",
+   "member": "watchRows",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-jobs"
+   ]
+  },
+  {
+   "service": "jobs",
+   "member": "observe",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-jobs"
+   ]
+  },
+  {
+   "service": "current",
+   "member": "contains",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-primitives"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "renderSlot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-renderer"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "tabsIn",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-schedule"
+   ]
+  },
+  {
+   "service": "uiWorkspace",
+   "member": "startSession",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-schedule"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "bindStoreScope",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-session"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "installScope",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-session"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "edit",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "recording",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "describeBinding",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "registerFixed",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "slots",
+   "member": "entriesOfSlot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "toggleSidebar",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar"
+   ]
+  },
+  {
+   "service": "resources",
+   "member": "pin",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-right"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "closeWindow",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-right"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "openRightbar",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-right"
+   ]
+  },
+  {
+   "service": "layout",
+   "member": "closeRightbar",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-right"
+   ]
+  },
+  {
+   "service": "webTerminals",
+   "member": "view",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "registerCloseHandler",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "webTerminals",
+   "member": "close",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "webTerminals",
+   "member": "launchShells",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "webTerminals",
+   "member": "selectShell",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "refreshProjections",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-subagent"
+   ]
+  },
+  {
+   "service": "userQuestionPanels",
+   "member": "reveal",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-tool"
+   ]
+  },
+  {
+   "service": "userQuestionPanels",
+   "member": "review",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-tool"
+   ]
+  },
+  {
+   "service": "compaction",
+   "member": "compactNow",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/command-compact"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessions",
+   "member": "registerMessageProjection",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/compaction-image-offload"
+   ],
+   "client": []
+  },
+  {
+   "service": "tokenMeter",
+   "member": "estimateMessage",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "compaction/compaction-tool-result-pruner"
+   ],
+   "client": []
+  },
+  {
+   "service": "webApp",
+   "member": "getAdvertisedUrl",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/harness-dev-context"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "listSessions",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/session-reference"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "readSurface",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "context/session-reference"
+   ],
+   "client": []
+  },
+  {
+   "service": "credentials",
+   "member": "describeRecord",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/authorization"
+   ],
+   "client": []
+  },
+  {
+   "service": "authorization",
+   "member": "registerFlow",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "authorization",
+   "member": "begin",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "authorization",
+   "member": "cancel",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "credentials/deepseek-account-platform"
+   ],
+   "client": []
+  },
+  {
+   "service": "workspaceFiles",
+   "member": "readBytes",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "document/office-to-pdf"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "drainChildren",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "snapshot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "follow",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "configure",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "prepare",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "cancelPreparation",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "resolve",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "transcribe",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/api-speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "approval",
+   "member": "overrideOf",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/auto-review"
+   ],
+   "client": []
+  },
+  {
+   "service": "permissionPresets",
+   "member": "registerAuto",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/auto-review"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "requireInitiator",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/browser-use-stagehand-native"
+   ],
+   "client": []
+  },
+  {
+   "service": "agents",
+   "member": "withInitiator",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/browser-use-stagehand-native"
+   ],
+   "client": []
+  },
+  {
+   "service": "claudeCodeMods",
+   "member": "add",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods"
+   ],
+   "client": []
+  },
+  {
+   "service": "tools",
+   "member": "list",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/claude-code-mods"
+   ],
+   "client": []
+  },
+  {
+   "service": "translator",
+   "member": "availableProviders",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/client-ui-cot-translation"
+   ],
+   "client": []
+  },
+  {
+   "service": "translator",
+   "member": "resolve",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/client-ui-cot-translation"
+   ],
+   "client": []
+  },
+  {
+   "service": "pluginNavigation",
+   "member": "openBundle",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/client-ui-voice-input"
+   ]
+  },
+  {
+   "service": "llm",
+   "member": "imageRequestTarget",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "settings",
+   "member": "describe",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "settings",
+   "member": "mutate",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "attachments",
+   "member": "readImageRequest",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "workingDirectory",
+   "member": "get",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/hooks-claude-code"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "registerUpgrade",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "connection",
+   "member": "requestRejection",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "registry",
+   "member": "values",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "children",
+   "member": "push",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionTitle",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/session-title-all-prompts-llm"
+   ],
+   "client": []
+  },
+  {
+   "service": "settings",
+   "member": "update",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/speech-to-text"
+   ],
+   "client": []
+  },
+  {
+   "service": "speechToText",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/speech-to-text-sensevoice"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "membership",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "spawnTeammate",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "sendMessage",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "interrupt",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "createTask",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "listTasks",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "getTask",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "updateTask",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentTeams",
+   "member": "tryMembership",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "searchSessions",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "searchEvents",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "traceSession",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "traceEvent",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionQuery",
+   "member": "readTitleSnapshots",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "signal",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-terminal"
+   ],
+   "client": []
+  },
+  {
+   "service": "worktrees",
+   "member": "create",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/tool-worktree"
+   ],
+   "client": []
+  },
+  {
+   "service": "llm",
+   "member": "listConfigurableProviders",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/translator"
+   ],
+   "client": []
+  },
+  {
+   "service": "credentials",
+   "member": "describe",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/translator"
+   ],
+   "client": []
+  },
+  {
+   "service": "permissionPresets",
+   "member": "resolve",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "resolve",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "acquireScope",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "workspaceRegistry",
+   "member": "create",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionTitle",
+   "member": "rename",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook"
+   ],
+   "client": []
+  },
+  {
+   "service": "webhookRuntime",
+   "member": "dispatch",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webhook-github"
+   ],
+   "client": []
+  },
+  {
+   "service": "logger",
+   "member": "exporter",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "experimental/webworker-runtime"
+   ],
+   "client": []
+  },
+  {
+   "service": "slots",
+   "member": "snapshot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/cordis-client-runner"
+   ]
+  },
+  {
+   "service": "theme",
+   "member": "exportInspectTokens",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/cordis-client-runner"
+   ]
+  },
+  {
+   "service": "typertGateway",
+   "member": "hasLiveClient",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/cordis-host-runner"
+   ],
+   "client": []
+  },
+  {
+   "service": "cordisInspect",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/tool-cordis"
+   ],
+   "client": []
+  },
+  {
+   "service": "cordisInspect",
+   "member": "list",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/tool-cordis"
+   ],
+   "client": []
+  },
+  {
+   "service": "cordisInspect",
+   "member": "query",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "extensions/tool-cordis"
+   ],
+   "client": []
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "getSnapshot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "subscribe",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "reconcileApprovals",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "approve",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "decline",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "startUserRun",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "attachments",
+   "member": "saveImage",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "fs/tool-fs"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "clear",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/command-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "disarm",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/goal-round-driver"
+   ],
+   "client": []
+  },
+  {
+   "service": "goals",
+   "member": "complete",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "goal/tool-goal"
+   ],
+   "client": []
+  },
+  {
+   "service": "loader",
+   "member": "create",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/directory-picker-auto"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "renderIndex",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/frontend-static"
+   ],
+   "client": []
+  },
+  {
+   "service": "webServer",
+   "member": "registerFallback",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/frontend-static"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "compositionInventory",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/plugin-inventory"
+   ],
+   "client": []
+  },
+  {
+   "service": "otel",
+   "member": "createEventReporter",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "host/product-telemetry-otel"
+   ],
+   "client": []
+  },
+  {
+   "service": "approval",
+   "member": "setPolicy",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "interaction/permission-presets"
+   ],
+   "client": []
+  },
+  {
+   "service": "userQuestions",
+   "member": "askTimed",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "interaction/tool-ask-user"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "attachController",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "wait",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "read",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "get",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "lsp",
+   "member": "registerProvider",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "lsp/lsp-stdio"
+   ],
+   "client": []
+  },
+  {
+   "service": "lsp",
+   "member": "query",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "lsp/tool-lsp"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "preset/agent-preset"
+   ],
+   "client": []
+  },
+  {
+   "service": "fiber",
+   "member": "await",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "preset/agent-preset-registry"
+   ],
+   "client": []
+  },
+  {
+   "service": "systemPrompt",
+   "member": "suppressRuntimeContext",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "preset/persona"
+   ],
+   "client": []
+  },
+  {
+   "service": "schedule",
+   "member": "create",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "schedule/tool-schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "schedule",
+   "member": "delete",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "schedule/tool-schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "schedule",
+   "member": "catalog",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "schedule/tool-schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "schedule",
+   "member": "update",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "schedule/tool-schedule"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "drainDescendants",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "sdk/server"
+   ],
+   "client": []
+  },
+  {
+   "service": "feedbackUi",
+   "member": "openSession",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "session-query/session-log-export"
+   ]
+  },
+  {
+   "service": "sessions",
+   "member": "prepare",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "session-query/session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionProjections",
+   "member": "hydrate",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "session-query/session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "sessionProjectionCache",
+   "member": "hydratePrepared",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "session-query/session-query"
+   ],
+   "client": []
+  },
+  {
+   "service": "skills",
+   "member": "list",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "skill/tool-skill"
+   ],
+   "client": []
+  },
+  {
+   "service": "skills",
+   "member": "snapshot",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "skill/tool-skill"
+   ],
+   "client": []
+  },
+  {
+   "service": "llm",
+   "member": "imageRequestPricing",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "spill/spill-policy"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "processPathFromHostPath",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "spill/spill-policy"
+   ],
+   "client": []
+  },
+  {
+   "service": "subprocess",
+   "member": "terminalEnvironment",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "fs",
+   "member": "readByteRange",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "ssh",
+   "member": "connectStream",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "ssh/subprocess-ssh"
+   ],
+   "client": []
+  },
+  {
+   "service": "storage",
+   "member": "mount",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "storage/storage-domain"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "composedPreset",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "composeFrom",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "sandboxPolicy",
+   "member": "overrideOf",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "attachments",
+   "member": "admitPromptContent",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "tools",
+   "member": "guard",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagentModelSelection",
+   "member": "current",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "llm",
+   "member": "listModels",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentPresets",
+   "member": "readDocument",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "sendMessage",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent-control"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "listChildren",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent-control"
+   ],
+   "client": []
+  },
+  {
+   "service": "subagents",
+   "member": "listDescendants",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "subagent/tool-subagent-control"
+   ],
+   "client": []
+  },
+  {
+   "service": "terminals",
+   "member": "registerBackend",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "terminal/terminal-bash"
+   ],
+   "client": []
+  },
+  {
+   "service": "agentLoop",
+   "member": "create",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/agent-loop-testkit"
+   ],
+   "client": []
+  },
+  {
+   "service": "tagName",
+   "member": "toLowerCase",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/client-runtime"
+   ],
+   "client": []
+  },
+  {
+   "service": "deepseekLlmApiExtensions",
+   "member": "prepare",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/llm-replay"
+   ],
+   "client": []
+  },
+  {
+   "service": "llm",
+   "member": "registerAdapter",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "test-support/llm-replay"
+   ],
+   "client": []
+  },
+  {
+   "service": "typert",
+   "member": "register",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "typert/loader"
+   ],
+   "client": []
+  },
+  {
+   "service": "root",
+   "member": "accessor",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "typert/protocol"
+   ],
+   "client": []
+  },
+  {
+   "service": "web",
+   "member": "fetch",
+   "call": 1,
+   "read": 0,
+   "destructured": 0,
+   "host": [
+    "web/tool-web"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "productAnalytics",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/product-analytics"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "agentPresets",
+   "call": 0,
+   "read": 4,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-agent-preset"
+   ]
+  },
+  {
+   "service": "uiConversation",
+   "member": "groups",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "args",
+   "member": "isSealed",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-chat"
+   ]
+  },
+  {
+   "service": "ownerDocument",
+   "member": "activeElement",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-conversation"
+   ]
+  },
+  {
+   "service": "sandboxPolicy",
+   "member": "workspaceRoot",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-deliverables"
+   ]
+  },
+  {
+   "service": "tabs",
+   "member": "length",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-dockkit"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "goals",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-goal"
+   ]
+  },
+  {
+   "service": "jobs",
+   "member": "state",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-jobs"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "messageFeedback",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-message-feedback"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "sessionFeedback",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-message-feedback"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "permissionPresets",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-permission-presets"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "mounted",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plan"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "pluginManager",
+   "call": 0,
+   "read": 12,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "pluginRegistryProbe",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager"
+   ]
+  },
+  {
+   "service": "productAnalytics",
+   "member": "enabled",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-manager"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "pluginMarket",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-plugin-market"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "fileReferences",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-reference"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "sessionReferenceResolver",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-reference"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "schedule",
+   "call": 0,
+   "read": 6,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-schedule"
+   ]
+  },
+  {
+   "service": "workspaces",
+   "member": "list",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-schedule"
+   ]
+  },
+  {
+   "service": "element",
+   "member": "style",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-settings-account"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "account",
+   "call": 0,
+   "read": 9,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-settings-account"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "llm",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-settings-models"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "platform",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "runtime",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "config",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "shortcuts",
+   "member": "fixedCatalog",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-shortcuts"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "workspaceFiles",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-documentpreview"
+   ]
+  },
+  {
+   "service": "sidebarRight",
+   "member": "tabDomain",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-sidebar-terminal"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "skills",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-skill"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "userQuestions",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-user-questions"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "directoryPicker",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "client/ui-workspace"
+   ]
+  },
+  {
+   "service": "sessionProjectionCache",
+   "member": "cachedSnapshot",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "context/session-reference"
+   ],
+   "client": []
+  },
+  {
+   "service": "root",
+   "member": "sessionProjections",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "session",
+   "member": "append",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "options",
+   "member": "model",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [
+    "experimental/agent-team"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "claudeCodeMods",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/client-ui-claude-code-mods"
+   ]
+  },
+  {
+   "service": "remote",
+   "member": "cotTranslation",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/client-ui-cot-translation"
+   ]
+  },
+  {
+   "service": "translator",
+   "member": "maxTextChars",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "experimental/client-ui-cot-translation"
+   ],
+   "client": []
+  },
+  {
+   "service": "remote",
+   "member": "speech",
+   "call": 0,
+   "read": 5,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/client-ui-voice-input"
+   ]
+  },
+  {
+   "service": "ptcRuntime",
+   "member": "programFormat",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "experimental/cua"
+   ],
+   "client": []
+  },
+  {
+   "service": "events",
+   "member": "_hooks",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [
+    "experimental/inspector"
+   ],
+   "client": []
+  },
+  {
+   "service": "row",
+   "member": "key",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "entry",
+   "member": "event",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "row",
+   "member": "depth",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "experimental/session-inspector"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "activeRuns",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "lastRunError",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "dynamicCordisRunner",
+   "member": "renderFailures",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [],
+   "client": [
+    "extensions/ui-cordis"
+   ]
+  },
+  {
+   "service": "connection",
+   "member": "allowsRemoteAuthorities",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "host/directory-picker-auto"
+   ],
+   "client": []
+  },
+  {
+   "service": "loader",
+   "member": "store",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "host/directory-picker-auto"
+   ],
+   "client": []
+  },
+  {
+   "service": "approval",
+   "member": "config",
+   "call": 0,
+   "read": 3,
+   "destructured": 0,
+   "host": [
+    "interaction/permission-presets"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "events",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "jobs",
+   "member": "length",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "jobs/tool-jobs"
+   ],
+   "client": []
+  },
+  {
+   "service": "reflect",
+   "member": "store",
+   "call": 0,
+   "read": 2,
+   "destructured": 0,
+   "host": [
+    "preset/agent-preset-registry"
+   ],
+   "client": []
+  },
+  {
+   "service": "root",
+   "member": "fiber",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "sdk/server"
+   ],
+   "client": []
+  },
+  {
+   "service": "root",
+   "member": "loader",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "settings/settings"
+   ],
+   "client": []
+  },
+  {
+   "service": "profileContext",
+   "member": "name",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "shell/shell-env"
+   ],
+   "client": []
+  },
+  {
+   "service": "profileContext",
+   "member": "dir",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "shell/shell-env"
+   ],
+   "client": []
+  },
+  {
+   "service": "root",
+   "member": "reflect",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "typert/protocol"
+   ],
+   "client": []
+  },
+  {
+   "service": "ptcRuntime",
+   "member": "language",
+   "call": 0,
+   "read": 1,
+   "destructured": 0,
+   "host": [
+    "workflow/workflow-ptc"
+   ],
+   "client": []
+  }
+ ]
+}

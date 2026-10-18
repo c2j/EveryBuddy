@@ -1,0 +1,15 @@
+[
+  "session#Session",
+  "session#SessionPreparation",
+  "session#ToolCallRecovery",
+  "session#default",
+  "llm#BlockAssembler",
+  "llm#AssistantStreamAccumulator",
+  "llm#LlmAdapter",
+  "session-persistence#SessionPersistence",
+  "session-format#SessionFormatEventCollector",
+  "session-telemetry#SessionTelemetryBackend",
+  "session-telemetry#SessionTelemetryCoordinator",
+  "session-projection#SessionProjectionRegistry",
+  "system-prompt#default"
+]

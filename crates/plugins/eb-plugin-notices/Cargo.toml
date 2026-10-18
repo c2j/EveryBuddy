@@ -1,0 +1,9 @@
+[package]
+name = "eb-plugin-notices"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's built-in notices plugin: the copy behind the 'not in this build' affordances"
+
+[dependencies]
+eb-api = { path = "../../eb-api" }

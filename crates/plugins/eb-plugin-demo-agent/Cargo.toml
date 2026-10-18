@@ -1,0 +1,9 @@
+[package]
+name = "eb-plugin-demo-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's built-in demo agent: the stand-in answer source behind the composer"
+
+[dependencies]
+eb-api = { path = "../../eb-api" }

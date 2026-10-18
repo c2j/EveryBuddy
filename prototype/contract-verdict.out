@@ -1,0 +1,266 @@
+distinct classes in packages/      791
+Host-side pairs analysed           278
+
+slice               asyncOK  sync-register  sync-live  sync-data  unknown
+top 33 by calls           9              6          2         11        5
+top 135 by calls         54             14          3         46       18
+all Host pairs          126             28          4         82       38
+
+excluding the 5 Cordis runtime services:
+top 33 by calls          10              6          2         14        1
+top 135 by calls         58             16          3         49        9
+all Host pairs          126             28          4         82       24
+
+--- per service: async vs synchronous members (host side, >=3 calls) ---
+service             calls  members  async  sync  unknown  character
+logger                 190        5      0     0        5  unresolved
+tools                   99        7      1     5        1  mixed
+agents                  72        9      4     5        0  mixed
+systemPrompt            63        5      0     5        0  all sync
+fs                      60       13     10     3        0  mixed
+sessions                57        5      2     3        0  mixed
+sessionProjections      35        4      0     4        0  all sync
+workingDirectory        28        3      3     0        0  all async
+subagents               26       11      7     4        0  mixed
+terminals               25        7      3     4        0  mixed
+subprocess              24        4      3     1        0  mixed
+goals                   22        9      0     9        0  all sync
+loader                  21        6      0     0        6  unresolved
+llm                     20        8      3     5        0  mixed
+sandboxPolicy           19        3      0     3        0  all sync
+ssh                     18        3      3     0        0  all async
+webServer               18        7      2     5        0  mixed
+shell                   18        3      2     1        0  mixed
+credentials             17        6      6     0        0  all async
+fiber                   15        5      0     0        5  unresolved
+sessionQuery            15       10     10     0        0  all async
+sessionPersistence      14        4      3     1        0  mixed
+jobs                    14       10      3     5        2  mixed
+attachments             13        6      5     1        0  mixed
+agentTeams              13       11      6     5        0  mixed
+connection              10        5      0     5        0  all sync
+web                      9        4      2     2        0  mixed
+agentPresets             9        8      6     2        0  mixed
+events                   8        2      0     0        2  unresolved
+sandbox                  8        1      1     0        0  all async
+skills                   8        4      3     1        0  mixed
+speechToText             8        8      5     3        0  mixed
+tokenMeter               7        2      0     2        0  all sync
+permissionPresets        7        4      2     2        0  mixed
+commands                 6        1      0     1        0  all sync
+userQuestions            6        2      2     0        0  all async
+workspaceFiles           6        2      2     0        0  all async
+schedule                 6        5      5     0        0  all async
+slots                    5        1      0     1        0  all sync
+approval                 5        3      1     1        1  mixed
+translator               5        4      2     2        0  mixed
+root                     5        5      0     0        5  unresolved
+storage                  4        2      0     2        0  all sync
+pluginPackages           4        2      0     2        0  all sync
+storageDomain            3        1      0     0        1  unresolved
+computerUse              3        1      0     1        0  all sync
+workflowEngine           3        1      0     1        0  all sync
+shellEnv                 3        2      0     2        0  all sync
+authorization            3        3      2     1        0  mixed
+settings                 3        3      2     1        0  mixed
+cordisInspect            3        3      1     2        0  mixed
+
+--- pairs whose provider class was not found in packages/ ---
+  logger.warn                        calls= 154
+  logger.error                       calls=  19
+  logger.info                        calls=  12
+  loader.entries                     calls=  10
+  events.dispatch                    calls=   8
+  loader.await                       calls=   5
+  logger.debug                       calls=   4
+  fiber.entry                        calls=   4
+  fiber.state                        calls=   4
+  fiber.dispose                      calls=   4
+  storageDomain.open                 calls=   3
+  approval.config                    calls=   3
+  cmdlineArgs.get                    calls=   2
+  loader.resolve                     calls=   2
+  loader.remove                      calls=   2
+  fiber.inject                       calls=   2
+  jobs.map                           calls=   2
+  reflect.store                      calls=   2
+  webApp.getAdvertisedUrl            calls=   1
+  tools.list                         calls=   1
+  logger.exporter                    calls=   1
+  loader.create                      calls=   1
+  fiber.await                        calls=   1
+  root.accessor                      calls=   1
+  root.sessionProjections            calls=   1
+  loader.store                       calls=   1
+  jobs.length                        calls=   1
+  root.fiber                         calls=   1
+  root.loader                        calls=   1
+  profileContext.name                calls=   1
+  profileContext.dir                 calls=   1
+  root.reflect                       calls=   1
+  registry.values                    calls=   0
+  children.push                      calls=   0
+  tagName.toLowerCase                calls=   0
+  session.append                     calls=   0
+  options.model                      calls=   0
+  events._hooks                      calls=   0
+
+--- synchronous members grouped by providing package (the in-process set) ---
+goal/goal                  members=  9  worst=syncData     get block pause create edit resume clear disarm complete
+core/tools                 members=  5  worst=syncData     register get schemas restrict guard
+core/agent                 members=  5  worst=syncData     get list currentInitiator roots withoutInitiator
+core/system-prompt         members=  5  worst=syncData     section getSectionOrder context getContextOrder suppressRuntimeContext
+host/webserver             members=  5  worst=syncData     register host protocol getOrigin registerFallback
+client/connection          members=  5  worst=syncData     fetch authorizeIndex authenticatedUrl requestRejection allowsRemoteAuthorities
+llm/llm                    members=  5  worst=syncData     listProviders imageRequestTarget listConfigurableProviders imageRequestPricing registerAdapter
+jobs/jobs                  members=  5  worst=syncData     start list attachController get events
+experimental/agent-team    members=  5  worst=syncData     listMembers membership interrupt listTasks tryMembership
+session/session-projection members=  4  worst=syncData     stateOf register snapshot hydrate
+terminal/terminal          members=  4  worst=syncData     read startSend list registerBackend
+subagent/subagent          members=  4  worst=syncData     registerProvider getProvider resolveMaxDepth interrupt
+core/session               members=  3  worst=syncLive     list get registerMessageProjection
+fs/fs                      members=  3  worst=syncData     processPath sandboxMode processPathFromHostPath
+sandbox/sandbox-policy     members=  3  worst=syncData     resolve defaultMode overrideOf
+experimental/speech-to-text members=  3  worst=syncData     snapshot prepare register
+llm/token-meter            members=  2  worst=syncData     measure estimateMessage
+web/web                    members=  2  worst=syncRegister registerSearchProvider registerFetchProvider
+storage/storage            members=  2  worst=syncLive     backend mount
+interaction/permission-presets members=  2  worst=syncData     current registerAuto
+boot/app-boot              members=  2  worst=syncData     packageOf metaOf
+shell/shell-env            members=  2  worst=syncData     collect register
+experimental/translator    members=  2  worst=syncData     resolve maxTextChars
+extensions/cordis-host-runner members=  2  worst=syncData     register list
+session/session-projection-cache members=  2  worst=syncData     hydratePrepared cachedSnapshot
+preset/agent-preset-registry members=  2  worst=syncData     composedPreset composeFrom
+ptc-runtime/ptc-runtime    members=  2  worst=syncData     programFormat language
+subprocess/subprocess      members=  1  worst=syncData     spawn
+attachment/attachment      members=  1  worst=syncData     imageLimits
+interaction/commands       members=  1  worst=syncRegister register
+shell/shell                members=  1  worst=syncData     sandboxMode
+client/ui-renderer         members=  1  worst=syncRegister provideRoot
+skill/skill                members=  1  worst=syncRegister registerProvider
+session/session-persistence members=  1  worst=syncData     identity
+computer-use/computer-use  members=  1  worst=syncRegister register
+workflow/workflow          members=  1  worst=syncData     start
+core/agent-default-model   members=  1  worst=syncData     currentSelection
+browser-use/browser-use    members=  1  worst=syncRegister register
+credentials/authorization  members=  1  worst=syncRegister registerFlow
+settings/settings          members=  1  worst=syncData     describe
+session/session-title      members=  1  worst=syncRegister register
+telemetry/otel             members=  1  worst=syncLive     createEventReporter
+interaction/user-approval  members=  1  worst=syncData     setPolicy
+lsp/lsp                    members=  1  worst=syncRegister registerProvider
+subagent/tool-subagent     members=  1  worst=syncData     current
+typert/registry            members=  1  worst=syncData     register
+
+--- synchronous, returns a named/live type (JS mirror would hand back a stale handle): 4 pairs ---
+  sessions.list                        calls=  22  Session[]
+  sessions.get                         calls=  21  Session | undefined
+  storage.backend                      calls=   3  BackendRegistry
+  otel.createEventReporter             calls=   1  EventLogReporter
+
+--- synchronous registration returning a disposer: 28 pairs ---
+  tools.register                       calls=  68  () => void
+  systemPrompt.section                 calls=  27  () => void
+  sessionProjections.register          calls=  14  () => void
+  webServer.register                   calls=  10  () => void
+  commands.register                    calls=   6  () => void
+  subagents.registerProvider           calls=   6  () => void
+  slots.provideRoot                    calls=   5  () => void
+  skills.registerProvider              calls=   4  () => void
+  web.registerSearchProvider           calls=   4  () => void
+  systemPrompt.context                 calls=   4  () => void
+  computerUse.register                 calls=   3  () => Promise<void>
+  tools.restrict                       calls=   2  () => void
+  browserUse.register                  calls=   2  () => Promise<void>
+  web.registerFetchProvider            calls=   2  () => void
+  shellEnv.register                    calls=   1  () => void
+  sessions.registerMessageProjection   calls=   1  () => Promise<void>
+  authorization.registerFlow           calls=   1  () => void
+  permissionPresets.registerAuto       calls=   1  () => Promise<void>
+  sessionTitle.register                calls=   1  () => Promise<void>
+  speechToText.register                calls=   1  () => Promise<void>
+  cordisInspect.register               calls=   1  () => void
+  webServer.registerFallback           calls=   1  () => void
+  jobs.attachController                calls=   1  () => void
+  lsp.registerProvider                 calls=   1  () => void
+  systemPrompt.suppressRuntimeContext  calls=   1  () => void
+  storage.mount                        calls=   1  () => void
+  tools.guard                          calls=   1  () => void
+  terminals.registerBackend            calls=   1  () => void
+
+--- synchronous, plain data: 82 pairs ---
+  agents.get                           calls=  43  Agent | undefined
+  systemPrompt.getSectionOrder         calls=  27  number
+  tools.get                            calls=  20  ToolDefinition | undefined
+  sessionProjections.stateOf           calls=  18  SessionProjectionStateMap[K] | undefined
+  subprocess.spawn                     calls=  14  SubprocessHandle
+  fs.processPath                       calls=  13  string
+  sandboxPolicy.resolve                calls=  12  SandboxExecutionPolicy
+  agents.list                          calls=   7  Agent[]
+  terminals.read                       calls=   7  TerminalReadResult
+  attachments.imageLimits              calls=   7  ImageAttachmentLimits
+  sandboxPolicy.defaultMode            calls=   6  SandboxMode
+  agents.currentInitiator              calls=   6  Agent | undefined
+  shell.sandboxMode                    calls=   6  SandboxMode | undefined
+  tokenMeter.measure                   calls=   6  TokenMeasurement
+  tools.schemas                        calls=   5  ToolSchema[]
+  agents.roots                         calls=   5  Agent[]
+  subagents.getProvider                calls=   5  SubagentProvider | undefined
+  terminals.startSend                  calls=   5  TerminalSendOperation
+  terminals.list                       calls=   5  TerminalSessionSnapshot[]
+  goals.get                            calls=   5  GoalView | undefined
+  connection.fetch                     calls=   5  HostConnectionFetch
+  systemPrompt.getContextOrder         calls=   4  number
+  llm.listProviders                    calls=   4  LlmProviderInfo[]
+  goals.block                          calls=   4  GoalView
+  sessionPersistence.identity          calls=   4  symbol
+  goals.pause                          calls=   3  GoalView
+  permissionPresets.current            calls=   3  string
+  workflowEngine.start                 calls=   3  WorkflowRun
+  goals.create                         calls=   3  GoalView
+  fs.sandboxMode                       calls=   3  SandboxMode | undefined
+
+--- already asynchronous — a bridge can serve it: 126 pairs ---
+  workingDirectory.ensure              calls=  24  Promise<string>
+  ssh.request                          calls=  15  Promise<T>
+  fs.resolve                           calls=  14  Promise<FsTarget>
+  sessions.flush                       calls=  12  Promise<boolean>
+  llm.resolveModelInfo                 calls=   9  Promise<LlmResolvedModelInfo>
+  sandbox.confine                      calls=   8  Promise<ConfinedArgv>
+  subprocess.resolveExecutable         calls=   7  Promise<string>
+  shell.resolve                        calls=   7  ShellExecSpec
+  credentials.readRecord               calls=   7  Promise<CredentialRecord | undefined>
+  fs.stat                              calls=   6  Promise<FsInfo | undefined>
+  sessionPersistence.stat              calls=   5  Promise<SessionPersistenceSnapshot | undefined>
+  userQuestions.ask                    calls=   5  Promise<AskUserQuestionAnswer>
+  shell.execute                        calls=   5  Promise<ShellExecution>
+  fs.writeText                         calls=   5  Promise<FsWriteOutcome>
+  workspaceFiles.stat                  calls=   5  Promise<WorkspaceFileStat>
+  agents.create                        calls=   4  Promise<AgentHandle>
+  sessionQuery.observeSession          calls=   4  Promise<SessionObservation>
+  fs.readText                          calls=   4  Promise<string>
+  agents.resume                        calls=   3  Promise<AgentHandle>
+  subagents.waitForChildren            calls=   3  Promise<boolean>
+  fs.lstat                             calls=   3  Promise<FsPathInfo | undefined>
+  fs.readBytes                         calls=   3  Promise<Uint8Array>
+  terminals.spawn                      calls=   3  Promise<TerminalSpawnResult>
+  terminals.kill                       calls=   3  Promise<boolean>
+  credentials.resolve                  calls=   3  Promise<ResolvedCredential | undefined>
+  workingDirectory.set                 calls=   3  Promise<string>
+  sessionPersistence.open              calls=   3  Promise<SessionHandle>
+  fs.streamText                        calls=   3  Promise<AsyncIterable<string>>
+  credentials.deleteRecord             calls=   3  Promise<void>
+  attachments.saveImages               calls=   2  Promise<readonly ImageAttachmentRef[]>
+  sessionPersistence.list              calls=   2  Promise<readonly SessionPersistenceSnapshot[]>
+  sessionQuery.readEvent               calls=   2  Promise<SessionEventWindow>
+  jobs.kill                            calls=   2  Promise<RemoteResult<JobKillValue>>
+  llm.stream                           calls=   2  AsyncIterable<StreamChunk>
+  credentials.modifyRecord             calls=   2  Promise<CredentialRecord | undefined>
+  subagents.startActivation            calls=   2  Promise<SubagentActivation & { readonly messageId: M
+  permissionPresets.set                calls=   2  void
+  sessionController.resolveAgent       calls=   2  Promise<ApiSessionAgentResult>
+  agentPresets.mount                   calls=   2  Promise<AgentPreset>
+  fs.editText                          calls=   2  Promise<FsEditOutcome>
+
+full report: /Users/c2j/Projects/Desktop_Projects/CODE/deepseek-harness/EvoBuddy/contract-verdict.json

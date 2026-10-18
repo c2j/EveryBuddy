@@ -1,0 +1,9 @@
+[package]
+name = "eb-plugin-nav"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's built-in nav plugin: the sidebar navigation rows"
+
+[dependencies]
+eb-api = { path = "../../eb-api" }

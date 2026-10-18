@@ -172,14 +172,18 @@ because both look like \"that control is broken\" and neither raises anything:
 
 | path | role |
 | ---- | ---- |
-| `src/main.rs` | thin entry point: CSS, window, wiring, `EB_*` switches |
-| `src/spec.rs` | every measured geometry literal, plus copy constants |
-| `src/model.rs` | app state: scenes, routes, tasks, turns, artifacts |
-| `src/shell.rs` | assembly, the paned three-pane layout, repaint |
-| `src/welcome.rs`, `src/conversation.rs`, `src/detail.rs` | the three regions |
-| `src/sidebar.rs`, `src/composer.rs`, `src/widgets.rs` | shared pieces |
-| `src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
-| `ui/gtk.css` | colours, type, radii, shadows (GTK CSS is not web CSS — no `var()`, no `flex`, no `gap`) |
+| `crates/eb/` | the GTK **host**: window, renderers, wiring, the `EB_*` harness |
+| `crates/eb/src/main.rs` | thin entry point: CSS, window, wiring, `EB_*` switches |
+| `crates/eb/src/spec.rs` | every measured geometry literal, plus the shell's chrome copy |
+| `crates/eb/src/shell.rs` | assembly, the paned three-pane layout, repaint |
+| `crates/eb/src/welcome.rs`, `conversation.rs`, `detail.rs` | the three regions' renderers |
+| `crates/eb/src/sidebar.rs`, `composer.rs`, `widgets.rs` | shared pieces |
+| `crates/eb/src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
+| `crates/eb-api/` | the **plugin surface**: data model, contribution registries, `EbPlugin` — the only crate a plugin may depend on |
+| `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent` |
+| `vendor/rutis/` | the vendored plugin runtime (narrowed tokio features; see its README) |
+| `prototype/` | the measurement workspace that chose the plugin runtime (dsh compatibility experiments; not part of the build) |
+| `crates/eb/ui/gtk.css` | colours, type, radii, shadows (GTK CSS is not web CSS — no `var()`, no `flex`, no `gap`) |
 | `docs/ui-spec/gtk/` | generated `@define-color` sets (light/dark), built by `build_gtk_tokens.js` |
 | `docs/ui-spec/capture_dom.js` | read-only CDP capture of the real client (DOM + computed styles) |
 | `docs/ui-spec/query_layout.js` | query tool for that capture; reports CSS px |
@@ -187,6 +191,24 @@ because both look like \"that control is broken\" and neither raises anything:
 | `docs/ui-spec/pngpx.js` | prints a grid of pixels from a PNG — the way to answer "is that stripe a stray element, an uninitialised surface or a font difference?" |
 | `packaging/linux/` | builds and verifies the self-contained Linux bundle (Docker: glibc 2.28 build, bare-host test) |
 | `packaging/macos/` | builds and verifies the self-contained `EvoBuddy.app` (Homebrew GTK3, rewritten load commands, prefix-hidden test) |
+
+## Plugins
+
+"Everything is a plugin" is enforced by the workspace layout: a plugin crate
+depends on `eb-api` and on nothing else — Cargo will not let it reach into the
+host, and the host never names a plugin's internals. A plugin's `mount` receives
+a `Ui` handle and *declares* content — nav rows, dropdown menus, notice copy,
+scenario chips — or *provides a service* (the demo agent implements
+`AnswerSource`, the service behind the composer's send path).
+
+The model is **data plugins, host rendering**: plugins produce plain values, the
+host turns them into widgets. Plugin code never touches a widget, which keeps
+the thread contract trivial and the pixel-faithful rendering in one place. The
+runtime is [rutis](prototype/probes/README.md) (vendored): provider/consumer
+services with dependency-gated restarts, an event bus whose dispatch modes
+include a veto-able waterfall, and rollback on a failed mount. The
+measurement workspace that selected it, and the separately-verified path for
+hosting the dsh plugin ecosystem, live in `prototype/`.
 
 ## Self-contained Linux bundle
 
