@@ -342,6 +342,9 @@ impl Views {
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
         let app = store.borrow();
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("refresh: begin tasks={}", app.tasks.len());
+        }
 
         // ---- the send button becomes stop while an answer streams -------
         let streaming = match &app.route {
@@ -473,6 +476,12 @@ impl Views {
         self.conversation.root.set_visible(shown == "conversation");
         self.unbuilt_root.set_visible(shown == "unbuilt");
         self.stack.set_visible_child_name(shown);
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!(
+                "refresh: stack={:?}",
+                self.stack.visible_child_name().map(|name| name.to_string())
+            );
+        }
 
         // ---- artifact panel ----------------------------------------------
         let open = app.detail_visible && artifact.is_some();

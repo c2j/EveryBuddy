@@ -210,6 +210,7 @@ impl Runner {
 
     fn drain(self: &Rc<Self>) {
         let mut closed = false;
+        let mut applied = false;
         {
             let mut slot = self.active.borrow_mut();
             let Some(active) = slot.as_mut() else {
@@ -226,6 +227,7 @@ impl Runner {
                         self.store
                             .borrow_mut()
                             .apply_agent_event(active.task, event);
+                        applied = true;
                         if done {
                             closed = true;
                             break;
@@ -239,6 +241,7 @@ impl Runner {
                                 message: "agent stream closed".to_string(),
                             },
                         );
+                        applied = true;
                         closed = true;
                         break;
                     }
@@ -247,6 +250,11 @@ impl Runner {
         }
         if closed {
             self.active.borrow_mut().take();
+        }
+        if applied {
+            // Even when a source finishes inside `start` (and submit is about to
+            // refresh too), make the event-to-paint path unconditional.
+            self.refresher.request();
         }
     }
 
