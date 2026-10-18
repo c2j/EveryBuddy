@@ -227,9 +227,8 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
     let header = hbox(10);
     header.set_valign(gtk::Align::Center);
 
-    // The product uses its own mascot mark here; a glyph stands in.
-    let logo = gtk::Label::new(Some("◆"));
-    class(&logo, "eb-agent-logo");
+    // EvoBuddy's own agent mark (embedded PNG), not the product mascot.
+    let logo = crate::icons::named("agent", 24, "eb-agent-logo");
     header.pack_start(&logo, false, false, 0);
     header.pack_start(&text(name, "eb-agent-name"), false, false, 0);
     frame.pack_start(&header, false, false, 0);

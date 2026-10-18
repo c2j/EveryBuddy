@@ -33,6 +33,7 @@ mod composer;
 mod conversation;
 mod detail;
 mod host;
+mod icons;
 mod model;
 mod selftest;
 mod shell;

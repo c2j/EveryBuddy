@@ -130,8 +130,9 @@ fn header(wiring: &Wiring, contribs: &Contribs) -> (gtk::Box, Vec<gtk::Button>) 
 
     let brand_line = hbox(8);
     class(&brand_line, "eb-brand-line");
-    // The mark stands in for the product logo, which is its own asset.
-    brand_line.pack_start(&text("◆", "eb-brand-name"), false, false, 0);
+    // EvoBuddy's own mark, embedded as a PNG (no icon theme / librsvg path).
+    let brand_mark = crate::icons::named("logo", 18, "eb-brand-name");
+    brand_line.pack_start(&brand_mark, false, false, 0);
     brand_line.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
 
     let version_row = hbox(6);
@@ -164,8 +165,7 @@ pub fn nav_row(value: &str, label: &str, badge: &str) -> gtk::Button {
     let button = flat_button("eb-nav");
 
     let row = hbox(8);
-    let icon = gtk::Label::new(Some(value));
-    class(&icon, "eb-nav-icon");
+    let icon = crate::icons::request(value, "eb-nav-icon");
     row.pack_start(&icon, false, false, 0);
     row.pack_start(&text(label, ""), true, true, 0);
 

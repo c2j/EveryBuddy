@@ -42,7 +42,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 
 **M2.0a/b 已落地(2026-10-18)**:`AnswerSource` 从同步整轮返回改为 `start(prompt, sink) -> handle`;`AgentEvent` 经 `AgentSink`/`AgentStream` 回传;`AgentRuntime` 用专用线程跑 current-thread tokio,`Runner` 在 GTK 主线程 drain。`AgentSink` 是容量 64 的有界队列(满时阻塞 producer,不阻塞 UI);`start` 的 panic 被 `catch_unwind` 转成 `Failed`;send 按钮在流式期间变成 stop(32×32 几何不变)。demo agent 同步发射,行为与像素不变;`EB_FAKE_AGENT=1` 的 fake agent 产生慢流,`EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS`/`EB_FAKE_STOP_AFTER_MS`/`EB_FAKE_PANIC_START` 覆盖完成、API 取消、UI 取消与启动 panic。
 
-**等值证据**:M1 改造前后 welcome/demo 渲染 PNG SHA 逐字节一致(`ebb489b4…` / `5b0eef6b…`,历史证据);M2.2 有意改了 table 字号、会话宽度与输入卡 2px,当前 baseline 是 welcome `80652dcf…` / demo `06524855…`。点击审计 **26 步(31 行 `click:` 输出)** 的步骤与文案全等。审计有三处**环境敏感**字段:toplevels 计数(macOS 有时预建隐藏 `GtkTooltipWindow`)、popover 绝对坐标(含窗口服务选择的窗口原点)、以及**代码区滚动宽度**(本机连续运行观察到 579/656 与 579/646 两种读数)。同二进制两次运行也可能不同(已用 stash 实验在旧树上证明);比较审计看步骤与文案,数值列不要整行 diff。
+**等值证据**:M1 改造前后 welcome/demo 渲染 PNG SHA 逐字节一致(`ebb489b4…` / `5b0eef6b…`,历史证据);M2.2 有意改了 table 字号、会话宽度与输入卡 2px,当前 baseline 是 welcome `c3736f11…` / demo `fd3fbb89…`（P2 自绘图标/吉祥物后）。点击审计 **26 步(31 行 `click:` 输出)** 的步骤与文案全等。审计有三处**环境敏感**字段:toplevels 计数(macOS 有时预建隐藏 `GtkTooltipWindow`)、popover 绝对坐标(含窗口服务选择的窗口原点)、以及**代码区滚动宽度**(本机连续运行观察到 579/656 与 579/646 两种读数)。同二进制两次运行也可能不同(已用 stash 实验在旧树上证明);比较审计看步骤与文案,数值列不要整行 diff。
 
 ### 1.4 验证体系与实际边界
 
@@ -60,7 +60,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 3. **插件化调研与裁决**:确认 `prototype/` 可作基础——原型验证的 rutis 进程内用法成为 UI 宿主的运行时;wasm/Node 路线保留为 dsh 兼容层(其核心结论"同步返回活对象的注册表必须与插件同进程"对 UI 宿主天然成立)。
 4. **v0.4.0(M1)**:workspace 化 + eb-api surface + 4 个内置插件 + 等值迁移(证据见 §1.3)。过程中 CI/容器各抓一坑:CI runner 屏幕小于规格窗口导致几何断言过严(改为断言屏幕无关不变量);SVG 挪目录后构建镜像缺 COPY;TOML 的 `[target.'cfg(...)'.dependencies]` 表吞掉其后所有依赖(macOS 能编、容器报 unlinked crate)。
 5. **P0 验证加固**:`EB_ASSERT` / `EB_CLICK_ASSERT` 落地并接入 Linux 裸机与 macOS verify;新增 `.github/workflows/check.yml`(push/PR `cargo test --workspace`);Linux aarch64 与 macOS arm64 均通过。计划文档校正(24 条计数、26 步/31 行、三处环境敏感字段、发布闸门与 spec 计划指针)。
-6. **M2.0a + P0.4**:`AnswerSource` 改为事件流契约;M2.0a 时 demo 保持 `5b0eef6b…` 等值(M2.2 后 baseline 变为 `06524855…`);fake streaming agent、完成/取消 harness、模型/事件/取消测试全部落地;Linux 与 macOS verify 都跑 fake streaming/cancel/stop/panic。
+6. **M2.0a + P0.4**:`AnswerSource` 改为事件流契约;M2.0a 时 demo 保持 `5b0eef6b…` 等值(M2.2/P2 后 baseline 变为 `fd3fbb89…`);fake streaming agent、完成/取消 harness、模型/事件/取消测试全部落地;Linux 与 macOS verify 都跑 fake streaming/cancel/stop/panic。
 7. **M2.0b**:`AgentRuntime` 专用线程 + current-thread tokio;`AgentSink` 改为容量 64 的有界队列;`start` panic 经 `catch_unwind` 转 `Failed`;send 按钮流式期间变 stop;Linux/macOS verify 增加 stop 与 panic 用例。
 8. **M2.1 采集**:WorkBuddy AI 5.8.4 的 8 个状态已落 spec §5.3 与 fixtures;修正了 752/500 会话宽度;`cr-status-chips`/`--summary` 未出现。
 9. **P1a + M2.2(进行中)**:token 生成器新增 metrics(json/rs/css)与 CI 防漂移;`Block::Diff`/`Block::Exec`/`Block::Group`、diff/exec/table 渲染器、752/500 会话宽度与 832/580 输入区、usage 环/最小 popover 已落地;`EB_DEMO_BLOCKS=1` 覆盖新块,Linux/macOS verify 通过。四类 usage 分解与贡献面仍待做。
@@ -88,7 +88,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 **M2.0c 假流式插件 + 测试**(小-中)✅ 已完成:fake agent 走 `EB_FAKE_AGENT=1`,分块、带延迟、可取消;`EB_FAKE_DEMO=1` 等流结束退出,`EB_CANCEL_AFTER_MS` 验证取消;Linux/macOS verify 和单元测试覆盖。
 
-**M2.0 验收**(当时):welcome `ebb489b4…`、demo `5b0eef6b…`;M2.2 后当前 baseline 为 welcome `80652dcf…` / demo `06524855…`。fake 完成/API 取消/UI stop/启动 panic 在 Linux 与 macOS verify 通过;有界队列背压与 sink 关闭有单元测试。
+**M2.0 验收**(当时):welcome `ebb489b4…`、demo `5b0eef6b…`;当前 baseline 为 welcome `c3736f11…` / demo `fd3fbb89…`。fake 完成/API 取消/UI stop/启动 panic 在 Linux 与 macOS verify 通过;有界队列背压与 sink 关闭有单元测试。
 
 **M2.1 产品补采集**(前置,外部长周期)✅ 已完成(2026-10-18):WorkBuddy AI 5.8.4 / macOS 26.2 / 1440×868 / DPR2 / en-US,只读 CDP 采集了 `cr-collapse` 折叠+完成+展开、`cr-tool-diff` all-add 与 mixed、`cr-tool-exec` 200 行长输出、`cr-table-block` 默认与 artifact 打开、`cr-context-usage` popover、`cr-agent__processing-status` 运行/完成态。数值与类名落在 spec **§5.3**,可复用 fixture 在 [`docs/ui-spec/fixtures/blocks/captured-5.8.4.json`](ui-spec/fixtures/blocks/captured-5.8.4.json)。**采集修正**:无 artifact 时会话 frame 是 752,打开后收窄到 500;`cr-collapse--summary` 与 `cr-status-chips` 在本次 5.8.4 采集中未出现,标为未采集。
 
@@ -123,9 +123,11 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - 缺口 16:长标签省略实测(Monaco 近似体的行宽/换行差异一并记录)。
 - 缺口 13(三栏 1px sash)与缺口 9(z-index 层级表):补进 P1,或明确写成"接受/延后"。
 
-### P2 图标与吉祥物(中)
+### P2 图标与吉祥物(中)✅ 已完成(2026-10-18)
 
-- 文字占位图标在不同平台渲染成不同字形,本身就是跨平台不一致;需要一套**自有/自由许可**图标(位图进 bundle,避免 librsvg 依赖差异)+ 欢迎页吉祥物占位。资产许可记录进发布闸门。
+- 23 个自有 PNG 图标 + 120px 吉祥物,由 `crates/eb/assets/gen_icons.py` 从几何图元生成;`include_bytes!` 嵌入二进制,不依赖图标主题/librsvg/文件路径。
+- 资产许可:仓库 MIT,见 [`crates/eb/assets/README.md`](../crates/eb/assets/README.md)。
+- 已替换侧栏、顶栏、工具行、文件面板、composer、agent/brand mark;欢迎页吉祥物用 overlay 放置,不改 hero/输入卡几何。
 
 ### P3 Linux 包内 CJK 输入(小)
 
@@ -166,6 +168,6 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
 3. ~~M2.1 采集:清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md)~~(已完成,2026-10-18;结果见 spec §5.3 与 fixture)。
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
-5. **M2.2**:内容块数据模型 + 渲染器(进行中;diff/exec/table、752/500 布局、collapse 组与 usage 环已落;usage 分类/贡献面待做);**M2.3 ACP 真实对话已完成**。
+5. **M2.2/M2.3/P2**:diff/exec/table + 752/500 布局、collapse 组、usage 环、ACP 真实对话与权限弹层、自绘图标/吉祥物均已完成;usage 分类/贡献面待做。
 6. **P1a 缺口 6/4 已完成**(生成 metrics + CI 校验;输入卡 2px 已修;旧 CSS 迁移留后);缺口 3 与 P3 可穿插;P1b/P2/P4/P5 按依赖推进。
 7. **发布合规闸门**:根 LICENSE、第三方许可、SBOM/LGPL source offer。

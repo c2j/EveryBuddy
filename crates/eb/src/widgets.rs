@@ -61,10 +61,8 @@ pub fn ellipsized(value: &str, class_name: &str) -> gtk::Label {
 /// not copied. Homebrew's `gtk+3` also ships only the `hicolor` theme, so
 /// `GtkImage::from_icon_name` renders nothing on this machine — see ui-spec
 /// §10. Text glyphs are the interim stand-in.
-pub fn glyph(value: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(value));
-    class(&label, "eb-glyph");
-    label
+pub fn glyph(value: &str) -> gtk::Widget {
+    crate::icons::request(value, "eb-glyph")
 }
 
 /// A flat, chrome-less button — every button in the product is one of these.
@@ -156,19 +154,33 @@ pub fn attach_notice(button: &gtk::Button, message: &str) -> gtk::Popover {
 /// is the feedback.
 pub fn flash(button: &gtk::Button, value: &str, tooltip: &str) {
     let button = button.clone();
-    let Some(label) = button
-        .child()
-        .and_then(|child| child.downcast::<gtk::Label>().ok())
-    else {
+    let Some(child) = button.child() else {
         return;
     };
-    let glyph = label.text().to_string();
     let previous_tooltip = button.tooltip_text();
-    label.set_text(value);
     button.set_tooltip_text(Some(tooltip));
 
+    // Icons are GtkImage now; text glyphs are GtkLabel. Handle both by swapping
+    // the child for a temporary label, then restoring the original icon.
+    if let Ok(label) = child.clone().downcast::<gtk::Label>() {
+        let glyph = label.text().to_string();
+        label.set_text(value);
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(1200), move || {
+            label.set_text(&glyph);
+            button.set_tooltip_text(previous_tooltip.as_deref());
+        });
+        return;
+    }
+
+    button.remove(&child);
+    let label = gtk::Label::new(Some(value));
+    class(&label, "eb-glyph");
+    button.add(&label);
+    label.show();
     gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(1200), move || {
-        label.set_text(&glyph);
+        button.remove(&label);
+        button.add(&child);
+        child.show();
         button.set_tooltip_text(previous_tooltip.as_deref());
     });
 }
