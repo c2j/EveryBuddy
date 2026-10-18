@@ -130,6 +130,21 @@ impl AcpAgent {
     }
 
     fn run(&self, prompt: String, sink: AgentSink, cancelled: Arc<AtomicBool>) {
+        // The external agent may take seconds to boot (opencode/dsh load their
+        // own runtime). Acknowledge immediately so the composer switches to its
+        // stop state instead of looking like the click did nothing.
+        if sink
+            .send(AgentEvent::Started {
+                name: self.config.name.clone(),
+            })
+            .is_err()
+        {
+            return;
+        }
+        let _ = sink.send(AgentEvent::Status {
+            text: "Starting agent…".to_string(),
+        });
+
         let mut slot = lock(&self.session);
         if slot.is_none() {
             match AcpSession::launch(&self.config) {
@@ -156,6 +171,9 @@ impl AcpAgent {
         {
             return;
         }
+        let _ = sink.send(AgentEvent::Status {
+            text: "Thinking".to_string(),
+        });
         if cancelled.load(Ordering::SeqCst) {
             let _ = sink.send(AgentEvent::Failed {
                 message: "Cancelled".to_string(),
