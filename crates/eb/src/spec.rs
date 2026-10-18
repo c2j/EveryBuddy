@@ -15,6 +15,14 @@
 //! reader to ignore warnings.
 #![allow(dead_code)]
 
+// Generated metric tokens (spacing/radius/type). Colours live in the generated
+// `@define-color` CSS; GTK3 has no numeric variables, so these constants are the
+// equivalent for widget spacing, margins and generated CSS.
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/ui-spec/gtk/tokens-metrics.rs"
+));
+
 /// Application id — the reverse-DNS name GTK uses for window grouping.
 pub const APP_ID: &str = "com.evobuddy.app";
 /// Product name. Nothing in the UI may say "WorkBuddy" (see ui-spec §9).
@@ -32,7 +40,7 @@ pub const WINDOW_HEIGHT: i32 = 868;
 /// sash on each side of the conversation pane.
 pub const SIDEBAR_WIDTH: i32 = 280;
 pub const CONVERSATION_WIDTH: i32 = 580;
-pub const SASH: i32 = 4;
+pub const SASH: i32 = spacing::SPACING_2;
 
 /// Measured: with no artifact open the content pane is 1160 wide and the
 /// landing column inside it is 800.
@@ -48,13 +56,21 @@ pub const WELCOME_CARD_HEIGHT: i32 = 142;
 pub const CHIPS_WIDTH: i32 = COLUMN_WIDTH;
 pub const CHIPS_HEIGHT: i32 = 32;
 pub const CHAT_CARD_WIDTH: i32 = 531;
+/// Product 784 with the artifact panel closed, minus the same 1px sash
+/// compromise as the open card.
+pub const CHAT_CARD_WIDTH_CLOSED: i32 = 783;
 pub const CHAT_CARD_HEIGHT: i32 = 132;
 pub const DETAIL_WIDTH: i32 = 579;
 
-/// Measured: the conversation and artifact panes are 500 wide with 40px gutters
-/// inside a 580 pane; the artifact pane pads its body by 24px vertically.
+/// Measured: with the artifact panel open the conversation pane is 580 and its
+/// message column 500 (40px gutters); with the panel closed the column grows to
+/// 752 (M2.1, ui-spec §5.3). The artifact pane pads its body by 24px vertically.
 pub const MESSAGE_WIDTH: i32 = 500;
-pub const MESSAGE_GUTTER: i32 = 40;
+pub const MESSAGE_WIDTH_CLOSED: i32 = 752;
+pub const MESSAGE_GUTTER: i32 = spacing::SPACING_9;
+/// Measured conversation input area (padding 24, card 784) with no artifact;
+/// with the panel open the pane itself is 580 and the card 532/531.
+pub const CHAT_INPUT_AREA_WIDTH_CLOSED: i32 = 832;
 
 // ------------------------------------------------------------- welcome page
 
@@ -78,7 +94,7 @@ pub const CHAT_INPUT_CARD_HEIGHT: i32 = 134;
 pub const CHAT_NOTICE_HEIGHT: i32 = 34;
 pub const CHAT_INPUT_AREA_HEIGHT: i32 = 168;
 /// Measured `cr-frame` vertical padding around every message.
-pub const MESSAGE_FRAME_PAD: i32 = 16;
+pub const MESSAGE_FRAME_PAD: i32 = spacing::SPACING_5;
 
 // -------------------------------------------------------------------- copy
 //

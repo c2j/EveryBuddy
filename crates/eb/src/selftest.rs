@@ -59,6 +59,7 @@ pub fn requested() -> bool {
         "EB_CLICK_ASSERT",
         "EB_ASSERT",
         "EB_DEMO",
+        "EB_DEMO_BLOCKS",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -1077,12 +1078,35 @@ fn assert_geometry(
     // Conversation-only blocks: the three-pane layout does not fit when the
     // window is clamped to a small screen, so only assert with room.
     if roomy {
+        let detail_open = probes
+            .iter()
+            .find(|(probe, _)| probe == "eb-detail")
+            .map(|(_, widget)| widget.is_visible())
+            .unwrap_or(false);
+        let chat_width = if detail_open {
+            spec::CHAT_CARD_WIDTH
+        } else {
+            spec::CHAT_CARD_WIDTH_CLOSED
+        };
+        let messages_width = if detail_open {
+            spec::MESSAGE_WIDTH - 1
+        } else {
+            spec::MESSAGE_WIDTH_CLOSED - 1
+        };
+        if let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == "eb-messages") {
+            if widget.is_visible() {
+                check(
+                    widget.allocation().width() == messages_width,
+                    format!(
+                        "eb-messages is {} wide, want {messages_width} (detail open={detail_open})",
+                        widget.allocation().width()
+                    ),
+                    &mut failures,
+                );
+            }
+        }
         for (name, want_width, want_height) in [
-            (
-                "eb-chat-card",
-                spec::CHAT_CARD_WIDTH,
-                spec::CHAT_CARD_HEIGHT,
-            ),
+            ("eb-chat-card", chat_width, spec::CHAT_CARD_HEIGHT),
             ("eb-detail", spec::DETAIL_WIDTH, spec::WINDOW_HEIGHT),
         ] {
             let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == name) else {

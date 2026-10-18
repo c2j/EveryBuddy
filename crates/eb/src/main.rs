@@ -58,6 +58,13 @@ const TOKENS_CSS: &str = include_str!(concat!(
 /// Hand-written rules for the parts the token set cannot express.
 const SHELL_CSS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/ui/gtk.css"));
 
+/// Generated numeric utility classes (spacing/radius/type). New components use
+/// these classes instead of repeating literal font sizes and radii.
+const METRICS_CSS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/ui-spec/gtk/tokens-metrics.css"
+));
+
 /// The message submitted by `EB_DEMO=1`, so the conversation state can be
 /// photographed without a human typing into it.
 const DEMO_PROMPT: &str = "Show me what a task's conversation looks like.";
@@ -132,7 +139,7 @@ fn ensure_gtk_im_modules() {}
 
 fn load_css() {
     let provider = gtk::CssProvider::new();
-    let css = format!("{TOKENS_CSS}\n{SHELL_CSS}");
+    let css = format!("{TOKENS_CSS}\n{METRICS_CSS}\n{SHELL_CSS}");
 
     // Never swallow this. A rejected stylesheet disables *all* styling, GTK
     // prints nothing of its own accord, and the app falls back to the default
@@ -188,6 +195,7 @@ fn build_ui(application: &gtk::Application) {
     shell::finish(&views, &store);
 
     if std::env::var_os("EB_DEMO").is_some()
+        && std::env::var_os("EB_DEMO_BLOCKS").is_none()
         && std::env::var_os("EB_FAKE_DEMO").is_none()
         && std::env::var_os("EB_CLICK").is_none()
         && std::env::var_os("EB_CLICK_ASSERT").is_none()
@@ -196,6 +204,15 @@ fn build_ui(application: &gtk::Application) {
         views.agent.submit(DEMO_PROMPT.to_string());
         // The demo agent emits synchronously, so the first frame should show the
         // finished conversation (the same pixels the old one-shot path drew).
+        views.refresh(&store);
+    }
+
+    // Render the second demo answer (diff/exec/table) without going through the
+    // streaming agent's manual send path. The first submit opens a task; the
+    // second is the new-content variant.
+    if std::env::var_os("EB_DEMO_BLOCKS").is_some() {
+        views.agent.submit(DEMO_PROMPT.to_string());
+        views.agent.submit(DEMO_PROMPT.to_string());
         views.refresh(&store);
     }
 

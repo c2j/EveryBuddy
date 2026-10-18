@@ -18,6 +18,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Check generated tokens
+        run: bash docs/ui-spec/check_tokens.sh
+
       - name: Install GTK 3
         run: |
           sudo apt-get update

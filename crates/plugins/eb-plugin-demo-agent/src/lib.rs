@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use eb_api::model::{Artifact, Block};
+use eb_api::model::{Artifact, Block, DiffLine};
 use eb_api::{
     AgentEvent, AgentSink, AnswerHandle, AnswerSource, EbPlugin, NoopHandle, Ui,
 };
@@ -206,25 +206,43 @@ impl AnswerHandle for FlagHandle {
 /// which the demo agent never does. The event path still supports both.
 fn placeholder_answer(nth: usize) -> (Vec<Block>, Option<Artifact>) {
     if nth % 2 == 1 {
+        let output = (1..=20)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         return (
             vec![
                 Block::Text(
-                    "Nothing is running behind this window yet — EvoBuddy is a UI build, so \
-                     this reply is fixed text rather than a model's answer. The blocks below \
-                     are here so every message type the real client draws has something to \
-                     render."
+                    "This second placeholder answer exercises the M2.1 content blocks: a \
+                     diff, a command with a scrollable output, and a table."
                         .to_string(),
                 ),
-                Block::Tool {
-                    status: "Ran".to_string(),
-                    primary: "echo placeholder".to_string(),
-                    detail: Some("0.02s".to_string()),
+                Block::Diff {
+                    path: "demo/main.rs".to_string(),
+                    added: 7,
+                    removed: 1,
+                    lines: vec![
+                        DiffLine::Context("fn main() {".to_string()),
+                        DiffLine::Remove("    let old = 1;".to_string()),
+                        DiffLine::Add("    // EvoBuddy placeholder diff.".to_string()),
+                        DiffLine::Add("    let value = 42;".to_string()),
+                        DiffLine::Context("    println!(\"{value}\");".to_string()),
+                        DiffLine::Context("}".to_string()),
+                    ],
                 },
-                Block::Text(
-                    "A tool row is one muted line: a status, the command, and how long it \
-                     took."
-                        .to_string(),
-                ),
+                Block::Exec {
+                    command: "seq 1 20".to_string(),
+                    output,
+                    exit_code: Some(0),
+                },
+                Block::Table {
+                    headers: vec!["Block".to_string(), "Renders as".to_string()],
+                    rows: vec![
+                        vec!["Diff".to_string(), "Light-green card".to_string()],
+                        vec!["Exec".to_string(), "Scrollable command output".to_string()],
+                        vec!["Table".to_string(), "Rounded card".to_string()],
+                    ],
+                },
             ],
             None,
         );
@@ -319,6 +337,38 @@ mod tests {
             .iter()
             .any(|event| matches!(event, AgentEvent::Block { block: Block::Table { .. } })));
         assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Artifact { .. })));
+    }
+
+    #[test]
+    fn second_demo_answer_has_the_m21_blocks() {
+        let agent = DemoAgent::new();
+        let (sink, stream) = AgentSink::channel();
+        let _first = agent.start("hello", sink);
+        let _ = drain(&stream);
+        let (sink, stream) = AgentSink::channel();
+        let _second = agent.start("hello", sink);
+        let events = drain(&stream);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::Block {
+                block: Block::Diff { .. }
+            }
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::Block {
+                block: Block::Exec { .. }
+            }
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::Block {
+                block: Block::Table { .. }
+            }
+        )));
+        assert!(!events
             .iter()
             .any(|event| matches!(event, AgentEvent::Artifact { .. })));
     }

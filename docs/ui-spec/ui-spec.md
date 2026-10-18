@@ -498,8 +498,9 @@ usage popover、processing/done 都已采集。`cr-collapse--summary` 与
 `cr-status-chips` 在 5.8.4 本次采集中**没有出现**；不要按旧类名硬实现，标为
 未采集。
 
-可复用数据在 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`；渲染器尚未按这些
-数值实现（M2.2）。
+可复用数据在 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。M2.2 已实现
+diff / exec / table 渲染器与 752/500 宽度切换；`cr-collapse` 工具组和
+`cr-context-usage` popover 仍待实现。
 
 ## 6. 屏幕清单（全量 143 个 CSS module）
 
@@ -612,7 +613,7 @@ usage popover、processing/done 都已采集。`cr-collapse--summary` 与
 7. **UI 字族未在 token 层定义** —— 由基础 CSS 直接声明；产品的 `"Segoe UI (Custom)"` / `"Open Sans (Custom)"` 是改名后的自包含字体，**不得打包**，必须换自有字体并重测字宽（会影响上述所有文本宽度）。
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
-10. **工具调用只做了折叠态** —— 5.8.4 已补采 `cr-collapse` 展开/完成/折叠、`cr-tool-diff`（all-add 与 mixed）、`cr-tool-exec` 长输出、`cr-table-block`、`cr-context-usage` popover、`cr-agent__processing-status`；数值与类名见 §5.3，fixture 见 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。**M2.2 的渲染器尚未实现**，当前实现仍把结果面板正文渲染成单块静音文本、工具行只保留折叠行。`cr-status-chips` 在 5.8.4 本次采集中未出现，标为未采集。
+10. **工具调用只做了折叠态** —— 5.8.4 已补采 `cr-collapse` 展开/完成/折叠、`cr-tool-diff`（all-add 与 mixed）、`cr-tool-exec` 长输出、`cr-table-block`、`cr-context-usage` popover、`cr-agent__processing-status`；数值与类名见 §5.3，fixture 见 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。**M2.2 已实现** diff / exec / table 三种块与 752/500 宽度切换；`cr-collapse` 工具组与 `cr-context-usage` popover 仍待实现，结果面板正文仍是近似重建。`cr-status-chips` 在 5.8.4 本次采集中未出现，标为未采集。
 11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 

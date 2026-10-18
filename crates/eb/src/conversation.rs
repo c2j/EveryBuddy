@@ -22,7 +22,8 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::composer::Composer;
-use crate::model::{Block, Task, Turn};
+use crate::model::{Block, DiffLine, Task, Turn};
+use crate::spec;
 use crate::widgets::*;
 
 #[derive(Clone)]
@@ -154,6 +155,11 @@ pub fn fill_messages(conversation: &Conversation, task: &Task) {
 
 /// Keep the newest message in view, the way a chat log is expected to behave.
 fn scroll_to_bottom(scroll: &gtk::ScrolledWindow) {
+    // The screenshot harness can keep the top of a long conversation visible so
+    // the first block is not clipped by the scroll-to-bottom behaviour.
+    if std::env::var_os("EB_NO_SCROLL").is_some() {
+        return;
+    }
     let adjustment = scroll.vadjustment();
     // The layout is only final after the new children have been allocated, so
     // jump on the next idle turn rather than here.
@@ -262,6 +268,17 @@ fn block_widget(block: &Block) -> gtk::Widget {
             primary,
             detail,
         } => tool_row(status, primary, detail.as_deref()).upcast(),
+        Block::Diff {
+            path,
+            added,
+            removed,
+            lines,
+        } => diff_block(path, *added, *removed, lines).upcast(),
+        Block::Exec {
+            command,
+            output,
+            exit_code,
+        } => exec_block(command, output, *exit_code).upcast(),
         Block::Table { headers, rows } => table(headers, rows).upcast(),
     };
     widget.set_margin_top(14);
@@ -287,6 +304,104 @@ fn tool_row(status: &str, primary: &str, detail: Option<&str>) -> gtk::Box {
 
 /// Measured: a rounded card with a tinted header row, hairline separators and
 /// 8px/12px cell padding.
+/// The light-green diff card: 752x278 (12 lines) in the capture, a 16px
+/// radius, and 21px monospace lines with 16px side padding.
+fn diff_block(path: &str, added: u32, removed: u32, lines: &[DiffLine]) -> gtk::Box {
+    let card = vbox(0);
+    class(&card, "eb-diff-card");
+    class(&card, "eb-radius-2xl");
+    card.set_tooltip_text(Some(&format!("{path}  +{added} −{removed}")));
+
+    let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    let content_height = (lines.len() as i32 * 21).clamp(21, 252);
+    scroll.set_min_content_height(content_height);
+    scroll.set_size_request(-1, content_height);
+    class(&scroll, "eb-diff-scroll");
+
+    let rows = vbox(0);
+    for line in lines {
+        let (sign, text_value, kind) = match line {
+            DiffLine::Add(value) => ("+", value, "eb-diff-add"),
+            DiffLine::Remove(value) => ("−", value, "eb-diff-remove"),
+            DiffLine::Context(value) => (" ", value, "eb-diff-context"),
+        };
+        let row = hbox(6);
+        row.set_size_request(-1, 21);
+        class(&row, "eb-diff-line");
+        class(&row, kind);
+
+        let sign = text(sign, "eb-diff-sign");
+        sign.set_size_request(14, -1);
+        class(&sign, "eb-fs-3");
+        row.pack_start(&sign, false, false, 0);
+
+        let value = text(text_value, "eb-diff-code");
+        class(&value, "eb-fs-3");
+        value.set_xalign(0.0);
+        value.set_hexpand(true);
+        row.pack_start(&value, true, true, 0);
+
+        rows.pack_start(&row, false, false, 0);
+    }
+    scroll.add(&rows);
+    card.pack_start(&scroll, true, true, 0);
+
+    let height = (content_height + 26).clamp(47, 278);
+    card.set_size_request(-1, height);
+    card
+}
+
+/// The command card: 752x300 with a 16px radius, 12/16 padding, and a
+/// vertically scrolling monospace body.
+fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::ScrolledWindow {
+    let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_min_content_height(300);
+    scroll.set_size_request(-1, 300);
+    class(&scroll, "eb-exec-card");
+    class(&scroll, "eb-radius-2xl");
+    if let Some(code) = exit_code {
+        scroll.set_tooltip_text(Some(&format!("exit code {code}")));
+    }
+
+    let body = vbox(4);
+    class(&body, "eb-exec-body");
+    body.set_margin_top(spec::spacing::SPACING_4);
+    body.set_margin_bottom(spec::spacing::SPACING_4);
+    body.set_margin_start(spec::spacing::SPACING_5);
+    body.set_margin_end(spec::spacing::SPACING_5);
+
+    let title = text("bash", "eb-exec-title");
+    class(&title, "eb-fs-3");
+    body.pack_start(&title, false, false, 0);
+
+    let command = text(command, "eb-exec-command");
+    class(&command, "eb-fs-3");
+    body.pack_start(&command, false, false, 0);
+
+    let output_view = gtk::TextView::new();
+    output_view.set_editable(false);
+    output_view.set_cursor_visible(false);
+    output_view.set_monospace(true);
+    output_view.set_wrap_mode(gtk::WrapMode::None);
+    output_view.set_top_margin(0);
+    output_view.set_bottom_margin(0);
+    output_view.set_left_margin(0);
+    output_view.set_right_margin(0);
+    class(&output_view, "eb-exec-output");
+    class(&output_view, "eb-fs-3");
+    if let Some(buffer) = output_view.buffer() {
+        buffer.set_text(output);
+    }
+    let lines = output.lines().count().max(1) as i32;
+    output_view.set_size_request(-1, lines * 18);
+    body.pack_start(&output_view, false, false, 0);
+
+    scroll.add(&body);
+    scroll
+}
+
 fn table(headers: &[String], rows: &[Vec<String>]) -> gtk::Box {
     let card = vbox(0);
     class(&card, "eb-table");

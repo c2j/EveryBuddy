@@ -1,0 +1,62 @@
+{
+ "source": "WorkBuddy AI 5.8.4 tokens-*.css",
+ "note": "Literal metric tokens; values are CSS px or unitless weights.",
+ "metrics": {
+  "spacing": {
+   "--eb-spacing-0": 0,
+   "--eb-spacing-1": 2,
+   "--eb-spacing-10": 48,
+   "--eb-spacing-12": 64,
+   "--eb-spacing-2": 4,
+   "--eb-spacing-2-5": 5,
+   "--eb-spacing-3": 8,
+   "--eb-spacing-4": 12,
+   "--eb-spacing-5": 16,
+   "--eb-spacing-6": 20,
+   "--eb-spacing-7": 24,
+   "--eb-spacing-8": 32,
+   "--eb-spacing-9": 40
+  },
+  "radius": {
+   "--eb-radius-2xl": 16,
+   "--eb-radius-3xl": 20,
+   "--eb-radius-4xl": 24,
+   "--eb-radius-full": 9999,
+   "--eb-radius-lg": 8,
+   "--eb-radius-md": 6,
+   "--eb-radius-none": 0,
+   "--eb-radius-sm": 4,
+   "--eb-radius-xl": 12,
+   "--eb-radius-xs": 2
+  },
+  "font_size": {
+   "--eb-font-size-1": 8,
+   "--eb-font-size-10": 28,
+   "--eb-font-size-11": 32,
+   "--eb-font-size-2": 10,
+   "--eb-font-size-3": 12,
+   "--eb-font-size-4": 13,
+   "--eb-font-size-5": 14,
+   "--eb-font-size-6": 16,
+   "--eb-font-size-7": 18,
+   "--eb-font-size-8": 20,
+   "--eb-font-size-9": 24
+  },
+  "font_line_height": {
+   "--eb-font-line-height-10": 40,
+   "--eb-font-line-height-4": 16,
+   "--eb-font-line-height-4-2": 18,
+   "--eb-font-line-height-5": 20,
+   "--eb-font-line-height-5-2": 22,
+   "--eb-font-line-height-6": 24,
+   "--eb-font-line-height-7": 28,
+   "--eb-font-line-height-8": 32
+  },
+  "font_weight": {
+   "--eb-font-weight-400": 400,
+   "--eb-font-weight-500": 500,
+   "--eb-font-weight-600": 600,
+   "--eb-font-weight-700": 700
+  }
+ }
+}

@@ -91,6 +91,10 @@ xvfb-run -a --server-args="-screen 0 1920x1080x24" env "$@" EB_CLICK_ASSERT=1 \
 # The fake agent is the only end-to-end check of the streaming contract: a
 # worker thread produces events, the GTK main loop drains them, and the app
 # quits on the terminal event. The second run cancels before the stream ends.
+echo "== M2.2 content blocks (752px column) =="
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_DEMO_BLOCKS=1 EB_ASSERT=1 "$prefix/run" 2>&1 | sed 's/^/  /'
+
 echo "== fake streaming agent =="
 fake_out=/tmp/fake-agent.log
 xvfb-run -a --server-args="-screen 0 1920x1080x24" \

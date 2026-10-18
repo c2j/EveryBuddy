@@ -71,6 +71,14 @@ pub enum Turn {
     },
 }
 
+/// One line of a file-diff block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiffLine {
+    Add(String),
+    Remove(String),
+    Context(String),
+}
+
 /// The block types the message body renders.
 #[derive(Clone, Debug)]
 pub enum Block {
@@ -80,6 +88,20 @@ pub enum Block {
         status: String,
         primary: String,
         detail: Option<String>,
+    },
+    /// A write/edit result: a file path, the counts shown in the tool row, and
+    /// the lines the product renders in its light-green diff card.
+    Diff {
+        path: String,
+        added: u32,
+        removed: u32,
+        lines: Vec<DiffLine>,
+    },
+    /// A command result: title, command and the (possibly long) output.
+    Exec {
+        command: String,
+        output: String,
+        exit_code: Option<i32>,
     },
     Table {
         headers: Vec<String>,

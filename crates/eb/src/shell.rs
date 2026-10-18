@@ -386,6 +386,53 @@ impl Views {
         );
 
         // ---- content pane ------------------------------------------------
+        // The product caps the message column at 752 with the artifact panel
+        // closed and 500 with it open; the pane is 1160 / 580 respectively.
+        // Set the margins before filling messages so the first layout pass
+        // already sees the right width.
+        let artifact_open = match &app.route {
+            Route::Task(index) => {
+                app.detail_visible
+                    && app
+                        .tasks
+                        .get(*index)
+                        .and_then(|task| task.artifact.as_ref())
+                        .is_some()
+            }
+            _ => false,
+        };
+        let sidebar = if app.sidebar_visible {
+            spec::SIDEBAR_WIDTH
+        } else {
+            0
+        };
+        let pane_width = spec::WINDOW_WIDTH
+            - sidebar
+            - if artifact_open {
+                spec::CONVERSATION_WIDTH
+            } else {
+                0
+            };
+        let message_width = if artifact_open {
+            spec::MESSAGE_WIDTH
+        } else {
+            spec::MESSAGE_WIDTH_CLOSED
+        };
+        let margin = ((pane_width - message_width) / 2).max(0);
+        self.conversation.messages.set_margin_start(margin);
+        self.conversation.messages.set_margin_end(margin);
+
+        // The input area is capped too: 832 with the panel closed (a 784 card),
+        // and the full 580 pane with it open.
+        let input_width = if artifact_open {
+            spec::CONVERSATION_WIDTH
+        } else {
+            spec::CHAT_INPUT_AREA_WIDTH_CLOSED
+        };
+        let input_margin = ((pane_width - input_width) / 2).max(0);
+        self.chat_composer.root.set_margin_start(input_margin);
+        self.chat_composer.root.set_margin_end(input_margin);
+
         let mut artifact = None;
         let mut shown = "welcome";
         match &app.route {

@@ -85,6 +85,8 @@ too-small allocation:
 
 ```bash
 EB_DEMO=1 EB_SELFTEST=1 EB_SHOT=/tmp/evobuddy-chat.png cargo run
+# second demo answer: diff + exec + table, 752px column
+EB_DEMO_BLOCKS=1 EB_SELFTEST=1 EB_SHOT=/tmp/evobuddy-blocks.png cargo run
 ```
 
 `EB_DEMO=1` submits a message first, so the conversation state is photographed

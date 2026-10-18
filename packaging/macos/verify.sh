@@ -178,6 +178,15 @@ if ! EB_CLICK_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$click_out" 2>&1; the
 fi
 grep -E "click: assertions|click: --- end" "$click_out" | sed 's/^/  /'
 
+echo "== M2.2 content blocks (752px column) =="
+blocks_out="$dist/macos-verify/blocks.log"
+if ! EB_DEMO_BLOCKS=1 EB_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$blocks_out" 2>&1; then
+  echo "the content-block demo exited non-zero" >&2
+  tail -20 "$blocks_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "selftest: assertions passed" "$blocks_out"
+
 echo "== fake streaming agent =="
 fake_out="$dist/macos-verify/fake-agent.log"
 if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=3 \

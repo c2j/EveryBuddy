@@ -22,6 +22,9 @@
 @define-color eb_text_tertiary  rgba(0, 0, 0, 0.5);
 @define-color eb_text_faint     rgba(0, 0, 0, 0.451);  /* #00000073 */
 @define-color eb_chevron        rgba(0, 0, 0, 0.35);
+/* Measured M2.1 diff colours (ui-spec §5.3). */
+@define-color eb_diff_add_bg    #e7f9ef;
+@define-color eb_diff_remove_bg #fef0f0;
 
 /* ---------------------------------------------------------------- window */
 
@@ -495,10 +498,11 @@ button.eb-task-active .eb-task-title {
   font-weight: 600;
 }
 
-/* The scrollable message column: `cr-message-list`, `padding: 0 40px`, so the
- * 580px pane holds a 500px column. */
+/* The scrollable message column. Its horizontal margins are set in
+ * shell::Views::refresh: 752 wide with no artifact panel, 500 with it open
+ * (measured M2.1, ui-spec §5.3), centred in the available pane. */
 .eb-messages {
-  padding: 0 40px;
+  padding: 0;
 }
 
 /* `cr-frame`: 16px above every message. The user's frame measured
@@ -609,6 +613,63 @@ button.eb-icon-mini:hover {
   font-size: 12px;
 }
 
+/* ------------------------------------------------------- diff / exec blocks -- */
+
+/* M2.1 capture (ui-spec §5.3): a 752x278 card for 12 lines, radius 16,
+ * 21px lines with 16px side padding. Counts live in the tool row above. */
+.eb-diff-card {
+  background-color: @eb_diff_add_bg;
+  padding: 13px 0;
+}
+
+.eb-diff-scroll {
+  background-color: transparent;
+  border: none;
+}
+
+.eb-diff-line {
+  min-height: 21px;
+}
+
+.eb-diff-add {
+  background-color: @eb_diff_add_bg;
+}
+
+.eb-diff-remove {
+  background-color: @eb_diff_remove_bg;
+}
+
+.eb-diff-context {
+  background-color: transparent;
+}
+
+.eb-diff-sign {
+  color: @eb_text_tertiary;
+  font-family: monospace;
+}
+
+.eb-diff-code {
+  color: @eb_text_primary;
+  font-family: monospace;
+}
+
+/* Exec card: 752x300, radius 16, #f2f2f2, 12/16 padding, 12px mono. */
+.eb-exec-card {
+  background-color: #f2f2f2;
+  border: none;
+}
+
+.eb-exec-title,
+.eb-exec-command,
+.eb-exec-output {
+  color: @eb_text_primary;
+  font-family: monospace;
+}
+
+.eb-exec-output {
+  background-color: transparent;
+}
+
 /* Table block: a rounded card with a tinted header row and hairline
  * separators, `padding: 8px 12px` per cell.
  *
@@ -629,7 +690,7 @@ button.eb-icon-mini:hover {
 
 .eb-th label {
   color: @eb_text_tertiary;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -640,7 +701,7 @@ button.eb-icon-mini:hover {
 
 .eb-td label {
   color: @eb_text_primary;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 /* Streaming footer: 26.25px tall, 8px gap, muted. */

@@ -83,8 +83,8 @@ pub trait AnswerSource: Send + Sync + 'static {
 - 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`;
 - `Contribs` 仍是挂载期快照,运行期贡献热更新未做(agent 内容走 `AgentEvent`)。
 
-测试:`eb-api` 4 个(事件增量、失败、空 prompt、有界队列背压),demo-agent 4 个
-(完整事件、fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
+测试:`eb-api` 4 个(事件增量、失败、空 prompt、有界队列背压),demo-agent 5 个
+(完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
 
 ## 3. 线程模型
 
@@ -137,7 +137,7 @@ Node 进程模型上。
 - ✅ 顺序:同一任务的 user turn 先于 agent 事件;新提交把旧回答标成 `Cancelled`。
 - ✅ 测试:`cargo test` 覆盖 sink 关闭、取消、事件顺序;Linux/macOS verify 跑
   fake streaming/cancel。
-- ✅ demo agent 同步适配,保持原有 UI 与截图(`5b0eef6b…` 未变)。
+- ✅ demo agent 同步适配;M2.0a 时截图仍为 `5b0eef6b…`,M2.2 因 table/宽度调整后 baseline 为 `fc267c54…`。
 - ✅ M2.0b:专用 runtime 线程、有界 channel(容量 64)、UI stop、start panic
   隔离、慢流期间 UI 可交互的 harness 已完成。
 - ⏳ 仍待:真实 agent 的工具调用/usage 渲染、贡献热更新、dsh sidecar 边界。
