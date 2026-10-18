@@ -85,6 +85,8 @@
 
 **插件化骨架（M1，v0.4.0）**：`prototype/` 的测量工作区裁决了插件运行时（rutis + `wasm32-wasip1`，见 `prototype/probes/README.md`），M1 据此把仓库 workspace 化：`crates/eb`（GTK 宿主：渲染器、装配、EB_* 审计）、`crates/eb-api`（**插件唯一可依赖的 surface**：数据词汇、贡献注册表、`EbPlugin`/`AnswerSource`）、`crates/plugins/`（内置插件：`nav`/`notices`/`composer`/`demo-agent`）、`vendor/rutis`（vendored，收窄 tokio 特性）。两个架构决策：**数据插件 + 宿主渲染**（插件产出纯数据视图，永不触碰 widget——线程契约一句话，像素纪律单点收敛）；**M1 不设内核线程**（内置插件无异步工作，单线程 current_thread tokio 在挂载期 `block_on` 即可，点击审计逐字节稳定；内核线程桥推迟到第一个异步插件出现时再立）。demo-agent 以 `AnswerSource` **服务**（`ctx.provide_as` trait 对象）而非贡献项存在——它是将来被真实 agent 替换的接缝。**等值证据**：改造前后 welcome/demo 两张渲染 PNG SHA 逐字节一致、点击审计 31 行的步骤与文案全等。顺带记录审计的两处**环境敏感**字段：toplevels 计数（macOS 会话有时预建隐藏 `GtkTooltipWindow`）与 popover 绝对坐标（含窗口服务选择的窗口原点）——同二进制两次运行也会不同，比较审计应看步骤与文案而非整行 diff（旧代码同样波动，已用 stash 实验证明）。dsh 兼容路线（Node+Cordis 宿主、服务由 Rust 兑现、"同步返回活对象的注册表必须与插件同进程"的裁决）原样保留在 `prototype/`，不进入 UI 构建。
 
+**v0.4.0（run 39089801107，六个任务全绿）**：插件化骨架（M1）首次发布——workspace 化后的 `crates/eb`（宿主）/ `crates/eb-api`（surface）/ `crates/plugins/*`（内置插件）/ `vendor/rutis` 全链路在三平台 CI 上构建并验证通过：Linux 裸 Debian 10.13 上 tar 树与 AppImage 照旧断言渲染逐字节一致；macOS 双架构照旧审计 load command 并藏起 Homebrew prefix 真跑。等值迁移的证据（截图 SHA 逐字节一致、31 行点击审计全等）与两个架构决策见 §2"插件化骨架（M1）"段。发布资产 14 个，与 v0.3.0 同构。
+
 ## 3. 设计 Token 体系
 
 ### 3.1 分层

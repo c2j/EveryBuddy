@@ -13,7 +13,7 @@
 | macOS arm64 / x86_64 | `evobuddy-<v>-macos-<arch>.tar.gz`(内含自包含 `EvoBuddy.app`) | 每条 load command 静态审计 + **把 Homebrew prefix `chmod 000` 藏起来**真跑几何自检 | ✅ CI(macos-15 / macos-15-intel) |
 | Windows x86_64 | `evobuddy-<v>-windows-x86_64.zip` | **无验证环境**;只带 DLL 不带 GTK 数据文件 | ⏸ 刻意挂起(软失败,不阻塞发布) |
 
-- 已发布: v0.2.0(首个正式版)→ v0.2.1(+单文件 AppImage)→ v0.3.0(+macOS 双架构)→ v0.4.0(插件化骨架)。v0.4.0 的 CI 在本文定稿时进行中(五构建任务已四绿,release 在其后),结果以 GitHub 为准。
+- 已发布: v0.2.0(首个正式版)→ v0.2.1(+单文件 AppImage)→ v0.3.0(+macOS 双架构)→ v0.4.0(插件化骨架;run 39089801107 六任务全绿,14 个资产已发布)。
 - 下限:Linux 要求 glibc ≥ 2.28(精确等于,无余量;Rust std 决定);macOS 下限取自 libgtk 的 `LC_BUILD_VERSION`(随 Homebrew 档次浮动);Windows 仅 UCRT64(Win10+)。
 
 ### 1.2 UI 复刻状态
@@ -111,7 +111,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 
 ## 五、近期待办(按序)
 
-1. v0.4.0 CI 收尾确认;把结果记进 spec(与 v0.2.1/v0.3.0 同款段落)。
+1. ~~v0.4.0 CI 收尾确认;结果已记进 spec~~(已完成,2026-10-18)。
 2. M2.0 线程桥 + 单测。
 3. M2.1 产品补采集(需要产品环境配合,建议约一次联调)。
 4. M2.2 内容块插件(diff → exec → table → chips → 用量环,逐块进 spec 与审计)。
