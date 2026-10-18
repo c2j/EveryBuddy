@@ -32,6 +32,8 @@ mod agent;
 mod composer;
 mod conversation;
 mod detail;
+#[cfg(target_os = "macos")]
+mod dsh_web;
 mod host;
 mod markdown;
 mod icons;
@@ -298,5 +300,10 @@ fn build_ui(application: &gtk::Application) {
     // returns, every later agent/UI update silently finds no view to repaint.
     // Keep the app-lifetime model alive explicitly; the process exit is the
     // natural drop point.
+    #[cfg(target_os = "macos")]
+    if let Ok(url) = std::env::var("EB_DSH_WEB_URL") {
+        dsh_web::open(&url);
+    }
+
     std::mem::forget(views);
 }

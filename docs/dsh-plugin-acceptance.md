@@ -32,22 +32,17 @@ A real dsh **client** plugin is React/Cordis UI; rendering it inside this GTK
 app would need a WebView or a separate JS client process. That is not in the
 current build.
 
-## 2. Visible port: `dsh-client-ui-message-feedback`
+## 2. Real UI: DSH Web in WKWebView
 
-To evaluate the *effect* in the running app without pretending to load JS, a
-small rutis plugin (`crates/plugins/eb-plugin-dsh-feedback`) ports the
-declaration of DSH's Like/Dislike pair onto EvoBuddy's `MessageAction`
-contribution surface.
+The actual dsh Web client and its plugin manager now load in a native WebKit
+window. This is not a port: the same `dsh web` process and the same client
+plugins that run in a browser run in the WebView. See
+[`dsh-webview.md`](dsh-webview.md) for the run command and screenshot harness.
 
-- Source of the effect: `@deepseek-ai/dsh-client-ui-message-feedback`
-- Rendered: two 16px thumb buttons at the end of a finalized assistant turn
-- Click: a small popover says Liked/Disliked and that it was recorded locally
-- This is a **port**, not a JS loader; the tooltip and this page say so
-- Screenshot harness: `EB_DEMO=1 EB_SELFTEST=1 EB_SHOT=/tmp/eb-feedback2.png`
-
-The plugin is still useful as a plugin-surface acceptance: the host renderer
-only knows `MessageAction { id, icon, tooltip }`; adding/removing the plugin
-changes the action strip without touching `conversation.rs`.
+The earlier `eb-plugin-dsh-feedback` action strip is a **port used only as a
+plugin-surface demo**, not the acceptance result; it is gated behind
+`EB_DSH_FEEDBACK=1` and is not mounted by default. The WebView is the route
+that keeps dsh plugins unmodified.
 
 ## 3. What a faithful JS plugin integration would take
 
