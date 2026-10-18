@@ -407,6 +407,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 1. 点击 chip **不会**填充输入框、也不会切换路由。唯一的 DOM 差异是工具条**右组**多/少一个 32×32 的 **`cr-context-usage` 上下文用量环**（+4px gap = 36px），左组因为是弹性容器而反向变化同样幅度（实测 1303 ⇄ 1231 设备像素 ⇒ 651.5 ⇄ 615.5 CSS px）。
 2. 会话顶栏**只有两个**操作按钮（曾按 3 个实现，已删除）。
 3. 分段控件的选中类是 `wb-segmented__item--active`，`wb-scene-tabs` 实测 163.74×36 @778.1,185（内层 `wb-segmented` 159.74×32，滑块 `wb-segmented__thumb--measured` 79×32）——与 §4.3 的推测吻合。
+4. **M2.1 补采（2026-10-18，5.8.4）修正会话宽度**：没有 artifact 面板时 frame 为 **752**；打开面板后 frame 收窄为 **500**，右侧面板仍 **579**。§4.4 的 500+40 gutter 只适用于面板打开态；详细块尺寸见 §5.3。
 
 ## 5. 组件清单（主工作区）
 
@@ -467,6 +468,38 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 1. **点击 chip 不填输入框、不导航。** 录制里点击 chip 后唯一的 DOM 差异是输入工具条右组的 `cr-context-usage` 上下文用量环出现/消失（32×32 + 4px gap = 36px），左组因为是弹性容器而反向变化同幅度。因此「chip 预填输入框」是实现侧的选择而非产品行为：`spec::CHIP_PROMPTS` 存整句提示语，点击即填入输入框（已在 §4.4 记录）。
 2. **顶栏只有两个操作按钮**（搜索、分享），此前按 3 个实现（多了一个结果面板开关）属于**虚构，已删除**。重新打开已关闭的结果面板改由点击侧栏任务行完成（`open_task` 同时把 `detail_visible` 置为 `artifact.is_some()`）。
 3. **分段控件**：`wb-scene-tabs` 163.74×36 @778.1,185，`wb-segmented` 159.74×32，滑块 `wb-segmented__thumb--measured` 79×32，选中类 `wb-segmented__item--active`——全部与 §4.3 的实现尺寸一致。
+
+### 5.3 内容块实测（v5.8.4，2026-10-18）
+
+采集条件：WorkBuddy AI 5.8.4 / Electron 37.10.3 / Chromium 138，macOS 26.2，
+客户区 1440×868，DPR 2，locale en-US；只读 CDP，按状态命名抓取
+`screenshot.png` + `dom-snapshot.json` + `layout.json`。数值为 CSS px。
+
+**关键布局修正**：没有 artifact 面板时，会话 frame 是 **752** 宽（不是 580）；
+打开 artifact 面板后，会话 frame 收窄到 **500**，右侧 `sidebar-next` 仍为
+**579**。§4.4 的 500+40 gutter 只描述“面板打开”的情况，M2.2 要按这个宽度切换。
+
+| 块 | 外层/关键尺寸 | 关键样式 |
+|---|---|---|
+| `cr-collapse` | 宽 752；header 26.25 高；collapsed 高 26.25；展开后 content 从 header 下方 26.25 开始 | header gap 8；title 15px/400 `rgba(0,0,0,.5)`；chevron 12×12；`cr-tool-exp` 752×318.5，padding `2px 0` |
+| `cr-tool-diff` | `cr-tool-write__body` 752×278；viewport 750×252（12 行） | 圆角 16；gap 12；line 750×21，padding `0 16px`，gap 6，12px 等宽；sign 14，code 698；add `#e7f9ef`，remove `#fef0f0`，context 透明 |
+| `cr-tool-exec` | `cr-tool-exp__content` 752×300；title/command 720 宽；200 行输出 720×3600 | 圆角 16；bg `#f2f2f2`；padding `12px 16px`；gap 4；12px/行高 19.2（输出 18px/行）；输出区纵向滚动 300 |
+| `cr-table-block` | 752×476.75；内层 750×474.75；header 42.75；行 43.25；10 行 | 外圆角 12；header bg `#f7f7f7`，padding `8px 12px`，15px/600；单元格 padding `8px 12px`，15px/400；列宽约 211/317/222；打开 artifact 时 500 宽 |
+| `cr-context-usage` | 按钮 32×32（圆角 16），环 16×16；popover 280×244 | popover 圆角 16、padding 16；百分比 20px/700；条 246×8 圆角 3，track `rgba(0,0,0,.08)`；图例 246×126 gap 4 |
+| `cr-agent__processing-status` | 100.28×26.25 | 15px/400 `rgba(0,0,0,.5)`；运行中命令行有 `cr-tool-head__primary--loading`；示例 `Processed 13s` / `Running command | Used ◇ 0.8` |
+
+用量环的分段颜色（本次采集）：System Prompt `#6366f1`、Tools `#10b981`、
+Conversation `#f59e0b`、MCP `#8b5cf6`、Skills `#ec4899`；示例数值
+`20.8% / 36.6K of 176.0K` 只是该次运行的读数，不应写死。
+
+**状态覆盖**：`cr-collapse--collapsed`、`cr-collapse--completed`、展开态、
+`cr-tool-diff` 的 all-add 与 mixed、exec 长输出、table 默认/artifact 打开、
+usage popover、processing/done 都已采集。`cr-collapse--summary` 与
+`cr-status-chips` 在 5.8.4 本次采集中**没有出现**；不要按旧类名硬实现，标为
+未采集。
+
+可复用数据在 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`；渲染器尚未按这些
+数值实现（M2.2）。
 
 ## 6. 屏幕清单（全量 143 个 CSS module）
 
@@ -579,7 +612,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 7. **UI 字族未在 token 层定义** —— 由基础 CSS 直接声明；产品的 `"Segoe UI (Custom)"` / `"Open Sans (Custom)"` 是改名后的自包含字体，**不得打包**，必须换自有字体并重测字宽（会影响上述所有文本宽度）。
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
-10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
+10. **工具调用只做了折叠态** —— 5.8.4 已补采 `cr-collapse` 展开/完成/折叠、`cr-tool-diff`（all-add 与 mixed）、`cr-tool-exec` 长输出、`cr-table-block`、`cr-context-usage` popover、`cr-agent__processing-status`；数值与类名见 §5.3，fixture 见 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。**M2.2 的渲染器尚未实现**，当前实现仍把结果面板正文渲染成单块静音文本、工具行只保留折叠行。`cr-status-chips` 在 5.8.4 本次采集中未出现，标为未采集。
 11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 

@@ -62,6 +62,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 5. **P0 验证加固**:`EB_ASSERT` / `EB_CLICK_ASSERT` 落地并接入 Linux 裸机与 macOS verify;新增 `.github/workflows/check.yml`(push/PR `cargo test --workspace`);Linux aarch64 与 macOS arm64 均通过。计划文档校正(24 条计数、26 步/31 行、三处环境敏感字段、发布闸门与 spec 计划指针)。
 6. **M2.0a + P0.4**:`AnswerSource` 改为事件流契约;demo agent 保持像素等值(`5b0eef6b…` 仍一致);fake streaming agent、完成/取消 harness、模型/事件/取消测试全部落地;Linux 与 macOS verify 都跑 fake streaming/cancel/stop/panic。
 7. **M2.0b**:`AgentRuntime` 专用线程 + current-thread tokio;`AgentSink` 改为容量 64 的有界队列;`start` panic 经 `catch_unwind` 转 `Failed`;send 按钮流式期间变 stop;Linux/macOS verify 增加 stop 与 panic 用例。
+8. **M2.1 采集**:WorkBuddy AI 5.8.4 的 8 个状态已落 spec §5.3 与 fixtures;修正了 752/500 会话宽度;`cr-status-chips`/`--summary` 未出现。
 
 ## 三、后续规划
 
@@ -87,9 +88,9 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 **M2.0 验收**:demo 两张截图 SHA 不变(`ebb489b4…` / `5b0eef6b…`);fake 完成/API 取消/UI stop/启动 panic 在 Linux 与 macOS verify 通过;有界队列背压与 sink 关闭有单元测试。
 
-**M2.1 产品补采集**(前置,外部长周期;现在排期):驱动产品产生工具调用的**展开卡**(`cr-collapse` 浅绿 `#e7f9ef`)、`cr-tool-diff`(行级 +42/−0)、`cr-tool-exec`、`cr-table-block`、`cr-status-chips`、`cr-context-usage` 用量环的 DOM/几何捕获,进 spec **§5(组件)/§4(几何)**,不是 §6(屏幕清单)。固定产品版本与采集日期,清洗个人数据,落成可复用 fixtures;需要真实环境配合。采集清单已写在 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md),拿到环境即可执行。
+**M2.1 产品补采集**(前置,外部长周期)✅ 已完成(2026-10-18):WorkBuddy AI 5.8.4 / macOS 26.2 / 1440×868 / DPR2 / en-US,只读 CDP 采集了 `cr-collapse` 折叠+完成+展开、`cr-tool-diff` all-add 与 mixed、`cr-tool-exec` 200 行长输出、`cr-table-block` 默认与 artifact 打开、`cr-context-usage` popover、`cr-agent__processing-status` 运行/完成态。数值与类名落在 spec **§5.3**,可复用 fixture 在 [`docs/ui-spec/fixtures/blocks/captured-5.8.4.json`](ui-spec/fixtures/blocks/captured-5.8.4.json)。**采集修正**:无 artifact 时会话 frame 是 752,打开后收窄到 500;`cr-collapse--summary` 与 `cr-status-chips` 在本次 5.8.4 采集中未出现,标为未采集。
 
-**M2.2 内容块模型 + 插件化**(中):先扩 `Block` 数据模型(diff / exec / table / chips / usage),定义未知块的 fallback;再以 `ConversationBlock` 贡献面实现上述块,宿主渲染器加对应分支。贡献面只传数据,不传 widget。这是"最大可见保真缺口"(spec §10-10)。
+**M2.2 内容块模型 + 插件化**(中,下一步):先扩 `Block` 数据模型(diff / exec / table / usage;`chips` 未采集,先不做),定义未知块的 fallback;再以 `ConversationBlock` 贡献面实现上述块,宿主渲染器加对应分支。贡献面只传数据,不传 widget。这是"最大可见保真缺口"(spec §10-10)。先按 §5.3 的 752/500 宽度切换规则做布局。
 
 **验收**:每块几何与配色进 spec,并进入 `EB_SELFTEST` / `EB_CLICK_ASSERT` 的断言范围;M2.0c 的 fake agent 在 CI 可跑。
 
@@ -100,7 +101,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - 缺口 3:输入卡 `box-shadow` 被 GTK 裁剪——Cairo 自绘或外层留 padding(需对照产品截图定方案)。
 - 缺口 4:输入卡 800×144 vs 800×142 的 2px(会话态还有 532×134 vs 531×132 的 1px/2px,一并查)。
 
-**P1b(依赖 M2.1 的采集)**
+**P1b(M2.1 已采集,可做)**
 - 缺口 14:会话顶栏 24px 左内缩成因(实测 x=304 vs 实现 297)。
 - 缺口 16:长标签省略实测(Monaco 近似体的行宽/换行差异一并记录)。
 - 缺口 13(三栏 1px sash)与缺口 9(z-index 层级表):补进 P1,或明确写成"接受/延后"。
@@ -147,7 +148,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 1. ~~v0.4.0 CI 收尾确认;结果已记进 spec~~(已完成,2026-10-18)。
 2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
-3. **并行启动**:M2.1 采集(清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md));M2.0a 已完成(协议与实现映射见 [`docs/m2-async-agent.md`](m2-async-agent.md);A 方案进程内 Rust)。
+3. ~~M2.1 采集:清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md)~~(已完成,2026-10-18;结果见 spec §5.3 与 fixture)。
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
 5. **M2.2**:内容块数据模型 + 渲染器,逐块进 spec 与断言。
 6. **P1a**(缺口 6/3/4)与 **P3**(CJK 输入)可穿插;P1b/P2/P4/P5 按依赖推进。

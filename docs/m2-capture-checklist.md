@@ -1,8 +1,46 @@
 # M2.1 产品采集清单
 
-> 目的:为 M2.2 的工具调用展开卡、diff、exec、表格、status chips 与用量环取得
+> 状态:2026-10-18 已按本清单完成 WorkBuddy AI 5.8.4 的采集;结果见
+> `docs/ui-spec/ui-spec.md` §5.3 与 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。
+> 未出现:`cr-collapse--summary`、`cr-status-chips`。
+>
+> 目的:为 M2.2 的工具调用展开卡、diff、exec、表格与用量环取得
 > **可复现的几何/样式证据**,而不是从类名猜。采集只读,产物只进临时目录;仓库里
 > 只留数值、结构与**自有**占位文案。
+
+## 0. 启动 CDP 与采集目录
+
+先完全退出已有的产品实例(带 flag 启动不会接管旧进程),然后带远程调试端口启动:
+
+```bash
+# macOS,按实际 app 名调整
+open -a "WorkBuddy" --args --remote-debugging-port=9333
+# 若 open 没有把 flag 传进去,直接跑 app 内的可执行文件:
+# "/Applications/WorkBuddy.app/Contents/MacOS/WorkBuddy" --remote-debugging-port=9333
+
+# 确认 CDP 可达;应列出 renderer/index.html 的 page target
+curl -s http://127.0.0.1:9333/json/list | head
+```
+
+如果 WebSocket 被 Chromium 拒绝(close code 1006),在启动参数里加
+`--remote-allow-origins=*`。
+
+采集输出只放临时目录:
+
+```bash
+cd /path/to/EvoBuddy
+rm -rf /tmp/evobuddy-m21 && mkdir -p /tmp/evobuddy-m21
+node docs/ui-spec/watch_dom.js /tmp/evobuddy-m21/watch
+```
+
+`watch_dom.js` 在另一个终端持续录制(每 4 秒一轮,只有可见类名变化才保留);
+停止时 `touch /tmp/evobuddy-m21/watch/STOP`。关键状态建议再手工命名抓一份:
+
+```bash
+cap() { node docs/ui-spec/capture_dom.js "/tmp/evobuddy-m21/$1"; }
+cap 01-collapse-expanded
+# ... 摆好下一个状态后继续
+```
 
 ## 1. 环境与版本
 
