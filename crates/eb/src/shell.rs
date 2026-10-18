@@ -363,6 +363,27 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
     // `show_all` first, then repaint: `refresh` is what sets the pane
     // visibilities, and running it afterwards means no frame is drawn in
     // between.
+    // A window restored off-screen (macOS can remember a position on a display
+    // above the built-in one) makes the app look dead even though events apply.
+    // Move it to the primary monitor's origin; GDK monitor coordinates are not
+    // always the same as CGWindow's, especially with a display arranged above.
+    if let Some(display) = gtk::gdk::Display::default() {
+        if let Some(monitor) = display.primary_monitor() {
+            let geometry = monitor.geometry();
+            views.window.move_(geometry.x(), geometry.y());
+        }
+        if std::env::var_os("EB_DEBUG").is_some() {
+            for index in 0..display.n_monitors() {
+                if let Some(monitor) = display.monitor(index) {
+                    eprintln!(
+                        "monitor {index}: {:?} primary={}",
+                        monitor.geometry(),
+                        monitor.is_primary()
+                    );
+                }
+            }
+        }
+    }
     views.window.show_all();
     views.refresh(store);
 }
@@ -373,6 +394,9 @@ impl Views {
     /// Regions are rebuilt rather than diffed. That is cheap at this scale and
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("refresh: enter");
+        }
         let app = store.borrow();
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresh: begin tasks={}", app.tasks.len());

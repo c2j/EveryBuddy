@@ -198,6 +198,8 @@ impl Runner {
             self.refresher.request();
             return;
         };
+        // Paint the user's turn before waiting for any agent handshake.
+        self.refresher.request_now();
 
         let (sink, stream) = AgentSink::channel();
         let handle =
