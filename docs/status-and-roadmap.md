@@ -97,6 +97,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - ✅ diff 卡(浅绿、行级配色、252 视口)、exec 卡(`#f2f2f2`、300 视口、200 行输出)、table 字号/表头样式。
 - ✅ 会话 frame 752(无 artifact)/500(有 artifact),输入区 832/580;`EB_ASSERT` 已断言 `eb-messages`/`eb-chat-card` 宽度;Linux/macOS verify 增加 `EB_DEMO_BLOCKS=1`。
 - ✅ `cr-collapse` 工具组(收/展,chevron 在标题后)、`cr-context-usage` 环(仅在 agent 上报 Usage 时显示)与最小 popover;demo 第二个回答用 Group 包住 diff/exec/table。
+- ✅ 关键运行时修复(2026-10-18):`Views` 在 `build_ui` 返回后被 drop,refresh 的 `Weak` 全部失效;现保留到进程生命周期。另修 primary monitor 定位与 agent 事件直接重绘。真实 opencode 普通运行路径已能显示对话。
 - ⏳ 尚未做:usage popover 的五类分解(采集到但事件流没有分类数据)、`ConversationBlock` 贡献面、未知块 fallback、旧 CSS 字面量迁移。
 
 **验收**:每块几何与配色进 spec,并进入 `EB_SELFTEST` / `EB_CLICK_ASSERT` 的断言范围;M2.0c 的 fake agent 在 CI 可跑。
@@ -116,6 +117,8 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - ✅ 缺口 4:welcome 输入卡改为 800×144,会话卡 531/783×134(产品 532/784×134,1px 为 sash 折中)。
 
 **P1b(M2.1 已采集,可做)**
+- ✅ 缺口 16(部分):工具状态/详情、错误状态、diff/exec 长内容已加 ellipsize/width_chars/滚动约束,不再把窗口撑宽;未逐像素比对长标签。
+- ✅ 缺口 13/9:接受 1px sash 折中;当前弹层是窗口内 popover,不需要额外 z-index 表,记录为已接受。
 - ✅ 缺口 14:会话顶栏左内缩改为 24px(产品 x=304;实现此前 297)。
 - 缺口 16:长标签省略实测(Monaco 近似体的行宽/换行差异一并记录)。
 - 缺口 13(三栏 1px sash)与缺口 9(z-index 层级表):补进 P1,或明确写成"接受/延后"。
@@ -128,11 +131,10 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 - 缺口 22:带 `im-ibus.so` + `libibus-1.0.so.0`(并验证 `GTK_IM_MODULE=ibus` 可达),否则自带栈里中文输入只有 XIM,现代桌面基本不可用。对日常自用是实打实的提升。除 ibus 外,至少把 fcitx5/XIM 的降级路径写进验证清单。
 
-### P4 人工核验清单(小,需要真窗口)
+### P4 人工核验清单(小,需要真窗口)✅ 清单已落地
 
-- 缺口 18:IME 组合态下 Enter(自动化无法提供)。
-- 缺口 21:popover 在活跃窗口下的呈现/焦点/点击外部关闭;overlay 滚动条实际观感。
-- 建议提供一份 5 分钟清单,按步骤截图回报;同时补一次真实桌面(Linux X11/Wayland + macOS)的 AppImage/.app 冒烟。
+- 清单见 [`docs/manual-verification.md`](manual-verification.md):ACP 文本/权限、dsh、多屏位置、IME 组合态、失败日志收集。
+- 缺口 18/21 仍需真实窗口逐项打勾;自动化无法模拟 IME 组合与真实权限点击。
 
 ### P5 内容词汇与文案(中)
 

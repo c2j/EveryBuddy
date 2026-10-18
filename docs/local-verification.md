@@ -99,7 +99,10 @@ EB_SEND_TEST=1 EB_SHOT=/tmp/evobuddy-send.png EB_SHOT_AFTER_MS=2000 cargo run
 EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS=acp \
 EVOBUDDY_ACP_CWD="$PWD" cargo run
 
-# 15) ACP：dsh profile（key 只放本地环境）
+# 15) 构建返回后的真实交互（不加 selftest；验证 Views 生命周期）
+EB_SEND_AFTER_MS=1000 EB_DEBUG=1 cargo run
+
+# 16) ACP：dsh profile（key 只放本地环境）
 EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" \
 EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" \
 DEEPSEEK_API_KEY="…" cargo run
@@ -118,6 +121,8 @@ DEEPSEEK_API_KEY="…" cargo run
   `Failed { message: "Cancelled" }`；panic 那次应看到
   `agent: start failed: the agent panicked while starting`。
 - `EB_ENTER=1`：应打印 `enter: before=welcome` 和 `enter: after=conversation`。
+- `EB_SEND_AFTER_MS`：在 `build_ui` 返回后模拟发送，应出现 `submit:`、
+  `runner: refresh_now` 和 `refresh: begin tasks=1`；这是 Views 生命周期回归。
 
 CI 里的同一条路径：Linux 跑
 `packaging/linux/verify.sh`（裸 Debian 10 + `EB_ASSERT` + `EB_CLICK_ASSERT` +
