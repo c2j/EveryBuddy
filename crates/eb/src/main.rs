@@ -223,6 +223,21 @@ fn build_ui(application: &gtk::Application) {
         views.refresh(&store);
     }
 
+    // Exercise the post-build_ui path: a real user click happens after this
+    // function has returned, when only the app-lifetime keepalive holds Views.
+    if let Some(ms) = std::env::var("EB_SEND_AFTER_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        let views = Rc::downgrade(&views);
+        gtk::glib::timeout_add_local_once(Duration::from_millis(ms), move || {
+            if let Some(views) = views.upgrade() {
+                views.welcome_composer.fill("hi");
+                views.welcome_composer.click_send();
+            }
+        });
+    }
+
     // ACP harness: submit and leave the window open so a delayed screenshot
     // (`EB_SHOT_AFTER_MS`) can catch the real stream after it settles.
     if std::env::var_os("EB_ACP_DEMO").is_some() {
@@ -256,4 +271,11 @@ fn build_ui(application: &gtk::Application) {
             });
         }
     }
+
+    // GTK owns the widgets, but `Views` is the Rust-side tree that the refresh
+    // callbacks upgrade from a Weak. If this Rc is dropped when `build_ui`
+    // returns, every later agent/UI update silently finds no view to repaint.
+    // Keep the app-lifetime model alive explicitly; the process exit is the
+    // natural drop point.
+    std::mem::forget(views);
 }
