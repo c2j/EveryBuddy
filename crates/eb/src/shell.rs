@@ -129,7 +129,12 @@ pub fn build(
     let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime);
     let submit = {
         let agent = agent.clone();
-        Rc::new(move |text: String| agent.submit(text))
+        Rc::new(move |text: String| {
+            if std::env::var_os("EB_DEBUG").is_some() {
+                eprintln!("submit: {} chars", text.chars().count());
+            }
+            agent.submit(text)
+        })
     };
     let pick = act2(store, &refresher, |app, picker: Picker, index: usize| {
         match picker {

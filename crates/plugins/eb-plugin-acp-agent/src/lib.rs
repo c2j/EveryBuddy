@@ -215,6 +215,13 @@ impl EbPlugin for AcpAgent {
 
 impl AnswerSource for AcpAgent {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle> {
+        if self.config.debug || std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!(
+                "acp: start ({} chars, command={})",
+                prompt.chars().count(),
+                self.config.program
+            );
+        }
         let cancelled = Arc::new(AtomicBool::new(false));
         let handle = AcpHandle {
             cancelled: cancelled.clone(),
