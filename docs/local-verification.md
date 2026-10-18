@@ -91,12 +91,15 @@ EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_a
 EB_ACP_DEMO=1 EB_PERMISSION_AUTO=allow \
 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
 
-# 13) ACP：本机 opencode（工具调用会弹 allow/reject 弹层；
+# 13) 鼠标发送路径（等价点击 send，而不是 Enter/直接 Runner API）
+EB_SEND_TEST=1 EB_SHOT=/tmp/evobuddy-send.png EB_SHOT_AFTER_MS=2000 cargo run
+
+# 14) ACP：本机 opencode（工具调用会弹 allow/reject 弹层；
 #     无人值守可加 EVOBUDDY_ACP_AUTO_APPROVE=1 绕过）
 EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS=acp \
 EVOBUDDY_ACP_CWD="$PWD" cargo run
 
-# 14) ACP：dsh profile（key 只放本地环境）
+# 15) ACP：dsh profile（key 只放本地环境）
 EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" \
 EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" \
 DEEPSEEK_API_KEY="…" cargo run

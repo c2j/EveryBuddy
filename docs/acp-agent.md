@@ -116,4 +116,4 @@ cargo run
 `EB_ACP_DEMO=1` 只提交一次、不提前退出；`EB_SHOT_AFTER_MS` 让截图等到 agent
 流稳定后再拍。`EB_FAKE_DEMO=1` 也可以和 ACP 环境变量一起用：它会在终端事件
 （`Finished`/`Failed`）后退出，适合 CI 做“能跑完”检查。无人值守测试可用
-`EB_PERMISSION_AUTO=allow|reject` 代替点击权限对话框。
+`EB_PERMISSION_AUTO=allow|reject` 直接回答权限请求，`EB_PERMISSION_CLICK=allow|reject` 自动点击弹层按钮（验证 UI 路径）。
