@@ -6,8 +6,8 @@ replicating the UI of the Tencent WorkBuddy AI desktop client.
 The app is `evobuddy` (display name **EvoBuddy**). The repository also keeps the
 upstream `notebook` example from
 [gtk3-rs](https://github.com/gtk-rs/gtk3-rs/tree/master/examples/notebook) as the
-validated GTK 3 + CJK-input baseline; it now lives in `src/bin/notebook/` and is
-documented further down.
+validated GTK 3 + CJK-input baseline; it now lives in
+`crates/eb/src/bin/notebook/` and is documented further down.
 
 ```bash
 cargo run                 # runs evobuddy (default-run)
@@ -113,11 +113,21 @@ EB_CLICK=1 cargo run
 # click: artifact tab close (x)   detail visible=false tabs=1
 ```
 
-It asserts nothing on its own: it prints, and you read the column. That is
-deliberate — most of the checks that matter (\"did the panel close\", \"did the
-route change\") are only meaningful next to the label, and a golden file would
-rot the moment the wording changes. `EB_CLICK_SIGNAL=1` emits `clicked` directly
+It prints by default, and you read the column. `EB_CLICK_ASSERT=1` turns the
+stable observations — route, visibility, notice copy, menu rows — into an
+exit-code assertion, which is what the Linux and macOS verify scripts use. The
+numeric columns that move with the window server, fonts and layout timing are
+deliberately not asserted. `EB_CLICK_SIGNAL=1` emits `clicked` directly
 instead of synthesising a press and a release with a window and a device.
+
+`EB_ASSERT=1` does the same for the geometry report: it asserts the fixed
+measured blocks and checks that every colour resolved, then exits non-zero on a
+mismatch. It skips the exact window size only when the screen is too small and
+GTK is right to clamp the window. CI runs it alongside the screenshot.
+
+For the full local launch + plugin checklist (manual UI passes, plugin boundary
+checks and troubleshooting), see
+[`docs/local-verification.md`](docs/local-verification.md).
 
 Popovers are not in the widget walk — GTK parents them to the window when they
 pop up — so the audit reads them through the input grab instead.
@@ -263,7 +273,9 @@ be discovered — re-exported loaders, unsigned-code SIGKILLs, the death of
 
 Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml): it calls the
 same `package.sh` / `verify.sh` a developer runs locally, and publishes the
-results as a GitHub release.
+results as a GitHub release. Every push and pull request also runs
+[`check.yml`](.github/workflows/check.yml) (`cargo test --workspace`), so a
+broken test does not wait for the next tag.
 
 | artifact                                  | built in                 | notes                                          |
 | ----------------------------------------- | ------------------------ | ---------------------------------------------- |

@@ -83,9 +83,9 @@
 
 **macOS（v0.3.0 起，双架构独立 .app）**：`packaging/macos/bundle.sh` 对着 Homebrew 的 GTK 3 栈构建，然后把每一条 load command 改写为 `@rpath`（连同给每个 Mach-O 补 rpath），产出自包含的 `EvoBuddy.app`（连 loaders、immodules、schema、图标全部内置；**不带字体**——macOS 上 pango 走 CoreText 而非 fontconfig，实测 `FONTCONFIG_FILE` 不影响度量，系统字体栈本就人人都有，且规格书的几何实测本来就是 macOS 侧的值）。`verify.sh` 的验证分三层：静态审计每条 load command 与 LC_RPATH（只允许 @ 包内路径与系统路径）；检查模板类文本无构建期路径泄漏；最后**把 Homebrew prefix `chmod 000` 藏起来真跑一遍**几何自检（macOS 26 已移除 `DYLD_PRINT_*`，"藏起来"比"观察"更强，退出时恢复）。本机 arm64 实测通过，且 hero=137×42 与规格书 macOS 实测一致；x86_64 交给 CI 的 `macos-15-intel`（Intel 镜像的最后一班，macos-13 已于 2025-12 关停）。踩坑全集在 `packaging/macos/README.md`：`otool -L` 首行是自身 install name、拷贝名必须跟随 load command 名而非 realpath 名、brew 库自带 `@rpath`+自身 `LC_RPATH`、librsvg loader 是 re-export 壳（`-change` 改不动 `LC_REEXPORT_DYLIB`，改用 `.dylib` 孪生）、Apple Silicon 上 dlopen 未签名代码直接 SIGKILL 且 `codesign --deep` 不签 Resources 下的 Mach-O（须逐个显式签名）、以及链接期要 `-headerpad_max_install_names`。CI 侧还发现：runner 屏幕小于 1440×868，GTK 会把默认窗口钳到工作区（1222×778）——这是 OS 的正确行为而非缺陷，macOS 侧的几何断言因此只盯与屏幕无关的不变量（sash x=280、composer 800×142、chips 800×32），窗口尺寸只作信息披露。
 
-**插件化骨架（M1，v0.4.0）**：`prototype/` 的测量工作区裁决了插件运行时（rutis + `wasm32-wasip1`，见 `prototype/probes/README.md`），M1 据此把仓库 workspace 化：`crates/eb`（GTK 宿主：渲染器、装配、EB_* 审计）、`crates/eb-api`（**插件唯一可依赖的 surface**：数据词汇、贡献注册表、`EbPlugin`/`AnswerSource`）、`crates/plugins/`（内置插件：`nav`/`notices`/`composer`/`demo-agent`）、`vendor/rutis`（vendored，收窄 tokio 特性）。两个架构决策：**数据插件 + 宿主渲染**（插件产出纯数据视图，永不触碰 widget——线程契约一句话，像素纪律单点收敛）；**M1 不设内核线程**（内置插件无异步工作，单线程 current_thread tokio 在挂载期 `block_on` 即可，点击审计逐字节稳定；内核线程桥推迟到第一个异步插件出现时再立）。demo-agent 以 `AnswerSource` **服务**（`ctx.provide_as` trait 对象）而非贡献项存在——它是将来被真实 agent 替换的接缝。**等值证据**：改造前后 welcome/demo 两张渲染 PNG SHA 逐字节一致、点击审计 31 行的步骤与文案全等。顺带记录审计的两处**环境敏感**字段：toplevels 计数（macOS 会话有时预建隐藏 `GtkTooltipWindow`）与 popover 绝对坐标（含窗口服务选择的窗口原点）——同二进制两次运行也会不同，比较审计应看步骤与文案而非整行 diff（旧代码同样波动，已用 stash 实验证明）。dsh 兼容路线（Node+Cordis 宿主、服务由 Rust 兑现、"同步返回活对象的注册表必须与插件同进程"的裁决）原样保留在 `prototype/`，不进入 UI 构建。
+**插件化骨架（M1，v0.4.0）**：`prototype/` 的测量工作区裁决了插件运行时（rutis + `wasm32-wasip1`，见 `prototype/probes/README.md`），M1 据此把仓库 workspace 化：`crates/eb`（GTK 宿主：渲染器、装配、EB_* 审计）、`crates/eb-api`（**插件唯一可依赖的 surface**：数据词汇、贡献注册表、`EbPlugin`/`AnswerSource`）、`crates/plugins/`（内置插件：`nav`/`notices`/`composer`/`demo-agent`）、`vendor/rutis`（vendored，收窄 tokio 特性）。两个架构决策：**数据插件 + 宿主渲染**（插件产出纯数据视图，永不触碰 widget——线程契约一句话，像素纪律单点收敛）；**M1 不设内核线程**（内置插件无异步工作，单线程 current_thread tokio 在挂载期 `block_on` 即可，点击审计逐字节稳定；内核线程桥推迟到第一个异步服务/插件出现时再立）。demo-agent 以 `AnswerSource` **服务**（`ctx.provide_as` trait 对象）而非贡献项存在——它是将来被真实 agent 替换的接缝。**等值证据**：改造前后 welcome/demo 两张渲染 PNG SHA 逐字节一致、点击审计 26 步（31 行 `click:` 输出）的步骤与文案全等。顺带记录审计的三处**环境敏感**字段：toplevels 计数（macOS 会话有时预建隐藏 `GtkTooltipWindow`）、popover 绝对坐标（含窗口服务选择的窗口原点）、以及代码区滚动宽度（本机连续运行观察到 579/656 与 579/646 两种读数）——同二进制两次运行也会不同，比较审计应看步骤与文案而非整行 diff（旧代码同样波动，已用 stash 实验证明）。dsh 兼容路线（Node+Cordis 宿主、服务由 Rust 兑现、"同步返回活对象的注册表必须与插件同进程"的裁决）原样保留在 `prototype/`，不进入 UI 构建。
 
-**v0.4.0（run 39089801107，六个任务全绿）**：插件化骨架（M1）首次发布——workspace 化后的 `crates/eb`（宿主）/ `crates/eb-api`（surface）/ `crates/plugins/*`（内置插件）/ `vendor/rutis` 全链路在三平台 CI 上构建并验证通过：Linux 裸 Debian 10.13 上 tar 树与 AppImage 照旧断言渲染逐字节一致；macOS 双架构照旧审计 load command 并藏起 Homebrew prefix 真跑。等值迁移的证据（截图 SHA 逐字节一致、31 行点击审计全等）与两个架构决策见 §2"插件化骨架（M1）"段。发布资产 14 个，与 v0.3.0 同构。
+**v0.4.0（run 39089801107，六个任务全绿）**：插件化骨架（M1）首次发布——workspace 化后的 `crates/eb`（宿主）/ `crates/eb-api`（surface）/ `crates/plugins/*`（内置插件）/ `vendor/rutis` 全链路在三平台 CI 上构建并验证通过：Linux 裸 Debian 10.13 上 tar 树与 AppImage 照旧断言渲染逐字节一致；macOS 双架构照旧审计 load command 并藏起 Homebrew prefix 真跑。等值迁移的证据（截图 SHA 逐字节一致、26 步点击审计全等）与两个架构决策见 §2"插件化骨架（M1）"段。发布资产 14 个，与 v0.3.0 同构。
 
 ## 3. 设计 Token 体系
 
@@ -608,16 +608,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 23. **Windows 7 / 8.1 未验证，且文档自相矛盾** —— 硬要求里有 Win7/8.1，而 §2 表原先写"GTK 3（MSYS2 构建）无 Win7 门槛"，README「Prebuilt binaries」却写"MSYS2 自 2024-05 起不再支持 Win7/8.0，因此没有可维护的 GTK 3 运行时"。二者必有一错。要分清**构建环境**与**目标机**：Cygwin/msys2-runtime 3.5 不支持 Win7 只影响构建侧；MinGW-w64 产物理论上仍可声明 `_WIN32_WINNT` 兼容 Win7，但新版 GLib 可能已调用 Win8+ API（如 `GetSystemTimePreciseAsFileTime`），这只能真机实测。需要一台 Win7/8.1 虚拟机才能定论，目前无法验证。
 24. **Windows 产物并不自包含（且未验证）** —— `evobuddy-<版本>-windows-x86_64.zip` 目前只带 GTK 3 的 DLL 与 exe，**不带 GTK 的数据文件**：GSettings schema、immodules、gdk-pixbuf loader cache、图标主题、字体。缺 `org.gtk.Settings.*` 时 GTK 会直接拒绝启动，所以这个 zip 在没装过 MSYS2/GTK 的机器上大概率起不来。Linux 侧靠启动器在运行时重写两份 cache 里的绝对路径；Windows 需要等价的 `.cmd` 启动器 + 真机验证，因此**刻意没有照抄一份没验证过的实现**。CI 里该任务设为 `continue-on-error`（不阻塞 Linux 发布），产物自带的 README 也如实写明"未验证、非自包含"。另外 UCRT64 目标是 Win10+，与缺口 23 的 Win7/8.1 问题叠加。（v0.2.1 起该 zip 带上了版本号并补了 `.sha256`，与 Linux 产物对齐；但"单文件"对 Windows 无解——GTK 3 无法静态链接进一个 exe。）
 
-**下一步（建议顺序）**
+**下一步**
 
-1. 在真实活跃窗口下人工复核下拉 popover 的呈现、焦点与点外关闭（缺口 21）。
-2. 补上工具调用展开卡、差异视图、表格块与 `cr-context-usage` 用量环（缺口 10）。
-3. 人工复核 IME 组合态下的 Enter 行为（缺口 18，自动化无法提供输入法）。
-4. 补上吉祥物、图标集与真实文案，把欢迎态收尾（缺口 1、2、5）。
-5. 解决输入卡投影：用 Cairo `draw` 自绘阴影，或确认 GTK 能否通过外层留白渲染出卡片外投影（缺口 3）。
-6. 修正结果面板标签的超长省略（缺口 16），并核对会话顶栏那 8px 内缩（缺口 14）。
-7. 把间距 / 圆角 / 字号纳入生成器，`ui/gtk.css` 只留结构规则（缺口 6）。
-8. Debian 10 容器验证自带 GTK 栈的可行性（缺口 11）。
-9. 切换 CI 到 `evobuddy` 并去掉 `notebook` bin（缺口 12）。
+规划统一维护在 [`docs/status-and-roadmap.md`](../status-and-roadmap.md)：P0 验证加固、M2（真实异步 agent + 会话内容块）、P1–P5 与发布合规闸门都在那里。本节只保留测量、决策、缺口与坑，避免两处计划漂移。
 
 
