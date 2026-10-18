@@ -147,6 +147,9 @@ impl AcpAgent {
 
         let mut slot = lock(&self.session);
         if slot.is_none() {
+            if self.config.debug {
+                eprintln!("acp: launching {}", self.config.program);
+            }
             match AcpSession::launch(&self.config) {
                 Ok(session) => {
                     let mut cancel = lock(&self.cancel);
@@ -258,6 +261,7 @@ struct AcpSession {
     session_id: String,
     agent_name: String,
     auto_approve: bool,
+    debug: bool,
 }
 
 impl AcpSession {
@@ -299,8 +303,12 @@ impl AcpSession {
             session_id: String::new(),
             agent_name: config.name.clone(),
             auto_approve: config.auto_approve,
+            debug: config.debug,
         };
 
+        if config.debug {
+            eprintln!("acp: initialize");
+        }
         let init = session.request(
             "initialize",
             json!({
@@ -341,6 +349,9 @@ impl AcpSession {
             .and_then(Value::as_str)
             .ok_or("session/new returned no sessionId")?
             .to_string();
+        if session.debug {
+            eprintln!("acp: session ready: {session_id}");
+        }
         session.session_id = session_id;
         Ok(session)
     }
@@ -353,6 +364,9 @@ impl AcpSession {
     ) -> Result<(), PromptError> {
         let id = self.next_id;
         self.next_id += 1;
+        if self.debug {
+            eprintln!("acp: session/prompt {id}");
+        }
         self.write(&json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -378,6 +392,9 @@ impl AcpSession {
 
             let message = self.read().map_err(PromptError::Message)?;
             if message.get("id").and_then(Value::as_u64) == Some(id) {
+                if self.debug {
+                    eprintln!("acp: prompt response {id}");
+                }
                 if let Some(error) = message.get("error") {
                     return Err(PromptError::Message(format!(
                         "session/prompt failed: {}",
