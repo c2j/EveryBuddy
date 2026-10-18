@@ -269,17 +269,7 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
 /// without any per-block spacing at the container level.
 fn block_widget(block: &Block) -> gtk::Widget {
     let widget: gtk::Widget = match block {
-        Block::Text(value) => {
-            let label = gtk::Label::new(Some(value));
-            label.set_line_wrap(true);
-            label.set_xalign(0.0);
-            label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
-            // A long unbroken token (JSON errors, URLs) otherwise becomes the
-            // label's minimum width and drags the whole window wider.
-            label.set_width_chars(1);
-            class(&label, "eb-text-block");
-            label.upcast()
-        }
+        Block::Text(value) => crate::markdown::render(value).upcast(),
         Block::Tool {
             status,
             primary,

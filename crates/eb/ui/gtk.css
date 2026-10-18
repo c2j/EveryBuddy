@@ -583,6 +583,53 @@ button.eb-icon-mini:hover {
   font-size: 15px;
 }
 
+/* Markdown message text and fenced code cards. */
+.eb-md-text {
+  color: @eb_text_primary;
+  font-size: 15px;
+}
+
+.eb-md-h1 {
+  color: @eb_text_primary;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.eb-md-h2 {
+  color: @eb_text_primary;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.eb-md-marker {
+  color: @eb_text_tertiary;
+  font-size: 15px;
+}
+
+.eb-code-block {
+  background-color: @bg_secondary;
+  border: 1px solid @border_strong;
+  border-radius: 12px;
+}
+
+.eb-code-header {
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid @border_strong;
+}
+
+.eb-code-language {
+  color: @eb_text_tertiary;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.eb-code {
+  color: @eb_text_primary;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 12px 16px;
+}
+
 /* Text block: 15px/400 at rgba(0,0,0,.9) on a 24px line. The vertical rhythm
  * (53px per one-line block) is widget margins in Rust, not type metrics. */
 .eb-text-block {

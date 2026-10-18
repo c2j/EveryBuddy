@@ -111,7 +111,7 @@ DEEPSEEK_API_KEY="…" cargo run
 期望：
 
 - `cargo test --workspace`：`eb-api` 5 个、`eb-plugin-demo-agent` 5 个、
-  `eb-plugin-acp-agent` 5 个、`evobuddy` 2 个测试通过，其余 crate 0 测试。
+  `eb-plugin-acp-agent` 5 个、`evobuddy` 4 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
 - `EB_CLICK_ASSERT=1`：最后一行 `click: assertions passed (26 steps)`，退出码 0。

@@ -33,6 +33,7 @@ mod composer;
 mod conversation;
 mod detail;
 mod host;
+mod markdown;
 mod icons;
 mod model;
 mod selftest;
@@ -242,7 +243,9 @@ fn build_ui(application: &gtk::Application) {
     // ACP harness: submit and leave the window open so a delayed screenshot
     // (`EB_SHOT_AFTER_MS`) can catch the real stream after it settles.
     if std::env::var_os("EB_ACP_DEMO").is_some() {
-        views.agent.submit(DEMO_PROMPT.to_string());
+        let prompt = std::env::var("EB_ACP_PROMPT")
+            .unwrap_or_else(|_| DEMO_PROMPT.to_string());
+        views.agent.submit(prompt);
         views.refresh(&store);
     }
 
