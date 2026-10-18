@@ -579,7 +579,9 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 
 **已在 GitHub 上跑通（v0.2.0，run 39022034107）**：四个任务全绿，两台 runner（ubuntu-24.04 x86_64 / ubuntu-24.04-arm aarch64）都在**裸 Debian 10.13**（无 gtk/pango/cairo/fontconfig 包、**0 个字体文件**）里跑通了各自的产物：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`、66 个已解析库中 6 个来自宿主（全是 glibc 家族）、最大符号 `GLIBC_2.28`，且 `install.sh` 实跑通过。产物 30M / 29M，已连同 SHA-256 与 Windows zip 发布在 release 里。
 
-**v0.2.1（run 39046105609，全绿：x86_64 2m15s / aarch64 2m26s / windows 3m23s）**：Linux 任务首次把 AppImage 也纳入裸机验证——`evobuddy-0.2.1-linux-{x86_64,aarch64}.AppImage`（28M / 27M）通过 type-2 魔数校验后，在**裸 Debian 10.13 上无 FUSE 执行**（`--appimage-extract-and-run`），渲染 PNG 与目录树**逐字节相同**（45209 字节；x86_64 与 arm64 互相一致，也与 macOS 历史值一致），glibc 下限不变（2.26/2.27/2.28）。Windows zip 更名为带版本号并补了 `.sha256`。release 资产共 11 个：每架构 `tar.gz` + `AppImage` + 两个 SHA-256，外加 Windows zip 与其校验和。
+**v0.2.1（run 39046105609，全绿：x86_64 2m15s / aarch64 2m26s / windows 3m23s）**：Linux 任务首次把 AppImage 也纳入裸机验证——`evobuddy-0.2.1-linux-{x86_64,aarch64}.AppImage`（28M / 27M）通过 type-2 魔数校验后，在**裸 Debian 10.13 上无 FUSE 执行**（`--appimage-extract-and-run`），渲染 PNG 与目录树**逐字节相同**（45209 字节；x86_64 与 arm64 互相一致，也与 macOS 历史值一致），glibc 下限不变（2.26/2.27/2.28）。Windows zip 更名为带版本号并补了 `.sha256`。release 资产共 11 个。
+
+**v0.3.0（run 39083116807，六个任务全绿）**：macOS 双架构独立 .app 首次进入发布——`macos-15`（arm64）与 `macos-15-intel`（x86_64，Intel 镜像的最后一班）上 `verify.sh` 全部通过：load-command 审计零泄漏、把 Homebrew prefix（`/opt/homebrew`、`/usr/local`）`chmod 000` 藏起后真跑几何自检通过。前两轮 CI 各抓到一个真问题：runner 屏幕小于 1440×868，GTK 把窗口钳到工作区（1222×778），几何断言改为只盯屏幕无关的不变量；SVG 挪到 `packaging/` 后构建镜像缺 `COPY`（本地镜像缓存盖住了它，只有干净环境的 CI 才看得见——正是 CI 存在的意义）。release 资产 14 个：Linux 每架构 `tar.gz`+`AppImage`、macOS 每架构 `.tar.gz`（内含自包含 `EvoBuddy.app`）、Windows zip，各带 SHA-256。
 
 **CI 第一次跑就抓到一个真 bug**（也印证了"必须真跑一次"）：`bundle.sh` 收尾的 `readelf` 统计在 `set -e` + `pipefail` 下必然退出 1（个别库如 `libcairo-gobject` 没有 `GLIBC_` 版本信息，`grep` 返回 1），顺带还把统计结果打印成了截断的错误集合。它躲过了此前所有本地验证，因为本地都是 `./package.sh | tail`——管道把退出码换成了 `tail` 的。教训已记进 `packaging/linux/README.md`。
 
