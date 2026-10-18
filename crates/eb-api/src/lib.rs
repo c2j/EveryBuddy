@@ -89,14 +89,20 @@ pub enum AgentEvent {
 /// tells the producer to stop.
 #[derive(Clone)]
 pub struct AgentSink {
-    tx: Arc<Mutex<mpsc::Sender<AgentEvent>>>,
+    tx: Arc<Mutex<mpsc::SyncSender<AgentEvent>>>,
 }
 
 impl AgentSink {
     /// Create a sink/stream pair. The host keeps the stream; the sink goes to
     /// [`AnswerSource::start`].
     pub fn channel() -> (AgentSink, AgentStream) {
-        let (tx, rx) = mpsc::channel();
+        Self::channel_with_capacity(64)
+    }
+
+    /// A bounded stream: once the queue is full, `send` blocks the producer
+    /// (not the GTK main thread) instead of growing memory without limit.
+    pub fn channel_with_capacity(capacity: usize) -> (AgentSink, AgentStream) {
+        let (tx, rx) = mpsc::sync_channel(capacity);
         (
             AgentSink {
                 tx: Arc::new(Mutex::new(tx)),
@@ -197,4 +203,39 @@ pub fn provide_answer(
 /// Read the answer source, wherever a plugin provided it.
 pub fn answer_source(ctx: &Ctx) -> Option<std::sync::Arc<dyn AnswerSource>> {
     ctx.get_as::<dyn AnswerSource>(rutis::TypeKey::of::<dyn AnswerSource>())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn a_full_queue_blocks_the_producer_until_the_host_drains() {
+        let (sink, stream) = AgentSink::channel_with_capacity(1);
+        sink.send(AgentEvent::Finished).unwrap();
+
+        let sent = Arc::new(AtomicBool::new(false));
+        let producer = {
+            let sink = sink.clone();
+            let sent = sent.clone();
+            thread::spawn(move || {
+                sink.send(AgentEvent::Finished).unwrap();
+                sent.store(true, Ordering::SeqCst);
+            })
+        };
+
+        thread::sleep(Duration::from_millis(50));
+        assert!(!sent.load(Ordering::SeqCst), "the second send should block");
+
+        assert!(matches!(stream.try_recv(), Ok(AgentEvent::Finished)));
+        assert!(matches!(
+            stream.recv_timeout(Duration::from_secs(1)),
+            Ok(AgentEvent::Finished)
+        ));
+        producer.join().unwrap();
+        assert!(sent.load(Ordering::SeqCst));
+    }
 }

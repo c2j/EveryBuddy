@@ -20,11 +20,11 @@ use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
 use eb_api::AnswerSource;
-use crate::agent::Runner;
+use crate::agent::{AgentRuntime, Runner};
 use crate::composer::{self, Composer, Picker, Variant};
 use crate::conversation::{self, Conversation};
 use crate::detail::{self, Detail};
-use crate::model::{App, Route, Scene, Store};
+use crate::model::{App, Route, Scene, Store, Turn};
 use crate::sidebar::{self, Sidebar, TaskRow};
 use crate::spec;
 use crate::widgets::*;
@@ -104,6 +104,7 @@ pub fn build(
     store: &Store,
     contribs: &Contribs,
     answer: Arc<dyn AnswerSource>,
+    agent_runtime: Arc<AgentRuntime>,
 ) -> (Views, Probes) {
     let app = store.borrow();
     let refresher = Refresher::new();
@@ -125,7 +126,7 @@ pub fn build(
     });
     let open_task = act1(store, &refresher, |app, index: usize| app.open_task(index));
     let scene = act1(store, &refresher, |app, scene: Scene| app.set_scene(scene));
-    let agent = Runner::new(store.clone(), refresher.clone(), answer);
+    let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime);
     let submit = {
         let agent = agent.clone();
         Rc::new(move |text: String| agent.submit(text))
@@ -157,8 +158,13 @@ pub fn build(
     // Built once and never rebuilt: a rebuild would discard typed text. Two
     // instances exist because a GTK widget has exactly one parent and the two
     // routes measure differently.
+    let cancel = {
+        let agent = agent.clone();
+        Rc::new(move || agent.cancel())
+    };
     let composer_wiring = composer::Wiring {
         submit: submit.clone(),
+        cancel,
         pick: pick.clone(),
     };
     let welcome_composer = Rc::new(Composer::new(
@@ -331,6 +337,23 @@ impl Views {
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
         let app = store.borrow();
+
+        // ---- the send button becomes stop while an answer streams -------
+        let streaming = match &app.route {
+            Route::Task(index) => app
+                .tasks
+                .get(*index)
+                .and_then(|task| {
+                    task.turns.iter().rev().find_map(|turn| match turn {
+                        Turn::Agent { streaming, .. } => Some(*streaming),
+                        Turn::User { .. } => None,
+                    })
+                })
+                .unwrap_or(false),
+            _ => false,
+        };
+        self.welcome_composer.set_streaming(false);
+        self.chat_composer.set_streaming(streaming);
 
         // ---- selection classes ------------------------------------------
         paint(&self.sidebar.nav, app.nav, "eb-nav-active");        let scene = match app.scene {

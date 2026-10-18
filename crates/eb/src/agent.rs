@@ -26,10 +26,88 @@ struct Active {
     stream: AgentStream,
 }
 
+/// A single thread that owns the agent runtime. `AnswerSource::start` runs here,
+/// not on the GTK main thread; the current-thread tokio runtime also stays
+/// alive so an agent that spawns tasks can make progress between starts.
+pub struct AgentRuntime {
+    tx: Option<tokio::sync::mpsc::UnboundedSender<Job>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl AgentRuntime {
+    pub fn new() -> Self {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
+        let thread = std::thread::Builder::new()
+            .name("evobuddy-agent".to_string())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("agent runtime");
+                runtime.block_on(async move {
+                    while let Some(job) = rx.recv().await {
+                        job();
+                    }
+                });
+            })
+            .expect("agent runtime thread");
+        AgentRuntime {
+            tx: Some(tx),
+            thread: Some(thread),
+        }
+    }
+
+    /// Run `source.start` on the runtime thread and wait for its handle. The
+    /// contract says `start` returns promptly; the wait keeps the handle/stream
+    /// handoff synchronous, which the rest of the host relies on.
+    pub fn start(
+        &self,
+        source: Arc<dyn AnswerSource>,
+        prompt: String,
+        sink: AgentSink,
+    ) -> Result<Box<dyn AnswerHandle>, String> {
+        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+        let tx = self
+            .tx
+            .as_ref()
+            .ok_or_else(|| "the agent runtime is gone".to_string())?;
+        tx.send(Box::new(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                source.start(&prompt, sink)
+            }))
+            .map_err(|_| "the agent panicked while starting".to_string());
+            let _ = reply_tx.send(result);
+        }))
+        .map_err(|_| "the agent runtime is gone".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "the agent runtime dropped the start request".to_string())?
+    }
+}
+
+impl Drop for AgentRuntime {
+    fn drop(&mut self) {
+        // Close the queue first, then wait for the loop to observe it and exit.
+        self.tx.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Default for AgentRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Runner {
     store: Store,
     refresher: Refresher,
     source: Arc<dyn AnswerSource>,
+    runtime: Arc<AgentRuntime>,
     active: RefCell<Option<Active>>,
     /// One timer serves whichever answer is current; starting another timer per
     /// submit would double-drain the same stream.
@@ -37,11 +115,17 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn new(store: Store, refresher: Refresher, source: Arc<dyn AnswerSource>) -> Rc<Self> {
+    pub fn new(
+        store: Store,
+        refresher: Refresher,
+        source: Arc<dyn AnswerSource>,
+        runtime: Arc<AgentRuntime>,
+    ) -> Rc<Self> {
         Rc::new(Runner {
             store,
             refresher,
             source,
+            runtime,
             active: RefCell::new(None),
             polling: Cell::new(false),
         })
@@ -60,7 +144,19 @@ impl Runner {
         };
 
         let (sink, stream) = AgentSink::channel();
-        let handle = self.source.start(&text, sink);
+        let handle = match self.runtime.start(self.source.clone(), text, sink) {
+            Ok(handle) => handle,
+            Err(message) => {
+                if std::env::var_os("EB_DEBUG").is_some() {
+                    eprintln!("agent: start failed: {message}");
+                }
+                self.store
+                    .borrow_mut()
+                    .apply_agent_event(task, AgentEvent::Failed { message });
+                self.refresher.request();
+                return;
+            }
+        };
         *self.active.borrow_mut() = Some(Active {
             task,
             handle,

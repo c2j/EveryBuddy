@@ -200,5 +200,28 @@ fi
 grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
 grep -q "fake-demo: finished" "$cancel_out"
 
+echo "== fake streaming agent (stop button) =="
+stop_out="$dist/macos-verify/fake-agent-stop.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=150 \
+     EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+     "$appdir/Contents/MacOS/evobuddy" >"$stop_out" 2>&1; then
+  echo "the fake streaming agent's stop-button run exited non-zero" >&2
+  tail -20 "$stop_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q 'Failed { message: "Cancelled" }' "$stop_out"
+grep -q "fake-demo: finished" "$stop_out"
+
+echo "== fake streaming agent (start panic) =="
+panic_out="$dist/macos-verify/fake-agent-panic.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 \
+     "$appdir/Contents/MacOS/evobuddy" >"$panic_out" 2>&1; then
+  echo "the fake streaming agent's panic run exited non-zero" >&2
+  tail -20 "$panic_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "agent: start failed: the agent panicked while starting" "$panic_out"
+grep -q "fake-demo: finished" "$panic_out"
+
 cmp -s "$out" "$out2" && echo "  second launch rendered the same layout" \
   || echo "  note: first and second launch reports differ"

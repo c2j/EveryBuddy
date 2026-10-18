@@ -1,11 +1,9 @@
 //! The host side of the plugin system: the rutis runtime, the mount of the
 //! built-in plugins, and the validated contribution set the renderers read.
 //!
-//! Threading, in one sentence: everything here runs on the GTK main thread, the
-//! built-in plugins are mounted once at startup, and their contributions are
-//! plain data the renderers read afterwards. Plugin code never touches a
-//! widget; a kernel-thread bridge arrives when a plugin first needs to be async
-//! (the demo agent's replacement will be the first one).
+//! Threading: plugin *mounting* and contribution reads happen on the GTK main
+//! thread. Agent answers run on [`AgentRuntime`]'s dedicated thread; the host
+//! drains their events on the main loop. Plugin code never touches a widget.
 
 use std::sync::{Arc, Mutex};
 
@@ -13,16 +11,18 @@ use rutis::{BoxFuture, Ctx, CordisError, Effect};
 
 use eb_api::contrib::Contribs;
 use eb_api::{AnswerSource, EbPlugin, Ui};
+use crate::agent::AgentRuntime;
 
 /// The mounted plugin system.
 pub struct Host {
     /// Lives as long as the host: dropping the runtime shuts the driver down —
-    /// the ctx's handle does not keep it alive. Nothing reads it yet; the
-    /// kernel-thread bridge (when a plugin first needs to be async) will.
+    /// the ctx's handle does not keep it alive. Used only for the mount.
     #[allow(dead_code)]
-    pub runtime: tokio::runtime::Runtime,
+    pub mount_runtime: tokio::runtime::Runtime,
     pub ctx: Ctx,
     pub contribs: Contribs,
+    /// Owns the dedicated agent thread and its tokio runtime.
+    pub agent_runtime: Arc<AgentRuntime>,
 }
 
 impl Host {
@@ -62,7 +62,13 @@ impl Host {
         });
 
         let contribs = contribs.lock().unwrap().clone();
-        let host = Host { runtime, ctx, contribs };
+        let agent_runtime = Arc::new(AgentRuntime::new());
+        let host = Host {
+            mount_runtime: runtime,
+            ctx,
+            contribs,
+            agent_runtime,
+        };
         host.validate();
         host
     }

@@ -122,6 +122,11 @@ impl FakeAgent {
 
 impl AnswerSource for FakeAgent {
     fn start(&self, _prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle> {
+        // Test hook: prove the host turns a panicking `start` into a Failed
+        // event instead of taking the window down.
+        if std::env::var_os("EB_FAKE_PANIC_START").is_some() {
+            panic!("fake agent: deliberate start panic");
+        }
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
         let delay = self.delay;

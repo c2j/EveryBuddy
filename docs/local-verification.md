@@ -69,25 +69,33 @@ EB_DEBUG=1 EB_SELFTEST=1 cargo run
 # 7) fake streaming agent：提交、等流结束、自动退出
 EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 cargo run
 
-# 8) fake streaming agent + 取消（应看到 Failed/Cancelled）
+# 8) fake streaming agent + API 取消（应看到 Failed/Cancelled）
 EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=300 \
   EB_FAKE_AGENT_CHUNKS=50 cargo run
 
-# 9) Enter 发送链路
+# 9) fake streaming agent + UI stop 按钮（点击 send 变体）
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=250 \
+  EB_FAKE_AGENT_CHUNKS=50 cargo run
+
+# 10) start panic 必须变成 Failed，而不是带崩窗口
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 cargo run
+
+# 11) Enter 发送链路
 EB_ENTER=1 cargo run
 ```
 
 期望：
 
-- `cargo test --workspace`：`eb-api` 3 个、`eb-plugin-demo-agent` 4 个、
+- `cargo test --workspace`：`eb-api` 4 个、`eb-plugin-demo-agent` 4 个、
   `evobuddy` 2 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
 - `EB_CLICK_ASSERT=1`：最后一行 `click: assertions passed (26 steps)`，退出码 0。
 - 截图后可用 `node docs/ui-spec/pngpx.js /tmp/evobuddy-chat.png` 查看像素；
   侧栏 `#f7f7f7`、路由 `#ffffff` 是规格值。
-- `EB_FAKE_DEMO`：应打印 `fake-demo: finished`；取消那次还要能看到
-  `Failed { message: "Cancelled" }`。
+- `EB_FAKE_DEMO`：应打印 `fake-demo: finished`；取消/stop 那两次还要能看到
+  `Failed { message: "Cancelled" }`；panic 那次应看到
+  `agent: start failed: the agent panicked while starting`。
 - `EB_ENTER=1`：应打印 `enter: before=welcome` 和 `enter: after=conversation`。
 
 CI 里的同一条路径：Linux 跑
@@ -176,13 +184,14 @@ notice 的 id，启动时应直接 panic 并报出缺失的贡献；测试完用
 - 超长 artifact 标签省略、overlay 滚动条观感。
 - Windows 产物（无验证环境，仍标“未验证”）。
 
-### M2.0a 当前限制
+### M2.0a/b 当前限制
 
-- 还没有 UI 取消按钮：目前只能用 `EB_CANCEL_AFTER_MS` 或 API 的 `cancel()` 验证。
+- UI stop 已可用；`EB_FAKE_STOP_AFTER_MS` 点击的就是用户点的那颗按钮。
 - `Usage` 事件已定义但模型还没有用量环，暂时忽略。
-- `AgentSink` 是无界 channel，背压留给 M2.0b；fake agent 目前用独立线程，
-  宿主的专用 runtime 线程也留给 M2.0b。
+- `AgentSink` 是容量 64 的有界队列；`AgentRuntime` 已有专用线程，
+  fake agent 自己起 worker 线程模拟异步生产者。
 - 同一个任务只支持一个在途回答；新提交会把旧回答标成 `Cancelled`。
+- `Contribs` 仍是挂载期快照，运行期贡献热更新未做。
 
 ## 6. 常见问题
 

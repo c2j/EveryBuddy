@@ -170,7 +170,13 @@ fn build_ui(application: &gtk::Application) {
     let host = host::Host::mount();
 
     let store = model::store(model::App::new());
-    let (views, probes) = shell::build(application, &store, &host.contribs, host.answer());
+    let (views, probes) = shell::build(
+        application,
+        &store,
+        &host.contribs,
+        host.answer(),
+        host.agent_runtime.clone(),
+    );
     let views = Rc::new(views);
 
     // Attach before the first `show_all`, so the harness still sees the very
@@ -197,10 +203,10 @@ fn build_ui(application: &gtk::Application) {
     // then quit. `EB_CANCEL_AFTER_MS` exercises the cancellation path.
     if std::env::var_os("EB_FAKE_DEMO").is_some() {
         views.agent.submit(DEMO_PROMPT.to_string());
-        let views = views.clone();
+        let poll_views = views.clone();
         let application = application.clone();
         gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
-            if views.agent.is_busy() {
+            if poll_views.agent.is_busy() {
                 gtk::glib::ControlFlow::Continue
             } else {
                 println!("fake-demo: finished");
@@ -208,5 +214,15 @@ fn build_ui(application: &gtk::Application) {
                 gtk::glib::ControlFlow::Break
             }
         });
+
+        if let Some(ms) = std::env::var("EB_FAKE_STOP_AFTER_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+        {
+            let composer = views.chat_composer.clone();
+            gtk::glib::timeout_add_local_once(Duration::from_millis(ms), move || {
+                composer.click_send();
+            });
+        }
     }
 }

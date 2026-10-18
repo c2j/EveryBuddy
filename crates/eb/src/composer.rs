@@ -44,6 +44,8 @@ pub enum Variant {
 #[derive(Clone)]
 pub struct Wiring {
     pub submit: Rc<dyn Fn(String)>,
+    /// Called by the send button while an answer is streaming.
+    pub cancel: Rc<dyn Fn()>,
     /// Called with the picker and the chosen index.
     pub pick: Rc<dyn Fn(Picker, usize)>,
 }
@@ -69,7 +71,10 @@ pub struct Composer {
     /// A 32x32 ghost button that only the Code scene shows. Measured: switching
     /// Work -> Code on the landing page changes nothing else in the DOM.
     pub enhance: gtk::Button,
+    send: gtk::Button,
     pristine: Rc<Cell<bool>>,
+    has_text: Rc<Cell<bool>>,
+    streaming: Rc<Cell<bool>>,
 }
 
 impl Composer {
@@ -98,9 +103,18 @@ impl Composer {
         // Measured: inactive while the input is empty.
         send.set_sensitive(false);
 
+        let has_text = Rc::new(Cell::new(false));
+        let streaming = Rc::new(Cell::new(false));
         let on_change: Rc<dyn Fn(bool)> = {
             let send = send.clone();
-            Rc::new(move |has_text: bool| send.set_sensitive(has_text))
+            let has_text = has_text.clone();
+            let streaming = streaming.clone();
+            Rc::new(move |value: bool| {
+                has_text.set(value);
+                if !streaming.get() {
+                    send.set_sensitive(value);
+                }
+            })
         };
 
         let (host, view, pristine) = editor(hint, editor_height, on_change);
@@ -198,7 +212,15 @@ impl Composer {
 
         send.connect_clicked({
             let submit = submit.clone();
-            move |_| submit()
+            let cancel = wiring.cancel.clone();
+            let streaming = streaming.clone();
+            move |_| {
+                if streaming.get() {
+                    cancel();
+                } else {
+                    submit();
+                }
+            }
         });
 
         view.connect_key_press_event({
@@ -233,7 +255,10 @@ impl Composer {
             footer: visible_footer,
             view,
             enhance,
+            send,
             pristine,
+            has_text,
+            streaming,
         }
     }
 
@@ -248,9 +273,29 @@ impl Composer {
         self.view.grab_focus();
     }
 
+    /// Click the send/stop button programmatically. The fake-agent harness uses
+    /// this to exercise the same path a user's click takes.
+    pub fn click_send(&self) {
+        self.send.clicked();
+    }
+
     /// The Code scene adds a toolbar button the Work scene does not have.
     pub fn set_scene(&self, scene: Scene) {
         self.enhance.set_visible(matches!(scene, Scene::Code));
+    }
+
+    /// While an answer streams, the send button becomes a stop button. The
+    /// geometry stays 32x32; only the glyph, tooltip and action change.
+    pub fn set_streaming(&self, streaming: bool) {
+        if self.streaming.replace(streaming) == streaming {
+            return;
+        }
+        self.send
+            .set_tooltip_text(Some(if streaming { "Stop" } else { "Send" }));
+        clear(&self.send);
+        self.send.add(&glyph(if streaming { "■" } else { "↑" }));
+        self.send.show_all();
+        self.send.set_sensitive(streaming || self.has_text.get());
     }
 }
 

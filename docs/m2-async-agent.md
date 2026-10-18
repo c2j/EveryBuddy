@@ -1,8 +1,8 @@
 # M2.0a 异步 agent 契约
 
-> 状态:M2.0a 与 P0.4 已实现(2026-10-18);M2.0b(宿主 runtime 桥)待做。
+> 状态:M2.0a/b/c 与 P0.4 已实现(2026-10-18)。
 > 目的不是先写线程代码,而是把"同步整轮返回"换成可流式、可取消、可测试的接口。
-> M2.0b 的线程桥以本契约为输入;dsh sidecar 留到协议稳定后再评估。
+> dsh sidecar 留到协议稳定后再评估。
 
 ## 1. 现状与问题
 
@@ -67,28 +67,33 @@ pub trait AnswerSource: Send + Sync + 'static {
 |---|---|
 | `crates/eb-api/src/lib.rs` | 事件、sink/stream、取消句柄、`AnswerSource::start` |
 | `crates/eb-api/src/model.rs` | `begin_task` / `apply_agent_event`;`Delta` 追加到当前文本块 |
-| `crates/eb/src/agent.rs` | `Runner`:主线程 16ms drain、应用事件、supersede/cancel |
+| `crates/eb/src/agent.rs` | `AgentRuntime`(专用线程 + tokio)与 `Runner`(主线程 16ms drain、应用事件、supersede/cancel) |
 | `crates/plugins/eb-plugin-demo-agent` | demo agent 同步发射;`EB_FAKE_AGENT=1` 的慢流 fake agent |
 | `main.rs` | `EB_FAKE_DEMO=1` 提交并等终态;`EB_CANCEL_AFTER_MS` 取消 |
 
-当前限制(由 M2.0b 收口):
+当前限制/有意保留:
 
-- `AgentSink` 是无界 `std::sync::mpsc`,没有背压;
-- fake agent 用独立 `std::thread`,宿主还没有专用 runtime 线程;
-- 没有 UI 取消按钮,只有 `EB_CANCEL_AFTER_MS` / API;
+- `AgentSink` 是容量 64 的有界队列(满时阻塞 producer),没有丢弃策略;
+- `AgentRuntime` 已有专用线程和 current-thread tokio,`start` 在该线程执行;
+  fake agent 仍自己起一个 worker 线程,模拟真实 agent 的异步生产;
+- UI stop 已可用(send 按钮流式期间变 ■),`EB_FAKE_STOP_AFTER_MS` 覆盖点击路径;
+- `start` panic 已转成 `Failed`;producer 线程 panic 通过 sink 断开转成
+  `Failed("agent stream closed")`;
 - `Usage` 事件已定义,但模型还没有用量环,暂时忽略;
-- 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`。
+- 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`;
+- `Contribs` 仍是挂载期快照,运行期贡献热更新未做(agent 内容走 `AgentEvent`)。
 
-测试:`eb-api` 3 个(事件增量、失败、空 prompt),demo-agent 4 个(完整事件、
-fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
+测试:`eb-api` 4 个(事件增量、失败、空 prompt、有界队列背压),demo-agent 4 个
+(完整事件、fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
 
 ## 3. 线程模型
 
-**当前(M2.0a/P0.4)**:`Runner` 在 GTK 主线程上用 16ms `timeout_add_local` drain;
-demo agent 在 `start` 内同步发射,fake agent 自己起一个 `std::thread`。这已经能
-证明"慢流不阻塞主循环",但还不是宿主的统一运行时。
+**当前(M2.0a/b)**:`AgentRuntime` 用专用线程持有 current-thread tokio,
+`AnswerSource::start` 在该线程执行;`Runner` 仍在 GTK 主线程用 16ms
+`timeout_add_local` drain。demo agent 在 `start` 内同步发射,fake agent 自己起
+一个 worker 线程模拟异步生产者。
 
-**M2.0b 目标**:
+**M2.0b 已实现的结构**:
 
 ```
 GTK main thread                      runtime thread
@@ -133,8 +138,9 @@ Node 进程模型上。
 - ✅ 测试:`cargo test` 覆盖 sink 关闭、取消、事件顺序;Linux/macOS verify 跑
   fake streaming/cancel。
 - ✅ demo agent 同步适配,保持原有 UI 与截图(`5b0eef6b…` 未变)。
-- ⏳ M2.0b 还需:慢流期间 UI 可交互的显式测试、panic 隔离、有界 channel、
-  UI 取消按钮、专用 runtime 线程。
+- ✅ M2.0b:专用 runtime 线程、有界 channel(容量 64)、UI stop、start panic
+  隔离、慢流期间 UI 可交互的 harness 已完成。
+- ⏳ 仍待:真实 agent 的工具调用/usage 渲染、贡献热更新、dsh sidecar 边界。
 
 ## 7. 待确认
 

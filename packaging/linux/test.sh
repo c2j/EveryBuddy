@@ -108,6 +108,23 @@ grep -q "fake-demo: finished" "$fake_out"
 grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
 grep -q "fake-demo: finished" "$cancel_out"
 
+echo "== fake streaming agent (stop button) =="
+stop_out=/tmp/fake-agent-stop.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=150 \
+  EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+  "$prefix/run" >"$stop_out" 2>&1
+grep -q 'Failed { message: "Cancelled" }' "$stop_out"
+grep -q "fake-demo: finished" "$stop_out"
+
+echo "== fake streaming agent (start panic) =="
+panic_out=/tmp/fake-agent-panic.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 \
+  "$prefix/run" >"$panic_out" 2>&1
+grep -q "agent: start failed: the agent panicked while starting" "$panic_out"
+grep -q "fake-demo: finished" "$panic_out"
+
 # install.sh is only exercised here: it copies the tree, links the launcher and
 # registers the menu entry, and a typo in it would otherwise ship unnoticed.
 echo "== install.sh =="
