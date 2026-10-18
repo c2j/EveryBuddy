@@ -44,20 +44,41 @@ fn note(probes: &mut Probes, name: &'static str, widget: &impl WidgetExt) {
 /// Handlers therefore capture a `Refresher` and call `request()`; the real
 /// closure is installed in one step once the tree exists.
 #[derive(Clone)]
-pub struct Refresher(Rc<RefCell<Option<Rc<dyn Fn()>>>>);
+pub struct Refresher {
+    deferred: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
+    immediate: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
+}
 
 impl Refresher {
     pub fn new() -> Refresher {
-        Refresher(Rc::new(RefCell::new(None)))
+        Refresher {
+            deferred: Rc::new(RefCell::new(None)),
+            immediate: Rc::new(RefCell::new(None)),
+        }
     }
 
     pub fn install(&self, refresh: Rc<dyn Fn()>) {
-        *self.0.borrow_mut() = Some(refresh);
+        *self.deferred.borrow_mut() = Some(refresh);
+    }
+
+    /// Install a direct repaint for agent events. UI handlers still use the
+    /// deferred path; an agent stream may be the only thing driving a frame
+    /// when no input event follows it.
+    pub fn install_immediate(&self, refresh: Rc<dyn Fn()>) {
+        *self.immediate.borrow_mut() = Some(refresh);
     }
 
     pub fn request(&self) {
-        if let Some(refresh) = self.0.borrow().as_ref() {
+        if let Some(refresh) = self.deferred.borrow().as_ref() {
             refresh();
+        }
+    }
+
+    pub fn request_now(&self) {
+        if let Some(refresh) = self.immediate.borrow().as_ref() {
+            refresh();
+        } else {
+            self.request();
         }
     }
 }
@@ -328,6 +349,16 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
         })
     };
     views.refresher.install(refresh);
+    let immediate: Rc<dyn Fn()> = {
+        let weak = Rc::downgrade(views);
+        let store = store.clone();
+        Rc::new(move || {
+            if let Some(views) = weak.upgrade() {
+                views.refresh(&store);
+            }
+        })
+    };
+    views.refresher.install_immediate(immediate);
 
     // `show_all` first, then repaint: `refresh` is what sets the pane
     // visibilities, and running it afterwards means no frame is drawn in

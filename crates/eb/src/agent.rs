@@ -226,7 +226,7 @@ impl Runner {
         // Synchronous sources (the demo agent) have already sent everything.
         self.drain();
         self.schedule();
-        self.refresher.request();
+        self.refresher.request_now();
 
         if let Some(ms) = cancel_after_ms() {
             let runner = self.clone();
@@ -501,9 +501,10 @@ impl Runner {
             self.active.borrow_mut().take();
         }
         if applied {
-            // Even when a source finishes inside `start` (and submit is about to
-            // refresh too), make the event-to-paint path unconditional.
-            self.refresher.request();
+            // Agent events must paint even when no UI handler follows them.
+            // `request_now` avoids relying on an idle callback that can be
+            // starved while a modal permission popover owns a nested loop.
+            self.refresher.request_now();
         }
     }
 

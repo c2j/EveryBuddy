@@ -207,6 +207,13 @@ fn build_ui(application: &gtk::Application) {
         views.refresh(&store);
     }
 
+    // Harness: exercise the real send-button path (not Enter, not the direct
+    // Runner API). This is the path a mouse click takes.
+    if std::env::var_os("EB_SEND_TEST").is_some() {
+        views.welcome_composer.fill("hi");
+        views.welcome_composer.click_send();
+    }
+
     // Render the second demo answer (diff/exec/table) without going through the
     // streaming agent's manual send path. The first submit opens a task; the
     // second is the new-content variant.
