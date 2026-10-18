@@ -1,0 +1,46 @@
+#!/bin/sh
+# EvoBuddy's entry point inside the .app. CFBundleExecutable names this file;
+# the real Mach-O is evobuddy-bin next to it. Everything the app needs is
+# derived from this script's own location, so the .app can live anywhere
+# (~/Downloads, /Applications) and needs nothing from Homebrew or the host
+# except macOS itself.
+#
+# Mirrors the Linux bundle's `run` launcher: caches that are full of build-time
+# absolute paths are rendered into a writable directory on first run.
+set -eu
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+res=$(CDPATH= cd -- "$here/../Resources" && pwd)
+app=@@APP@@
+
+# Make GTK look for icons, schemas and modules inside the .app instead of a
+# Homebrew prefix that may not exist.
+export GTK_DATA_PREFIX="$res"
+export GTK_EXE_PREFIX="$res"
+export GTK_PATH="$res/lib/gtk-3.0"
+export GSETTINGS_SCHEMA_DIR="$res/share/glib-2.0/schemas"
+
+# Caches that hold absolute paths (gdk-pixbuf loaders, GTK input-method modules)
+# and the fontconfig config (the bundled libfontconfig is a hard dependency of
+# cairo and must initialise even with no host fontconfig) are rendered here, in
+# a per-user directory, because where the .app ends up is not knowable at build
+# time. Fonts come from macOS itself through CoreText; nothing is configured.
+cache="${XDG_CACHE_HOME:-${HOME:-/tmp}/Library/Caches}/evobuddy"
+mkdir -p "$cache/fontconfig"
+
+sed "s|@CACHE@|$cache/fontconfig|" "$res/etc/fonts.conf.template" > "$cache/fonts.conf"
+export FONTCONFIG_FILE="$cache/fonts.conf"
+
+for spec in \
+    "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache.template:GDK_PIXBUF_MODULE_FILE" \
+    "lib/gtk-3.0/3.0.0/immodules.cache.template:GTK_IM_MODULE_FILE"
+do
+  template="$res/${spec%%:*}"
+  variable="${spec##*:}"
+  [ -f "$template" ] || continue
+  target="$cache/$(basename "$template" .template)"
+  sed "s|@RES@|$res|g" "$template" > "$target"
+  export "$variable=$target"
+done
+
+exec "$here/$app-bin" "$@"

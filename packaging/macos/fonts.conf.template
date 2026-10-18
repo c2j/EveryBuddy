@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!--
+  Deliberately configures no font directories. On macOS pango selects fonts
+  through CoreText, so the system font stack is what renders text; this file
+  exists because the bundled libfontconfig is a hard dependency of cairo and
+  has to initialise without reading a host config that may not exist. An empty
+  configuration replaces fontconfig's built-in defaults, so nothing outside the
+  .app is consulted — and @CACHE@ keeps the cache off read-only media.
+-->
+<fontconfig>
+  <cachedir>@CACHE@</cachedir>
+</fontconfig>

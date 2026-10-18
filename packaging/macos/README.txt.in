@@ -1,0 +1,39 @@
+EvoBuddy @VERSION@ (macOS @ARCH@)
+=================================
+
+A UI study build: the interface of a desktop client, reproduced natively in
+GTK 3. Wording and icons are placeholders; no brand assets are reproduced.
+
+Self-contained
+--------------
+EvoBuddy.app carries GTK 3, every library it needs, an icon theme, compiled
+GSettings schemas and its input-method modules. It wants macOS @MACOS@ or
+newer and nothing else — no Homebrew, no pkg-config, no GTK, no fontconfig
+and no fonts need to be installed. Fonts are macOS's own, selected through
+CoreText, which is what renders text on every Mac anyway.
+
+It was verified by auditing every load command in the bundle and by running
+exactly this .app with dyld's own load log watched, which is the only way a
+"self-contained" claim means anything.
+
+Run
+---
+    open EvoBuddy.app            # or double-click it; drag to Applications first if you like
+
+The first launch, macOS will warn that the app "cannot be opened because the
+developer cannot be verified" — it is signed ad-hoc, not notarized. Either
+right-click the .app and choose Open once, or:
+
+    xattr -dr com.apple.quarantine EvoBuddy.app
+
+From a terminal (the way it is tested):
+
+    ./EvoBuddy.app/Contents/MacOS/evobuddy
+
+Known gaps
+----------
+Text is drawn with the macOS system font stack, so line breaking and label
+widths differ slightly from the Linux bundle, which carries its own fonts for
+deterministic metrics. The Linux bundle's `run` launcher does the same job as
+the Contents/MacOS/evobuddy script here; neither writes anything outside the
+user's cache directory.

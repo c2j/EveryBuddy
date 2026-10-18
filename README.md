@@ -186,6 +186,7 @@ because both look like \"that control is broken\" and neither raises anything:
 | `docs/ui-spec/watch_dom.js` | continuous capture: dedupes DOM snapshots frame by frame |
 | `docs/ui-spec/pngpx.js` | prints a grid of pixels from a PNG — the way to answer "is that stripe a stray element, an uninitialised surface or a font difference?" |
 | `packaging/linux/` | builds and verifies the self-contained Linux bundle (Docker: glibc 2.28 build, bare-host test) |
+| `packaging/macos/` | builds and verifies the self-contained `EvoBuddy.app` (Homebrew GTK3, rewritten load commands, prefix-hidden test) |
 
 ## Self-contained Linux bundle
 
@@ -225,6 +226,17 @@ files, two caches are full of build-time absolute paths), is written up in
 The bundle asks glibc for `GLIBC_2.28` exactly: it runs on 2.28 and newer, with
 no headroom below that.
 
+## Self-contained macOS .app
+
+`packaging/macos/bundle.sh` is the macOS counterpart: it builds the app against
+the Homebrew GTK 3 stack, then rewrites every load command so `EvoBuddy.app`
+runs on a Mac that has no Homebrew at all — verify.sh hides the prefix and runs
+the geometry selftest to prove it. Text renders through the system font stack
+(CoreText), which is what the spec's macOS measurements assumed; fonts are
+deliberately not bundled there, unlike on Linux. The full list of what had to
+be discovered — re-exported loaders, unsigned-code SIGKILLs, the death of
+`DYLD_PRINT_*` — is in [`packaging/macos/README.md`](packaging/macos/README.md).
+
 ## Prebuilt binaries
 
 Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml): it calls the
@@ -237,6 +249,8 @@ results as a GitHub release.
 | `evobuddy-<v>-linux-x86_64.tar.gz`        | Debian 10 (glibc 2.28)   | the same tree, self-contained, x86_64           |
 | `evobuddy-<v>-linux-aarch64.AppImage`     | Debian 10 (glibc 2.28)   | one file, self-contained, glibc >= 2.28, arm64  |
 | `evobuddy-<v>-linux-aarch64.tar.gz`       | Debian 10 (glibc 2.28)   | the same tree, self-contained, arm64            |
+| `evobuddy-<v>-macos-arm64.tar.gz`         | macOS 15 (Homebrew GTK3) | EvoBuddy.app inside, self-contained, Apple silicon |
+| `evobuddy-<v>-macos-x86_64.tar.gz`        | macOS 15 Intel (Homebrew GTK3) | EvoBuddy.app inside, self-contained, Intel |
 | `evobuddy-<v>-windows-x86_64.zip`         | MSYS2 UCRT64 + MinGW-w64 | Windows 10+; **not** self-contained yet         |
 
 Every artifact has a `.sha256` beside it. The Windows zip is the odd one out by
@@ -244,7 +258,10 @@ necessity: GTK 3 cannot be linked into a single `.exe`, so it stays a folder.
 
 The Linux artifacts *are* the bundle described above. CI does not merely
 `cargo build` them: it builds the bundle and then runs it on a bare Debian 10,
-so "self-contained" is enforced on every tag instead of remembered.
+so "self-contained" is enforced on every tag instead of remembered. The macOS
+artifacts get the same treatment on their own runners: `verify.sh` audits every
+load command in the .app and then runs it with the Homebrew prefix hidden —
+see [`packaging/macos/README.md`](packaging/macos/README.md).
 
 The Windows artifact is a soft failure on purpose, and its own README says so:
 it carries every GTK 3 DLL but not GTK's *data* files (GSettings schemas, input

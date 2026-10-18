@@ -81,6 +81,8 @@
 
 `PLATFORM` 默认取**本机架构**，这不是图省事：AppImage runtime 会在 ELF 头 `EI_ABIVERSION` 字节里写 `AI`（这就是该格式的标记），真实内核忽略它，但 qemu 与 Rosetta 会以 `Exec format error` 拒绝——**任何 AppImage 都无法在模拟层下构建或运行**。所以原生架构是唯一能验证它的地方，CI 也在真实 runner 上按架构各建一份；`test.sh` 会先问环境"这里能不能运行 AppImage"，能则跑并要求渲染一致，不能则明说是模拟层限制而不是产物缺陷。**CI 现在直接调用这两个脚本**（缺口 12），所以发布路径和开发者路径不可能各写一份。
 
+**macOS（v0.3.0 起，双架构独立 .app）**：`packaging/macos/bundle.sh` 对着 Homebrew 的 GTK 3 栈构建，然后把每一条 load command 改写为 `@rpath`（连同给每个 Mach-O 补 rpath），产出自包含的 `EvoBuddy.app`（连 loaders、immodules、schema、图标全部内置；**不带字体**——macOS 上 pango 走 CoreText 而非 fontconfig，实测 `FONTCONFIG_FILE` 不影响度量，系统字体栈本就人人都有，且规格书的几何实测本来就是 macOS 侧的值）。`verify.sh` 的验证分三层：静态审计每条 load command 与 LC_RPATH（只允许 @ 包内路径与系统路径）；检查模板类文本无构建期路径泄漏；最后**把 Homebrew prefix `chmod 000` 藏起来真跑一遍**几何自检（macOS 26 已移除 `DYLD_PRINT_*`，"藏起来"比"观察"更强，退出时恢复）。本机 arm64 实测通过，且 hero=137×42 与规格书 macOS 实测一致；x86_64 交给 CI 的 `macos-15-intel`（Intel 镜像的最后一班，macos-13 已于 2025-12 关停）。踩坑全集在 `packaging/macos/README.md`：`otool -L` 首行是自身 install name、拷贝名必须跟随 load command 名而非 realpath 名、brew 库自带 `@rpath`+自身 `LC_RPATH`、librsvg loader 是 re-export 壳（`-change` 改不动 `LC_REEXPORT_DYLIB`，改用 `.dylib` 孪生）、Apple Silicon 上 dlopen 未签名代码直接 SIGKILL 且 `codesign --deep` 不签 Resources 下的 Mach-O（须逐个显式签名）、以及链接期要 `-headerpad_max_install_names`。
+
 ## 3. 设计 Token 体系
 
 ### 3.1 分层
@@ -572,7 +574,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
 10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
-11. **Linux 完全自包含：已验证** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。剩余：ibus 输入法（缺口 22）。
+11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 
 **已在 GitHub 上跑通（v0.2.0，run 39022034107）**：四个任务全绿，两台 runner（ubuntu-24.04 x86_64 / ubuntu-24.04-arm aarch64）都在**裸 Debian 10.13**（无 gtk/pango/cairo/fontconfig 包、**0 个字体文件**）里跑通了各自的产物：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`、66 个已解析库中 6 个来自宿主（全是 glibc 家族）、最大符号 `GLIBC_2.28`，且 `install.sh` 实跑通过。产物 30M / 29M，已连同 SHA-256 与 Windows zip 发布在 release 里。

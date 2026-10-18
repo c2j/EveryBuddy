@@ -26,10 +26,10 @@ strip --strip-unneeded "$prefix/bin/$app" 2>/dev/null || true
 
 # Icon and menu entry. The desktop file's Exec is the bare name, resolved
 # through PATH, which install.sh arranges.
-cp "$here/evobuddy.svg" "$prefix/share/icons/hicolor/scalable/apps/$app.svg"
+cp "$here/../evobuddy.svg" "$prefix/share/icons/hicolor/scalable/apps/$app.svg"
 if command -v rsvg-convert >/dev/null 2>&1; then
   rsvg-convert -w 256 -h 256 -o "$prefix/share/icons/hicolor/256x256/apps/$app.png" \
-    "$here/evobuddy.svg"
+    "$here/../evobuddy.svg"
 fi
 cp "$here/evobuddy.desktop" "$prefix/share/applications/$app.desktop"
 install -m755 "$here/install.sh" "$prefix/install.sh"

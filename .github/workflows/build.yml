@@ -34,11 +34,12 @@ jobs:
 
       - name: Check that the scripts parse
         run: |
-          bash -n packaging/linux/*.sh .github/scripts/*.sh
-          # install.sh and run.sh run under /bin/sh (dash) in the bundle, where
-          # bash-specific syntax would fail at run time rather than here.
+          bash -n packaging/linux/*.sh packaging/macos/*.sh .github/scripts/*.sh
+          # install.sh, run.sh and the macOS launcher run under /bin/sh (dash on
+          # Debian, bash-in-sh-mode on macOS), where bash-only syntax would fail
+          # at run time rather than here.
           docker run --rm -v "$PWD":/src:ro debian:10 \
-            dash -n /src/packaging/linux/install.sh /src/packaging/linux/run.sh
+            dash -n /src/packaging/linux/install.sh /src/packaging/linux/run.sh /src/packaging/macos/launcher.sh.in
 
       - name: Build the bundle (Debian 10, glibc 2.28)
         env:
@@ -100,9 +101,45 @@ jobs:
           path: evobuddy-*-windows-*
           if-no-files-found: error
 
+  macos:
+    name: macos-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # bundle.sh packs whatever Homebrew provides on each runner, so the
+          # .app's minimum macOS tracks the brew tier of that image. Apple's
+          # last Intel image is macos-15-intel (macos-13 closed in 2025-12).
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install GTK 3 and the icon toolchain
+        run: brew install gtk+3 pkg-config librsvg
+
+      - name: Build EvoBuddy.app
+        run: packaging/macos/bundle.sh
+
+      # Same script a developer runs: audit every load command, hide the
+      # Homebrew prefix, and run the app's geometry selftest without it.
+      - name: Verify it without Homebrew
+        run: packaging/macos/verify.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evobuddy-macos-${{ matrix.arch }}
+          path: dist/evobuddy-*-macos-*
+          if-no-files-found: error
+
   release:
     name: release
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
