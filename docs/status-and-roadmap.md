@@ -87,7 +87,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 **M2.0 验收**:demo 两张截图 SHA 不变(`ebb489b4…` / `5b0eef6b…`);fake 完成/API 取消/UI stop/启动 panic 在 Linux 与 macOS verify 通过;有界队列背压与 sink 关闭有单元测试。
 
-**M2.1 产品补采集**(前置,外部长周期;现在排期):驱动产品产生工具调用的**展开卡**(`cr-collapse` 浅绿 `#e7f9ef`)、`cr-tool-diff`(行级 +42/−0)、`cr-tool-exec`、`cr-table-block`、`cr-status-chips`、`cr-context-usage` 用量环的 DOM/几何捕获,进 spec **§5(组件)/§4(几何)**,不是 §6(屏幕清单)。固定产品版本与采集日期,清洗个人数据,落成可复用 fixtures;需要真实环境配合,建议尽早约一次联调。
+**M2.1 产品补采集**(前置,外部长周期;现在排期):驱动产品产生工具调用的**展开卡**(`cr-collapse` 浅绿 `#e7f9ef`)、`cr-tool-diff`(行级 +42/−0)、`cr-tool-exec`、`cr-table-block`、`cr-status-chips`、`cr-context-usage` 用量环的 DOM/几何捕获,进 spec **§5(组件)/§4(几何)**,不是 §6(屏幕清单)。固定产品版本与采集日期,清洗个人数据,落成可复用 fixtures;需要真实环境配合。采集清单已写在 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md),拿到环境即可执行。
 
 **M2.2 内容块模型 + 插件化**(中):先扩 `Block` 数据模型(diff / exec / table / chips / usage),定义未知块的 fallback;再以 `ConversationBlock` 贡献面实现上述块,宿主渲染器加对应分支。贡献面只传数据,不传 widget。这是"最大可见保真缺口"(spec §10-10)。
 
@@ -147,7 +147,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 1. ~~v0.4.0 CI 收尾确认;结果已记进 spec~~(已完成,2026-10-18)。
 2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
-3. **并行启动**:M2.1 采集排期;M2.0a 已完成(协议与实现映射见 [`docs/m2-async-agent.md`](m2-async-agent.md);A 方案进程内 Rust)。
+3. **并行启动**:M2.1 采集(清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md));M2.0a 已完成(协议与实现映射见 [`docs/m2-async-agent.md`](m2-async-agent.md);A 方案进程内 Rust)。
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
 5. **M2.2**:内容块数据模型 + 渲染器,逐块进 spec 与断言。
 6. **P1a**(缺口 6/3/4)与 **P3**(CJK 输入)可穿插;P1b/P2/P4/P5 按依赖推进。
