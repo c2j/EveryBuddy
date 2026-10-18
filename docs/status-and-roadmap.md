@@ -114,7 +114,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 **P1a(先于 M2.2)**
 - ✅ 缺口 6(部分):生成器新增 `tokens-metrics.json` / `tokens-metrics.rs` / `tokens-metrics.css`(spacing/radius/font-size/line-height/weight),`spec.rs` 已用生成常量,CI 跑 `check_tokens.sh` 防漂移;新内容块用生成的 fs/radius 类与 spacing 常量。**旧 `ui/gtk.css` 的结构性字面量尚未全部迁移**。
-- 缺口 3:输入卡 `box-shadow` 被 GTK 裁剪——Cairo 自绘或外层留 padding(需对照产品截图定方案)。
+- 缺口 3(已调查,暂接受):GTK 将 `box-shadow` 裁剪到控件分配区;试过 832px 外层 gutter,阴影仍不出现。完全还原需 Cairo 自绘或改布局,当前记为已知限制。
 - ✅ 缺口 4:welcome 输入卡改为 800×144,会话卡 531/783×134(产品 532/784×134,1px 为 sash 折中)。
 
 **P1b(M2.1 已采集,可做)**

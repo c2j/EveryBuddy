@@ -607,7 +607,7 @@ diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组�
 
 1. **吉祥物已用自有资产占位** —— 产品 `wb-home-route__growth-buddy` 不得复用；EvoBuddy 的 120×120 绿色 buddy 由 `crates/eb/assets/gen_icons.py` 绘制，以 overlay 放在输入区右上，不改变 hero/输入卡几何。
 2. **图标已换成自有 PNG** —— 23 个图标由 `crates/eb/assets/gen_icons.py` 生成、`include_bytes!` 嵌入，不依赖 `hicolor`/Adwaita 或 librsvg；许可为仓库 MIT。
-3. **GTK 3 的 `box-shadow` 会被裁剪到控件内** —— 输入卡的 `0 16px 32px -8px rgba(0,0,0,.03)` 在产品里会铺到下方选择器行背后（这正是那里看起来发灰的原因），GTK 侧只能画出卡片自身范围内的部分。要完全还原需要自绘（Cairo `draw` 信号）或在外层留出 padding。
+3. **GTK 3 的 `box-shadow` 会被裁剪到控件内（已调查，暂接受）** —— 输入卡的 `0 16px 32px -8px rgba(0,0,0,.03)` 在产品里会铺到下方选择器行背后。实测 832px 外层 gutter 仍看不到阴影；完全还原需 Cairo 自绘或改布局。
 4. **输入卡高/宽差已修**（欢迎态 800×144，会话态 531/783×134；产品 532/784×134，剩余 1px 是 GtkPaned sash 折中，记录在 §4.4）。
 5. **文案是占位** —— 产品文案（品牌标语、空态、AI 声明、输入框提示）未复制，各模块顶部的文本常量用自有措辞替代；需替换为 EvoBuddy 自己的文案。
 6. **间距 / 圆角 / 字号已进生成器（部分）** —— `build_gtk_tokens.js` 现输出 `tokens-metrics.{json,rs,css}`，`spec.rs` 已用生成常量，新内容块用生成的 fs/radius 类；旧 `ui/gtk.css` 的结构性字面量尚未全部迁移，CI 用 `docs/ui-spec/check_tokens.sh` 防漂移。
