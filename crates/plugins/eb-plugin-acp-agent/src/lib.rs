@@ -305,7 +305,7 @@ impl AcpSession {
             ));
         }
         if let Some(method) = &config.auth_method {
-            session.request("authenticate", json!({ "method": method }))?;
+            session.request("authenticate", json!({ "methodId": method }))?;
         }
         if let Some(name) = init
             .pointer("/agentInfo/title")
