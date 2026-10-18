@@ -52,14 +52,14 @@ pub const COLUMN_WIDTH: i32 = 800;
 /// ui-spec §10-4). The conversation card's 531 is the measured 532 minus the
 /// 1px sash compromise (ui-spec §10-13); the artifact pane stays at 579.
 pub const WELCOME_CARD_WIDTH: i32 = COLUMN_WIDTH;
-pub const WELCOME_CARD_HEIGHT: i32 = 142;
+pub const WELCOME_CARD_HEIGHT: i32 = 144;
 pub const CHIPS_WIDTH: i32 = COLUMN_WIDTH;
 pub const CHIPS_HEIGHT: i32 = 32;
 pub const CHAT_CARD_WIDTH: i32 = 531;
 /// Product 784 with the artifact panel closed, minus the same 1px sash
 /// compromise as the open card.
 pub const CHAT_CARD_WIDTH_CLOSED: i32 = 783;
-pub const CHAT_CARD_HEIGHT: i32 = 132;
+pub const CHAT_CARD_HEIGHT: i32 = 134;
 pub const DETAIL_WIDTH: i32 = 579;
 
 /// Measured: with the artifact panel open the conversation pane is 580 and its
@@ -81,7 +81,7 @@ pub const HERO_TO_SEGMENTED: i32 = 16;
 /// Segmented control ends at 221, the composer starts at 285.
 pub const SEGMENTED_TO_COMPOSER: i32 = 64;
 /// Measured `cr-input-editor-host`.
-pub const WELCOME_EDITOR_HEIGHT: i32 = 74;
+pub const WELCOME_EDITOR_HEIGHT: i32 = 76;
 /// Measured `wb-home-composer__below-input`.
 pub const BELOW_INPUT_HEIGHT: i32 = 236;
 
@@ -89,7 +89,7 @@ pub const BELOW_INPUT_HEIGHT: i32 = 236;
 
 /// Measured `wb-home-route__input` equivalent: the conversation composer's
 /// editor is 64 tall inside a 134-tall card, and the AI notice below it is 34.
-pub const CHAT_EDITOR_HEIGHT: i32 = 64;
+pub const CHAT_EDITOR_HEIGHT: i32 = 66;
 pub const CHAT_INPUT_CARD_HEIGHT: i32 = 134;
 pub const CHAT_NOTICE_HEIGHT: i32 = 34;
 pub const CHAT_INPUT_AREA_HEIGHT: i32 = 168;

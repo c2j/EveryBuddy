@@ -228,7 +228,9 @@ button.eb-user:hover {
  * `workbuddy-topbar`: `padding: 0 16px`, 8px gap. */
 .eb-content-topbar {
   min-height: 64px;
-  padding: 0 16px;
+  /* Measured: the chat title starts 24px inside the pane; the actions keep the
+   * same 16px right inset. */
+  padding: 0 16px 0 24px;
 }
 
 /* centred column, 800px wide */

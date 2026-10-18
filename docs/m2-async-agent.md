@@ -137,7 +137,7 @@ Node 进程模型上。
 - ✅ 顺序:同一任务的 user turn 先于 agent 事件;新提交把旧回答标成 `Cancelled`。
 - ✅ 测试:`cargo test` 覆盖 sink 关闭、取消、事件顺序;Linux/macOS verify 跑
   fake streaming/cancel。
-- ✅ demo agent 同步适配;M2.0a 时截图仍为 `5b0eef6b…`,M2.2 因 table/宽度调整后 baseline 为 `fc267c54…`。
+- ✅ demo agent 同步适配;M2.0a 时截图仍为 `5b0eef6b…`,M2.2 因 table/宽度/2px 调整后 baseline 为 `06524855…`。
 - ✅ M2.0b:专用 runtime 线程、有界 channel(容量 64)、UI stop、start panic
   隔离、慢流期间 UI 可交互的 harness 已完成。
 - ⏳ 仍待:真实 agent 的工具调用/usage 渲染、贡献热更新、dsh sidecar 边界。
