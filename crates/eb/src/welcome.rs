@@ -59,13 +59,6 @@ pub fn build(composer: &Rc<Composer>, wiring: &Wiring, contribs: &Contribs) -> W
     let topbar = hbox(0);
     class(&topbar, "eb-content-topbar");
     topbar.pack_start(&reveal, false, false, 0);
-    if cfg!(target_os = "macos") {
-        if let Ok(url) = std::env::var("EB_DSH_WEB_URL") {
-            let dsh = icon_button("▤", "eb-icon", "Open DSH plugins");
-            dsh.connect_clicked(move |_| crate::dsh_web::open(&url));
-            topbar.pack_end(&dsh, false, false, 0);
-        }
-    }
     root.pack_start(&topbar, false, false, 0);
 
     let body = vbox(0);

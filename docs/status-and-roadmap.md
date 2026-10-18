@@ -148,7 +148,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 ### 远期/挂起
 
-- **dsh 兼容**(prototype 路线 A):Node+Cordis 宿主、dsh 插件原样装载、Rust 兑现 fs/search 服务——原型已通 read 工具全链路;**rutis 不能直接执行 dsh JS 插件**。已落地 macOS WKWebView spike:真实 `dsh web` 客户端与插件页面在独立 WebKit 窗口运行,见 [dsh-webview.md](dsh-webview.md);原生 port 默认不挂载,仅 `EB_DSH_FEEDBACK=1` 时作为插件 surface demo。UI 侧在 M2.0a 定 agent 边界时决定 in-process 还是 sidecar,避免异步协议返工。
+- **dsh 兼容**(prototype 路线 A):Node+Cordis 宿主、dsh 插件原样装载、Rust 兑现 fs/search 服务——原型已通 read 工具全链路;**rutis 不能直接执行 dsh JS 插件**。UI 验收采用 `eb-plugin-dsh-feedback` 原生移植 DSH `ui-message-feedback` 的 Like/Dislike action strip;faithful JS 客户端仍需 WebView/sidecar(见 [dsh-plugin-acceptance.md](dsh-plugin-acceptance.md))。UI 侧在 M2.0a 定 agent 边界时决定 in-process 还是 sidecar,避免异步协议返工。
 - **Windows 自包含**(缺口 23/24):需真机;`.cmd` 启动器做路径改写 + Win7/8.1 可行性定论。当前 zip 文档如实标注"未验证"。
 - **macOS 公证 / .dmg**:需要 Apple Developer ID;`hdiutil` 一步之遥。
 - **缺口 7**:UI 字族在 token 层定义并整体替换重测(影响全部文本宽度,动一次全量回归)。

@@ -44,18 +44,13 @@ impl Host {
             Some(agent) => Arc::new(agent),
             None => Arc::new(eb_plugin_demo_agent::DemoAgent::new()),
         };
-        // The DSH feedback action strip is a native port used to exercise the
-        // MessageAction surface; it is not a dsh plugin loader. Keep it out of
-        // the default build so the UI does not imply plugin support.
-        let mut builtins: Vec<Arc<dyn EbPlugin>> = vec![
+        let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),
             Arc::new(eb_plugin_notices::NoticesPlugin),
+            Arc::new(eb_plugin_dsh_feedback::DshFeedbackPlugin),
             Arc::new(eb_plugin_composer::ComposerPlugin),
             answer,
         ];
-        if std::env::var_os("EB_DSH_FEEDBACK").is_some() {
-            builtins.insert(2, Arc::new(eb_plugin_dsh_feedback::DshFeedbackPlugin));
-        }
 
         let mut fibers = Vec::new();
         for plugin in &builtins {

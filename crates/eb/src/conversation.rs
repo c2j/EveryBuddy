@@ -98,19 +98,6 @@ pub fn build(wiring: &Wiring, composer: &Composer, message_actions: &[MessageAct
     );
     actions.pack_start(&share, false, false, 0);
 
-    // Experimental WebView route: when the harness supplies the local dsh web
-    // URL, this opens the real DSH Web UI (with its own plugin runtime) in a
-    // WKWebView window. The native GTK conversation remains the default.
-    if cfg!(target_os = "macos") {
-        if let Ok(url) = std::env::var("EB_DSH_WEB_URL") {
-            let dsh = icon_button("▤", "eb-icon", "Open DSH plugins");
-            dsh.connect_clicked(move |_| {
-                crate::dsh_web::open(&url);
-            });
-            actions.pack_start(&dsh, false, false, 0);
-        }
-    }
-
     options.pack_start(&actions, false, false, 0);
     topbar.pack_start(&options, true, true, 0);
     root.pack_start(&topbar, false, false, 0);
