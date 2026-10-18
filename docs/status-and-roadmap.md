@@ -97,6 +97,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - ✅ diff 卡(浅绿、行级配色、252 视口)、exec 卡(`#f2f2f2`、300 视口、200 行输出)、table 字号/表头样式。
 - ✅ 会话 frame 752(无 artifact)/500(有 artifact),输入区 832/580;`EB_ASSERT` 已断言 `eb-messages`/`eb-chat-card` 宽度;Linux/macOS verify 增加 `EB_DEMO_BLOCKS=1`。
 - ✅ `cr-collapse` 工具组(收/展,chevron 在标题后)、`cr-context-usage` 环(仅在 agent 上报 Usage 时显示)与最小 popover;demo 第二个回答用 Group 包住 diff/exec/table。
+- ✅ ACP `plan` 映射为 Plan 卡(完成/进行中);`agent_thought_chunk`/session resume 待做。
 - ✅ 关键运行时修复(2026-10-18):`Views` 在 `build_ui` 返回后被 drop,refresh 的 `Weak` 全部失效;现保留到进程生命周期。另修 primary monitor 定位与 agent 事件直接重绘。真实 opencode 普通运行路径已能显示对话。
 - ⏳ 尚未做:usage popover 的五类分解(采集到但事件流没有分类数据)、`ConversationBlock` 贡献面、未知块 fallback、旧 CSS 字面量迁移。
 

@@ -55,7 +55,8 @@ dsh 的 ACP profile 会把会话持久化到 `~/.dsh`；在普通桌面用户下
 | `tool_call_update`（`kind=execute`，completed/failed） | `Block::Exec`（命令 + 输出 + exit code） |
 | `tool_call_update`（content 含 `diff`） | `Block::Diff`（path、+/- 计数、行级 add/remove/context） |
 | 其他完成的 tool call | `Block::Tool`（状态 + 标题 + 输出首行） |
-| `agent_thought_chunk` / `plan` | 暂不渲染（保留给后续状态区） |
+| `plan` | `Block::Plan`：执行计划列表（完成/进行中状态） |
+| `agent_thought_chunk` | 暂不渲染（保留给后续状态区） |
 
 JSON-RPC 生命周期：
 
@@ -97,8 +98,8 @@ JSON-RPC 生命周期：
 - 只发送 text prompt；图片/resource/embedded context 还没接。
 - 工具块的进度更新只在完成时落成 Block；进行中主要靠状态行。
 - 没有客户端 fs/terminal 能力，agent 必须用自己的工具访问工作区。
-- 还没有把 ACP 的 `plan`、`agent_thought_chunk`、`available_commands_update`
-  映射到 UI。
+- `plan` 已映射为轻量 Plan 卡；`agent_thought_chunk`、`available_commands_update`
+  仍未映射。
 
 ## 截图 harness
 

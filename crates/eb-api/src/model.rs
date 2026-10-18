@@ -73,6 +73,13 @@ pub enum Turn {
     },
 }
 
+/// One entry in an agent plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanEntry {
+    pub content: String,
+    pub status: String,
+}
+
 /// One line of a file-diff block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiffLine {
@@ -112,6 +119,9 @@ pub enum Block {
         blocks: Vec<Block>,
         collapsed: bool,
     },
+    /// An ACP/agent plan. Product capture does not cover a plan card, so this
+    /// is intentionally a light, host-rendered list.
+    Plan { entries: Vec<PlanEntry> },
     Table {
         headers: Vec<String>,
         rows: Vec<Vec<String>>,

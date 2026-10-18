@@ -155,7 +155,7 @@ M2.0a 不把它和 agent 流混在一起。
   隔离、慢流期间 UI 可交互的 harness 已完成。
 - ✅ ACP:文本流、usage、exec/diff/tool 块、权限策略、cancel、跨 turn session
   已接;fake ACP 与真实 dsh/opencode 验证。
-- ⏳ 仍待:权限记忆/历史、ACP `plan`/thought 渲染、session resume/list、图片/
+- ✅ ACP `plan` 已映射为 Plan 卡；⏳ 仍待:权限记忆/历史、thought、session resume/list、图片/
   resource prompt、贡献热更新。
 
 ## 7. 待确认

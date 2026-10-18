@@ -23,7 +23,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::composer::Composer;
-use crate::model::{Block, DiffLine, Task, Turn};
+use crate::model::{Block, DiffLine, PlanEntry, Task, Turn};
 use crate::spec;
 use crate::widgets::*;
 
@@ -297,6 +297,7 @@ fn block_widget(block: &Block) -> gtk::Widget {
             blocks,
             collapsed,
         } => group_block(title, blocks, *collapsed).upcast(),
+        Block::Plan { entries } => plan_block(entries).upcast(),
         Block::Table { headers, rows } => table(headers, rows).upcast(),
     };
     widget.set_margin_top(14);
@@ -442,6 +443,30 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
 /// A collapsible tool group: a 26.25px header with a chevron/title and the
 /// nested blocks below. The header is a flat button; the group starts in the
 /// state the plugin declared and toggles locally.
+fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
+    let card = vbox(4);
+    class(&card, "eb-plan");
+    let title = text("Plan", "eb-plan-title");
+    card.pack_start(&title, false, false, 0);
+    for entry in entries {
+        let row = hbox(8);
+        class(&row, "eb-plan-row");
+        let icon = match entry.status.as_str() {
+            "completed" => "check",
+            "in_progress" => "ring",
+            _ => "chevron-right",
+        };
+        row.pack_start(&crate::icons::named(icon, 16, "eb-plan-icon"), false, false, 0);
+        let label = text(&entry.content, "eb-plan-text");
+        label.set_line_wrap(true);
+        label.set_width_chars(1);
+        label.set_xalign(0.0);
+        row.pack_start(&label, true, true, 0);
+        card.pack_start(&row, false, false, 0);
+    }
+    card
+}
+
 fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
     let root = vbox(0);
     class(&root, "eb-group");

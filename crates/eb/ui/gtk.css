@@ -642,6 +642,25 @@ button.eb-context-usage:hover {
   font-size: 12px;
 }
 
+/* Agent plan: a light host-rendered list (product plan UI is not captured). */
+.eb-plan {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.eb-plan-title {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.eb-plan-text {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
 /* Collapse header: 26.25px, 8px gap, 15px/400 at rgba(0,0,0,.5). */
 button.eb-group-header {
   background: none;

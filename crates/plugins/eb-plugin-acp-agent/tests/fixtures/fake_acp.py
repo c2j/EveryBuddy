@@ -87,6 +87,13 @@ def main():
                 "size": 100,
             })
             update(session_id, {
+                "sessionUpdate": "plan",
+                "entries": [
+                    {"content": "Inspect the input", "status": "completed", "priority": "high"},
+                    {"content": "Render the result", "status": "in_progress", "priority": "medium"},
+                ],
+            })
+            update(session_id, {
                 "sessionUpdate": "tool_call",
                 "toolCallId": "call_exec",
                 "title": "Ran a command",

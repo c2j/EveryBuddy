@@ -26,7 +26,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use eb_api::model::{Block, DiffLine};
+use eb_api::model::{Block, DiffLine, PlanEntry};
 use eb_api::{
     AgentEvent, AgentSink, AnswerHandle, AnswerSource, DenyAll, EbPlugin, PermissionDecision,
     PermissionOption, PermissionPrompter, PermissionRequest, Ui,
@@ -656,6 +656,30 @@ fn map_update(
                 )?;
             }
         }
+        "plan" => {
+            let entries: Vec<PlanEntry> = update
+                .get("entries")
+                .and_then(Value::as_array)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|entry| {
+                            Some(PlanEntry {
+                                content: entry.get("content")?.as_str()?.to_string(),
+                                status: entry
+                                    .get("status")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("pending")
+                                    .to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !entries.is_empty() {
+                send(sink, AgentEvent::Block { block: Block::Plan { entries } })?;
+            }
+        }
         "tool_call" | "tool_call_update" => {
             let id = update
                 .get("toolCallId")
@@ -992,6 +1016,12 @@ mod integration_tests {
                 used: 42,
                 total: 100
             }
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::Block {
+                block: Block::Plan { entries }
+            } if entries.len() == 2 && entries[0].status == "completed"
         )));
         assert!(events.iter().any(|event| matches!(
             event,
