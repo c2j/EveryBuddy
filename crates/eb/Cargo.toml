@@ -13,6 +13,8 @@ default-run = "evobuddy"
 
 [dependencies]
 gtk = "0.19"
+# Pango 1.50 adds absolute/relative line-height attributes for Markdown text.
+pango = { version = "0.22", features = ["v1_50"] }
 
 # The plugin runtime (vendored; see vendor/rutis). The host is the embedder.
 rutis = { path = "../../vendor/rutis" }
