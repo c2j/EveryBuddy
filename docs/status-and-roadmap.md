@@ -40,15 +40,17 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 1. **数据插件 + 宿主渲染**:插件产出纯值,永不触碰 widget。线程契约一句话;像素纪律单点收敛。
 2. **M1 不设内核线程**:内置插件无异步工作,单线程 current-thread tokio 挂载期 `block_on` 即可。**线程桥推迟到第一个异步服务/插件出现时**(demo-agent 的替代者)。
 
+**M2.0a 已落地(2026-10-18)**:`AnswerSource` 从同步整轮返回改为 `start(prompt, sink) -> handle`;`AgentEvent` 经 `AgentSink`/`AgentStream` 回传;宿主侧 `Runner` 在 GTK 主线程 drain 并更新 `App`。demo agent 同步发射,行为与像素不变;`EB_FAKE_AGENT=1` 的 fake agent 用独立线程产生慢流,`EB_FAKE_DEMO=1` 与 `EB_CANCEL_AFTER_MS` 分别验证完成与取消。**M2.0b 的宿主专用 runtime 线程、背压和 UI 取消按钮仍未做。**
+
 **等值证据**:改造前后 welcome/demo 渲染 PNG SHA 逐字节一致(`ebb489b4…` / `5b0eef6b…`);点击审计 **26 步(31 行 `click:` 输出)** 的步骤与文案全等。审计有三处**环境敏感**字段:toplevels 计数(macOS 有时预建隐藏 `GtkTooltipWindow`)、popover 绝对坐标(含窗口服务选择的窗口原点)、以及**代码区滚动宽度**(本机连续运行观察到 579/656 与 579/646 两种读数)。同二进制两次运行也可能不同(已用 stash 实验在旧树上证明);比较审计看步骤与文案,数值列不要整行 diff。
 
 ### 1.4 验证体系与实际边界
 
 - `EB_SELFTEST` 几何自检 + `EB_SHOT` 离屏截图(`gtk_widget_draw` 前强制重分配,坑已记录)+ `EB_CLICK` 26 步点击审计 + `EB_ENTER` 发送链路;`EB_ASSERT` / `EB_CLICK_ASSERT` 把报告/审计变成退出码断言(P0.1/P0.2)。
-- Linux:`packaging/linux/{package,verify}.sh` —— 容器内 glibc 2.28 构建 + 裸机验证 + `install.sh` 实跑 + AppImage≈tree 断言。裸机验证同时跑 `EB_ASSERT` 与 `EB_CLICK_ASSERT`;断言模式下 CSS 加载失败、几何不符或某一步交互失效都会让 job 变红。
-- macOS:`packaging/macos/{bundle,verify}.sh` —— load command 审计 + 藏 Homebrew 真跑;`EB_ASSERT` 断言固定块(屏幕太小时只断言屏幕无关不变量),`EB_CLICK_ASSERT` 跑 26 步交互。verify 里原有的三条 grep 保留为快速读数。
+- Linux:`packaging/linux/{package,verify}.sh` —— 容器内 glibc 2.28 构建 + 裸机验证 + `install.sh` 实跑 + AppImage≈tree 断言。裸机验证同时跑 `EB_ASSERT`、`EB_CLICK_ASSERT` 与 fake streaming/cancel;断言模式下 CSS 加载失败、几何不符或某一步交互失效都会让 job 变红。
+- macOS:`packaging/macos/{bundle,verify}.sh` —— load command 审计 + 藏 Homebrew 真跑;`EB_ASSERT` 断言固定块(屏幕太小时只断言屏幕无关不变量),`EB_CLICK_ASSERT` 跑 26 步交互,fake streaming/cancel 再跑一次。verify 里原有的三条 grep 保留为快速读数。
 - CI(tag-only):每次 `v*` tag 构建四个平台产物;Linux/macOS 的开发者与 CI 调用同一对脚本。Windows 只有 CI 脚本,没有等价的开发者/真机验证路径。另新增 `.github/workflows/check.yml`:push/PR 跑 `cargo test --workspace`。
-- **剩余缺口**:`EB_ENTER` 仍只在本地手动跑;P0.4 的 fake streaming plugin 尚未实现;还没有 PR 级的截图/像素回归。
+- **剩余缺口**:`EB_ENTER` 仍只在本地手动跑;还没有 PR 级的截图/像素回归;M2.0b 的 runtime 线程与 UI 取消按钮未做。
 - spec:`docs/ui-spec/ui-spec.md` —— 测量、决策、缺口、坑的唯一权威记录。本地启动与插件手工验证清单见 [`docs/local-verification.md`](local-verification.md)。
 
 ## 二、本轮(2026-10-17/18)完成的事
@@ -58,28 +60,31 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 3. **插件化调研与裁决**:确认 `prototype/` 可作基础——原型验证的 rutis 进程内用法成为 UI 宿主的运行时;wasm/Node 路线保留为 dsh 兼容层(其核心结论"同步返回活对象的注册表必须与插件同进程"对 UI 宿主天然成立)。
 4. **v0.4.0(M1)**:workspace 化 + eb-api surface + 4 个内置插件 + 等值迁移(证据见 §1.3)。过程中 CI/容器各抓一坑:CI runner 屏幕小于规格窗口导致几何断言过严(改为断言屏幕无关不变量);SVG 挪目录后构建镜像缺 COPY;TOML 的 `[target.'cfg(...)'.dependencies]` 表吞掉其后所有依赖(macOS 能编、容器报 unlinked crate)。
 5. **P0 验证加固**:`EB_ASSERT` / `EB_CLICK_ASSERT` 落地并接入 Linux 裸机与 macOS verify;新增 `.github/workflows/check.yml`(push/PR `cargo test --workspace`);Linux aarch64 与 macOS arm64 均通过。计划文档校正(24 条计数、26 步/31 行、三处环境敏感字段、发布闸门与 spec 计划指针)。
+6. **M2.0a + P0.4**:`AnswerSource` 改为事件流契约;demo agent 保持像素等值(`5b0eef6b…` 仍一致);fake streaming agent、完成/取消 harness、模型/事件/取消测试全部落地;Linux 与 macOS verify 都跑 fake streaming/cancel。
 
 ## 三、后续规划
 
 按依赖关系排序;每个条目标注规模(小=小时级,中=天级,大=周级)与前置条件。
 
-### P0 验证加固(小)✅ P0.1–P0.3 已落地
+### P0 验证加固(小)✅ P0.1–P0.4 已落地
 
 M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物自包含",不能证明"像素/交互没退化";在改 UI 之前先把审计变成断言:
 
 - **P0.1 `EB_ASSERT=1`**(已完成):按平台断言几何/颜色,以退出码驱动 CI。Linux(Xvfb 1920×1080)断言精确窗口与固定块;macOS runner 屏幕更小时只断言屏幕无关不变量。
 - **P0.2 `EB_CLICK_ASSERT=1`**(已完成):对 26 步的 label 与稳定观察值做断言,忽略 toplevels、popover 坐标、代码区滚动宽度等易变数值;Linux 裸机与 macOS verify 都已接线并通过。
 - **P0.3 快速检查**(已完成):新增 `.github/workflows/check.yml`,push/PR 跑 `cargo test --workspace`;tag-only 的发布链保持独立,不把发布条件放宽。测试包含 26 步期望表覆盖与"缺一个观察值必须失败"的负向用例。
-- **P0.4 假插件测试**(待做):为 M2.0 准备 fake streaming plugin 的测试位,证明"慢流不阻塞 UI、取消生效、退出干净"。
-- 验收:P0.1/P0.2 在 Linux 与 macOS 的 `verify` 脚本里执行;已做正向验证。故意改坏几何/交互的完整负向演练留到 P0.4 一起做。
+- **P0.4 假插件测试**(已完成):`EB_FAKE_AGENT=1` 的慢流 fake agent + `EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS` harness;Linux 与 macOS verify 都验证完成与取消;`eb-api` 3 个、demo-agent 4 个测试覆盖事件顺序、取消、sink 关闭。
+- 验收:P0.1/P0.2 在 Linux 与 macOS 的 `verify` 脚本里执行;P0.4 额外跑 fake streaming/cancel。正向验证已完成;故意改坏几何/交互的完整负向演练仍可补做。
 
 ### M2 真实异步 agent + 会话内容块(大)⭐ 推荐下一步
 
-**M2.0a 异步契约**(中):把 `AnswerSource` 从同步整轮返回改为 `start / stream / cancel`;定义 `AgentEvent`(started/delta/block/done/error/usage)与 `HostCommand`。先写一页协议(草案见 [`docs/m2-async-agent.md`](m2-async-agent.md)),并定下真实 agent 的边界:进程内 Rust,还是 Node/dsh sidecar。当前 `AnswerSource::answer` 是同步的、`Host` 的 current-thread runtime 只在挂载期 `block_on`,只加线程桥会出现"桥有了,但没有可流式产生事件的接口"。
+**M2.0a 异步契约**(中)✅ 已完成:`AnswerSource` 改为 `start(prompt, sink) -> handle`;`AgentEvent`(started/delta/block/artifact/usage/finished/failed)、`AgentSink`/`AgentStream`、`AnswerHandle` 落在 `eb-api`;`App::begin_task`/`apply_agent_event` 增量构建 agent turn;`Runner` 在 GTK 主线程 drain。协议与实现映射见 [`docs/m2-async-agent.md`](m2-async-agent.md)。dsh 边界仍按 A 方案(进程内 Rust)先走,sidecar 留后。
 
-**M2.0b 运行时桥**(中):专用 runtime 线程 + `glib::idle_add_local` marshal;贡献更新通道(当前 `Contribs` 是挂载后快照)、背压、取消、panic 隔离。"插件代码不碰 widget"契约继续成立。
+**M2.0b 运行时桥**(中,下一步):专用 runtime 线程 + `glib::idle_add_local` marshal;贡献更新通道(当前 `Contribs` 是挂载后快照)、背压、取消、panic 隔离。"插件代码不碰 widget"契约继续成立。当前 fake agent 用独立 `std::thread`,宿主 runtime 仍只在挂载期 `block_on`;`AgentSink` 是无界 channel,这两点由 M2.0b 收口。
 
-**M2.0c 假流式插件 + 测试**(小-中):一个会分块、带延迟、可取消的 fake agent 作为首个异步消费者;先于真实 agent 接入,提供确定性 CI 用例。
+**M2.0c 假流式插件 + 测试**(小-中)✅ 已完成:fake agent 走 `EB_FAKE_AGENT=1`,分块、带延迟、可取消;`EB_FAKE_DEMO=1` 等流结束退出,`EB_CANCEL_AFTER_MS` 验证取消;Linux/macOS verify 和单元测试覆盖。
+
+**M2.0 验收**:demo 两张截图 SHA 不变(`ebb489b4…` / `5b0eef6b…`);fake 完成/取消 harness 在 Linux 与 macOS 通过;M2.0b 再加"慢流期间 UI 可交互、有界 channel、panic 隔离、UI 取消按钮"。
 
 **M2.1 产品补采集**(前置,外部长周期;现在排期):驱动产品产生工具调用的**展开卡**(`cr-collapse` 浅绿 `#e7f9ef`)、`cr-tool-diff`(行级 +42/−0)、`cr-tool-exec`、`cr-table-block`、`cr-status-chips`、`cr-context-usage` 用量环的 DOM/几何捕获,进 spec **§5(组件)/§4(几何)**,不是 §6(屏幕清单)。固定产品版本与采集日期,清洗个人数据,落成可复用 fixtures;需要真实环境配合,建议尽早约一次联调。
 
@@ -134,15 +139,15 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 4. **CI runner 屏幕 < 1440×868**:macOS/任何真屏验证几何时,窗口会被钳到工作区——断言用屏幕无关不变量(spec 已记录);P0.1 已把这个规则写进退出码。
 5. **Windows 无验证环境**:在拿到真机前,不要把 Windows 产物从"未验证"升级为"可用"。
 6. **rutis 0.11 是 pre-1.0**:vendored fork 是唯一事实源;上游若发 1.0,评估回迁(收窄 tokio 特性的 3 行补丁值得向上游提)。
-7. **M2.0 的规模风险**:异步契约、贡献热更新、取消与线程切换是四个独立问题;先写协议再写桥,不要把它当"小"。
+7. **M2.0b 的规模风险**:M2.0a 已交付,但宿主 runtime 线程、有界 channel、UI 取消、panic 隔离仍未做;fake agent 目前用独立线程,不能替代宿主 runtime。不要把它当"小"。
 8. **发布合规风险**:LGPL 动态库随包分发、字体/图标再分发、产品文案/i18n 的边界,都需要在发布前明确记录。
 
 ## 五、近期待办(按序)
 
 1. ~~v0.4.0 CI 收尾确认;结果已记进 spec~~(已完成,2026-10-18)。
-2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.3 已完成,2026-10-18;P0.4 fake 插件待做)。
-3. **并行启动**:M2.1 采集排期;M2.0a 异步协议一页纸(草案已完成于 [`docs/m2-async-agent.md`](m2-async-agent.md);待确认 dsh in-process/sidecar)。
-4. **M2.0b/c**:运行时桥 + fake 流式插件/测试。
+2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
+3. **并行启动**:M2.1 采集排期;M2.0a 已完成(协议与实现映射见 [`docs/m2-async-agent.md`](m2-async-agent.md);A 方案进程内 Rust)。
+4. **M2.0b**:宿主专用 runtime 线程 + glib marshal + 有界 channel + UI 取消按钮。
 5. **M2.2**:内容块数据模型 + 渲染器,逐块进 spec 与断言。
 6. **P1a**(缺口 6/3/4)与 **P3**(CJK 输入)可穿插;P1b/P2/P4/P5 按依赖推进。
 7. **发布合规闸门**:根 LICENSE、第三方许可、SBOM/LGPL source offer。

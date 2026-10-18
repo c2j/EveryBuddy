@@ -97,10 +97,13 @@ EB_ENTER=1 EB_SELFTEST=1 cargo run
 # enter: after=conversation (want conversation), buffer="Ask anything…"
 ```
 
-Any `EB_*` flag attaches the harness, so the explicit `EB_SELFTEST=1` is only
-needed when nothing else is set.
+Any harness flag (`EB_SELFTEST`, `EB_SHOT`, `EB_ENTER`, `EB_CLICK`,
+`EB_CLICK_ASSERT`, `EB_ASSERT`, `EB_DEMO`) attaches the harness, so the explicit
+`EB_SELFTEST=1` is only needed when none of those is set. The fake-agent demo
+(`EB_FAKE_DEMO`) is its own mode and does not go through the selftest harness;
+`EB_FAKE_*` and `EB_CANCEL_AFTER_MS`/`EB_DEBUG` are runtime switches.
 
-`EB_CLICK=1` walks the shell and clicks every interactive surface in turn,
+`EB_CLICK=1` walks the shell and clicks the main interactive surfaces in turn,
 printing what changed after each one — the closest thing here to a person poking
 at the UI:
 
@@ -128,6 +131,22 @@ GTK is right to clamp the window. CI runs it alongside the screenshot.
 For the full local launch + plugin checklist (manual UI passes, plugin boundary
 checks and troubleshooting), see
 [`docs/local-verification.md`](docs/local-verification.md).
+
+`EB_FAKE_AGENT=1` replaces the demo agent with a slow streaming one. The
+`EB_FAKE_DEMO=1` harness submits a prompt, waits for the terminal event and
+quits; `EB_CANCEL_AFTER_MS` cancels first. This is how the event/cancel paths are
+exercised without a real model:
+
+```bash
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 cargo run
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=300 \
+  EB_FAKE_AGENT_CHUNKS=50 cargo run
+```
+
+`EB_FAKE_AGENT_DELAY_MS` (default 120) and `EB_FAKE_AGENT_CHUNKS` (default 8)
+control the stream. For a live window, run `EB_FAKE_AGENT=1 cargo run`, click a
+chip and press Enter; the streaming footer and chunks arrive while the rest of
+the UI stays interactive.
 
 Popovers are not in the widget walk — GTK parents them to the window when they
 pop up — so the audit reads them through the input grab instead.
@@ -189,6 +208,7 @@ because both look like \"that control is broken\" and neither raises anything:
 | `crates/eb/src/welcome.rs`, `conversation.rs`, `detail.rs` | the three regions' renderers |
 | `crates/eb/src/sidebar.rs`, `composer.rs`, `widgets.rs` | shared pieces |
 | `crates/eb/src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
+| `crates/eb/src/agent.rs` | the in-flight agent runner: drains `AgentEvent`s, applies them to `App`, handles cancel |
 | `crates/eb-api/` | the **plugin surface**: data model, contribution registries, `EbPlugin` — the only crate a plugin may depend on |
 | `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent` |
 | `vendor/rutis/` | the vendored plugin runtime (narrowed tokio features; see its README) |
@@ -210,6 +230,14 @@ host, and the host never names a plugin's internals. A plugin's `mount` receives
 a `Ui` handle and *declares* content — nav rows, dropdown menus, notice copy,
 scenario chips — or *provides a service* (the demo agent implements
 `AnswerSource`, the service behind the composer's send path).
+
+An `AnswerSource` now starts an answer instead of returning one: `start` gets an
+`AgentSink` and returns a cancel handle, then emits `Started`, `Delta`, `Block`,
+`Artifact`, `Usage`, `Finished` or `Failed` events. The host's
+`Runner` (`crates/eb/src/agent.rs`) drains those events on the GTK main loop and
+applies them to `App`; plugin code still never touches a widget. The demo agent
+emits synchronously; `EB_FAKE_AGENT=1` swaps in a slow streaming agent whose
+worker thread is the first real cross-thread producer.
 
 The model is **data plugins, host rendering**: plugins produce plain values, the
 host turns them into widgets. Plugin code never touches a widget, which keeps

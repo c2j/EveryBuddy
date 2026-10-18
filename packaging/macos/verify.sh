@@ -178,5 +178,27 @@ if ! EB_CLICK_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$click_out" 2>&1; the
 fi
 grep -E "click: assertions|click: --- end" "$click_out" | sed 's/^/  /'
 
+echo "== fake streaming agent =="
+fake_out="$dist/macos-verify/fake-agent.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=3 \
+     "$appdir/Contents/MacOS/evobuddy" >"$fake_out" 2>&1; then
+  echo "the fake streaming agent exited non-zero" >&2
+  tail -20 "$fake_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "fake-demo: finished" "$fake_out"
+
+echo "== fake streaming agent (cancel) =="
+cancel_out="$dist/macos-verify/fake-agent-cancel.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=50 \
+     EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+     "$appdir/Contents/MacOS/evobuddy" >"$cancel_out" 2>&1; then
+  echo "the fake streaming agent's cancellation run exited non-zero" >&2
+  tail -20 "$cancel_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
+grep -q "fake-demo: finished" "$cancel_out"
+
 cmp -s "$out" "$out2" && echo "  second launch rendered the same layout" \
   || echo "  note: first and second launch reports differ"

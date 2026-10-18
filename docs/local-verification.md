@@ -66,23 +66,34 @@ EB_CLICK=1 EB_MENU_SHOT=/tmp/evobuddy-menu.png cargo run
 # 6) 查看 widget 可见性/分配，排查“控件在但没显示”
 EB_DEBUG=1 EB_SELFTEST=1 cargo run
 
-# 7) Enter 发送链路
+# 7) fake streaming agent：提交、等流结束、自动退出
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 cargo run
+
+# 8) fake streaming agent + 取消（应看到 Failed/Cancelled）
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=300 \
+  EB_FAKE_AGENT_CHUNKS=50 cargo run
+
+# 9) Enter 发送链路
 EB_ENTER=1 cargo run
 ```
 
 期望：
 
-- `cargo test --workspace`：`evobuddy` 的 2 个测试通过，其余 crate 0 测试。
+- `cargo test --workspace`：`eb-api` 3 个、`eb-plugin-demo-agent` 4 个、
+  `evobuddy` 2 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
 - `EB_CLICK_ASSERT=1`：最后一行 `click: assertions passed (26 steps)`，退出码 0。
 - 截图后可用 `node docs/ui-spec/pngpx.js /tmp/evobuddy-chat.png` 查看像素；
   侧栏 `#f7f7f7`、路由 `#ffffff` 是规格值。
+- `EB_FAKE_DEMO`：应打印 `fake-demo: finished`；取消那次还要能看到
+  `Failed { message: "Cancelled" }`。
 - `EB_ENTER=1`：应打印 `enter: before=welcome` 和 `enter: after=conversation`。
 
 CI 里的同一条路径：Linux 跑
-`packaging/linux/verify.sh`（裸 Debian 10 + `EB_ASSERT` + `EB_CLICK_ASSERT`），
-macOS 跑 `packaging/macos/verify.sh`（藏 Homebrew + 两个断言）。
+`packaging/linux/verify.sh`（裸 Debian 10 + `EB_ASSERT` + `EB_CLICK_ASSERT` +
+fake streaming/cancel），macOS 跑 `packaging/macos/verify.sh`（藏 Homebrew +
+两个断言 + fake streaming/cancel）。
 
 ## 3. 手工 UI 检查（重点看插件贡献）
 
@@ -100,6 +111,7 @@ macOS 跑 `packaging/macos/verify.sh`（藏 Homebrew + 两个断言）。
 | 侧栏 | 折叠 / 展开、Tasks 分区折叠 | 可见性与 `▶` 字形切换；任务行隐藏/恢复 | 宿主交互 |
 | 会话 | 发送（按钮或 Enter） | 进入会话；第一条 demo 回答含文本 + 工具行 + 表格，并打开 artifact | demo-agent |
 | 会话 | 再发送一次（当前实现会新建任务） | 第二条回答是另一种占位文案，且新任务没有 artifact，面板关闭（demo-agent 交替） | demo-agent |
+| 会话 | `EB_FAKE_AGENT=1 cargo run` 后点 chip / Enter | 每 120ms 到达一个 `chunk N`，底部显示 streaming footer；流式期间侧栏仍可折叠/切换 | fake agent |
 | 会话 | 点 `✎`（Code assist） | `Code assist is not part of this UI-only build.` | notices 插件 |
 | 会话 | 顶栏搜索 / 分享 | 各自 notice | notices 插件 |
 | 会话 | 消息复制 | tooltip/反馈出现 `Copied` | 宿主 |
@@ -163,6 +175,14 @@ notice 的 id，启动时应直接 panic 并报出缺失的贡献；测试完用
 - Linux 自带栈的 ibus/fcitx5 输入（缺口 22）。
 - 超长 artifact 标签省略、overlay 滚动条观感。
 - Windows 产物（无验证环境，仍标“未验证”）。
+
+### M2.0a 当前限制
+
+- 还没有 UI 取消按钮：目前只能用 `EB_CANCEL_AFTER_MS` 或 API 的 `cancel()` 验证。
+- `Usage` 事件已定义但模型还没有用量环，暂时忽略。
+- `AgentSink` 是无界 channel，背压留给 M2.0b；fake agent 目前用独立线程，
+  宿主的专用 runtime 线程也留给 M2.0b。
+- 同一个任务只支持一个在途回答；新提交会把旧回答标成 `Cancelled`。
 
 ## 6. 常见问题
 

@@ -88,6 +88,26 @@ echo "== click audit (tree) =="
 xvfb-run -a --server-args="-screen 0 1920x1080x24" env "$@" EB_CLICK_ASSERT=1 \
   "$prefix/run" 2>&1 | sed 's/^/  /'
 
+# The fake agent is the only end-to-end check of the streaming contract: a
+# worker thread produces events, the GTK main loop drains them, and the app
+# quits on the terminal event. The second run cancels before the stream ends.
+echo "== fake streaming agent =="
+fake_out=/tmp/fake-agent.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=3 \
+  "$prefix/run" >"$fake_out" 2>&1
+sed 's/^/  /' "$fake_out"
+
+echo "== fake streaming agent (cancel) =="
+cancel_out=/tmp/fake-agent-cancel.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=50 \
+  EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+  "$prefix/run" >"$cancel_out" 2>&1
+grep -q "fake-demo: finished" "$fake_out"
+grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
+grep -q "fake-demo: finished" "$cancel_out"
+
 # install.sh is only exercised here: it copies the tree, links the launcher and
 # registers the menu entry, and a typo in it would otherwise ship unnoticed.
 echo "== install.sh =="

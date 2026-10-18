@@ -1,8 +1,8 @@
-# M2.0a 异步 agent 契约(草案)
+# M2.0a 异步 agent 契约
 
-> 状态:草案,待确认。目的不是先写线程代码,而是把"同步整轮返回"换成可流式、
-> 可取消、可测试的接口。M2.0b 的线程桥以本契约为输入;M2.0c 的 fake agent 是
-> 第一份实现,真实 agent 与 dsh sidecar 之后再接。
+> 状态:M2.0a 与 P0.4 已实现(2026-10-18);M2.0b(宿主 runtime 桥)待做。
+> 目的不是先写线程代码,而是把"同步整轮返回"换成可流式、可取消、可测试的接口。
+> M2.0b 的线程桥以本契约为输入;dsh sidecar 留到协议稳定后再评估。
 
 ## 1. 现状与问题
 
@@ -15,7 +15,7 @@
 所以 M2.0 的阻塞不是"缺一个线程",而是缺一个**事件契约**:agent 在别的线程
 产生开始、增量、块、用量、结束/错误,宿主在主线程消费并重绘。
 
-## 2. 建议的 surface
+## 2. surface(已实现)
 
 放在 `crates/eb-api`(插件唯一依赖的 surface),不暴露 GTK/rutis 细节。
 
@@ -31,9 +31,16 @@ pub enum AgentEvent {
     Failed { message: String },
 }
 
-pub struct AgentSink { /* mpsc::Sender<AgentEvent>, cloneable, Send */ }
+pub struct AgentSink { /* cloneable, Send + Sync */ }
 impl AgentSink {
+    pub fn channel() -> (AgentSink, AgentStream);
     pub fn send(&self, event: AgentEvent) -> Result<(), AgentClosed>;
+}
+
+pub struct AgentStream { /* host side */ }
+impl AgentStream {
+    pub fn try_recv(&self) -> Result<AgentEvent, AgentStreamError>;
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<AgentEvent, AgentStreamError>;
 }
 
 pub trait AnswerHandle: Send + Sync {
@@ -42,7 +49,7 @@ pub trait AnswerHandle: Send + Sync {
 
 pub trait AnswerSource: Send + Sync + 'static {
     /// 非阻塞:启动一次回答,事件经 sink 回传;取消通过 handle。
-    fn start(&self, prompt: &str, sink: AgentSink) -> AnswerHandle;
+    fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle>;
 }
 ```
 
@@ -54,9 +61,34 @@ pub trait AnswerSource: Send + Sync + 'static {
 - 取消是幂等的;`cancel()` 之后允许仍有已排队事件,但宿主必须丢弃。
 - 不在 surface 中放 `gtk::Widget`、`glib` 或 `tokio` 类型。
 
+### 2.1 实现映射
+
+| 位置 | 内容 |
+|---|---|
+| `crates/eb-api/src/lib.rs` | 事件、sink/stream、取消句柄、`AnswerSource::start` |
+| `crates/eb-api/src/model.rs` | `begin_task` / `apply_agent_event`;`Delta` 追加到当前文本块 |
+| `crates/eb/src/agent.rs` | `Runner`:主线程 16ms drain、应用事件、supersede/cancel |
+| `crates/plugins/eb-plugin-demo-agent` | demo agent 同步发射;`EB_FAKE_AGENT=1` 的慢流 fake agent |
+| `main.rs` | `EB_FAKE_DEMO=1` 提交并等终态;`EB_CANCEL_AFTER_MS` 取消 |
+
+当前限制(由 M2.0b 收口):
+
+- `AgentSink` 是无界 `std::sync::mpsc`,没有背压;
+- fake agent 用独立 `std::thread`,宿主还没有专用 runtime 线程;
+- 没有 UI 取消按钮,只有 `EB_CANCEL_AFTER_MS` / API;
+- `Usage` 事件已定义,但模型还没有用量环,暂时忽略;
+- 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`。
+
+测试:`eb-api` 3 个(事件增量、失败、空 prompt),demo-agent 4 个(完整事件、
+fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
+
 ## 3. 线程模型
 
-推荐的 M2.0b 结构(细节在实现时定):
+**当前(M2.0a/P0.4)**:`Runner` 在 GTK 主线程上用 16ms `timeout_add_local` drain;
+demo agent 在 `start` 内同步发射,fake agent 自己起一个 `std::thread`。这已经能
+证明"慢流不阻塞主循环",但还不是宿主的统一运行时。
+
+**M2.0b 目标**:
 
 ```
 GTK main thread                      runtime thread
@@ -83,33 +115,31 @@ glib::idle / timeout_add_local  <----  AgentEvent 经 mpsc 回传
 如果后续需要插件在运行期新增导航/菜单,再单独设计 `UiEvent` 的贡献通道;
 M2.0a 不把它和 agent 流混在一起。
 
-## 5. dsh 边界(待决策)
+## 5. dsh 边界(已先选 A)
 
-两个选项:
+- **A. 进程内 Rust agent**(当前):实现简单,线程/取消可控;dsh 生态另做适配。
+- **B. Node/dsh sidecar**(后续):复用现有 agent-loop;需要 JSON/stdio 或本地
+  socket 传输,以及会话/工具注册表留在 JS 进程的约束。
 
-- **A. 进程内 Rust agent**:实现简单,线程/取消可控;但 dsh 生态要另做适配。
-- **B. Node/dsh sidecar**:复用现有 agent-loop;需要 JSON/stdio 或本地 socket
-  传输,以及会话/工具注册表留在 JS 进程的约束。
-
-无论 A/B,`AgentEvent` / `HostCommand` 都应是传输无关的;sidecar 只是把同一组
-事件序列化。建议先用 **A + fake agent** 打通线程与重绘,再评估 B;不要在
-M2.0a 把 UI surface 绑到 Node 进程模型上。
+`AgentEvent` 是传输无关的;sidecar 只是把同一组事件序列化。M2.0a/P0.4 先用
+**A + fake agent** 打通线程与重绘;B 留到协议稳定后再评估,不把 UI surface 绑到
+Node 进程模型上。
 
 ## 6. 验收
 
-- fake agent:按 `Started → Delta* → Block* → Usage → Finished` 发射,带延迟;
-  UI 保持响应,取消后不再更新,退出干净。
-- 失败/panic:产生 `Failed`,宿主显示可读错误,窗口不崩。
-- 顺序:同一任务的 user turn 先于 agent 事件;跨任务事件不串台。
-- 测试:`cargo test` 覆盖 sink 关闭、取消幂等、事件顺序;CI 跑
-  `EB_FAKE_AGENT=1` 的 headless 冒烟。
-- 真实 agent 未接入时,demo-agent 可暂时适配为"立即 Finished"的同步实现,
-  保持现有 UI 行为。
+- ✅ fake agent:按 `Started → Status → Delta* → Block → Usage → Finished` 发射,
+  带延迟;`EB_FAKE_DEMO=1` 等终态退出,`EB_CANCEL_AFTER_MS` 得到 `Failed/Cancelled`。
+- ✅ 顺序:同一任务的 user turn 先于 agent 事件;新提交把旧回答标成 `Cancelled`。
+- ✅ 测试:`cargo test` 覆盖 sink 关闭、取消、事件顺序;Linux/macOS verify 跑
+  fake streaming/cancel。
+- ✅ demo agent 同步适配,保持原有 UI 与截图(`5b0eef6b…` 未变)。
+- ⏳ M2.0b 还需:慢流期间 UI 可交互的显式测试、panic 隔离、有界 channel、
+  UI 取消按钮、专用 runtime 线程。
 
 ## 7. 待确认
 
 1. `Delta` 的粒度:token 级还是 20–50ms 批量?
 2. 工具调用是否也用 `Block` 增量,还是单独 `ToolEvent`?
 3. 一个任务是否允许多个并发回答(重试/分支)?M2.0a 先按单回答设计。
-4. dsh 路线选 A 还是 B;若选 B,传输层在 M2.0a 还是 M2.1 之后做?
+4. dsh B 方案的时间点:协议稳定后、M2.1 采集之后,还是真实 agent 接入时?
 5. 会话持久化是否属于 M2,还是留给 dsh/真实 agent 接入?

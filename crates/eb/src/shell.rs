@@ -20,6 +20,7 @@ use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
 use eb_api::AnswerSource;
+use crate::agent::Runner;
 use crate::composer::{self, Composer, Picker, Variant};
 use crate::conversation::{self, Conversation};
 use crate::detail::{self, Detail};
@@ -79,6 +80,8 @@ pub struct Views {
     /// Every "show sidebar" button: one per route's topbar, since only the
     /// visible route's button can be clicked.
     pub reveals: Vec<gtk::Button>,
+    /// Owns the in-flight agent turn and its event drain loop.
+    pub agent: Rc<Runner>,
     refresher: Refresher,
     open_task: Rc<dyn Fn(usize)>,
     /// A sidebar section header was clicked.
@@ -122,10 +125,11 @@ pub fn build(
     });
     let open_task = act1(store, &refresher, |app, index: usize| app.open_task(index));
     let scene = act1(store, &refresher, |app, scene: Scene| app.set_scene(scene));
-    let submit = act1(store, &refresher, move |app, text: String| {
-        let (turn, artifact) = answer.answer(&text);
-        app.submit_turns(&text, turn, artifact);
-    });
+    let agent = Runner::new(store.clone(), refresher.clone(), answer);
+    let submit = {
+        let agent = agent.clone();
+        Rc::new(move |text: String| agent.submit(text))
+    };
     let pick = act2(store, &refresher, |app, picker: Picker, index: usize| {
         match picker {
             Picker::Model => app.model = index,
@@ -287,6 +291,7 @@ pub fn build(
         welcome_composer,
         chat_composer,
         reveals,
+        agent,
         refresher,
         open_task,
         section_toggle: section,

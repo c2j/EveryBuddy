@@ -28,6 +28,7 @@
 //! Geometry lives in Rust rather than CSS because GTK CSS has no flexbox and no
 //! `gap`; colours live in CSS because they are what the token pipeline produces.
 
+mod agent;
 mod composer;
 mod conversation;
 mod detail;
@@ -41,6 +42,7 @@ mod welcome;
 mod widgets;
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::prelude::*;
 
@@ -180,12 +182,31 @@ fn build_ui(application: &gtk::Application) {
     shell::finish(&views, &store);
 
     if std::env::var_os("EB_DEMO").is_some()
+        && std::env::var_os("EB_FAKE_DEMO").is_none()
         && std::env::var_os("EB_CLICK").is_none()
         && std::env::var_os("EB_CLICK_ASSERT").is_none()
         && std::env::var_os("EB_ENTER").is_none()
     {
-        let (turn, artifact) = host.answer().answer(DEMO_PROMPT);
-        store.borrow_mut().submit_turns(DEMO_PROMPT, turn, artifact);
+        views.agent.submit(DEMO_PROMPT.to_string());
+        // The demo agent emits synchronously, so the first frame should show the
+        // finished conversation (the same pixels the old one-shot path drew).
         views.refresh(&store);
+    }
+
+    // A harness mode for the fake streaming agent: submit, let the events drain,
+    // then quit. `EB_CANCEL_AFTER_MS` exercises the cancellation path.
+    if std::env::var_os("EB_FAKE_DEMO").is_some() {
+        views.agent.submit(DEMO_PROMPT.to_string());
+        let views = views.clone();
+        let application = application.clone();
+        gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
+            if views.agent.is_busy() {
+                gtk::glib::ControlFlow::Continue
+            } else {
+                println!("fake-demo: finished");
+                application.quit();
+                gtk::glib::ControlFlow::Break
+            }
+        });
     }
 }

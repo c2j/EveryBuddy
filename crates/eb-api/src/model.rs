@@ -38,12 +38,14 @@ pub enum Route {
 }
 
 /// A file the agent produced, shown in the artifact panel.
+#[derive(Clone, Debug)]
 pub struct Artifact {
     pub name: String,
     pub code: String,
 }
 
 /// One conversation in the sidebar list.
+#[derive(Debug)]
 pub struct Task {
     pub title: String,
     /// Right-hand row meta: a duration once settled, empty while running.
@@ -52,6 +54,7 @@ pub struct Task {
     pub artifact: Option<Artifact>,
 }
 
+#[derive(Debug)]
 pub enum Turn {
     User {
         text: String,
@@ -69,6 +72,7 @@ pub enum Turn {
 }
 
 /// The block types the message body renders.
+#[derive(Clone, Debug)]
 pub enum Block {
     Text(String),
     /// A tool call. `detail` is the muted secondary text (duration, target).
@@ -154,11 +158,12 @@ impl App {
         self.scene = scene;
     }
 
-    /// Record a user turn and the answer turn an [`super::AnswerSource`] produced.
-    pub fn submit_turns(&mut self, text: &str, answer: Turn, artifact: Option<Artifact>) {
+    /// Start a task with the user's prompt and an empty agent turn. The host
+    /// applies [`crate::AgentEvent`]s as the answer streams in.
+    pub fn begin_task(&mut self, text: &str) -> Option<usize> {
         let text = text.trim();
         if text.is_empty() {
-            return;
+            return None;
         }
 
         let index = self.tasks.len();
@@ -170,14 +175,98 @@ impl App {
                     text: text.to_string(),
                     time: "now".to_string(),
                 },
-                answer,
+                Turn::Agent {
+                    name: "EvoBuddy".to_string(),
+                    status: None,
+                    blocks: Vec::new(),
+                    streaming: true,
+                },
             ],
-            artifact,
+            artifact: None,
         });
 
         self.nav = None;
         self.route = Route::Task(index);
-        self.detail_visible = self.tasks[index].artifact.is_some();
+        self.detail_visible = false;
+        Some(index)
+    }
+
+    /// Apply one event to the agent turn of task `index`. Returns false if the
+    /// task or turn is gone (for example after the user opened another task).
+    pub fn apply_agent_event(&mut self, index: usize, event: crate::AgentEvent) -> bool {
+        use crate::AgentEvent;
+
+        // The artifact lives on the task, not the turn; handle it before the
+        // mutable borrow of the turn below.
+        if let AgentEvent::Artifact { artifact } = event {
+            let Some(task) = self.tasks.get_mut(index) else {
+                return false;
+            };
+            task.artifact = Some(artifact);
+            self.detail_visible = true;
+            return true;
+        }
+
+        let Some(task) = self.tasks.get_mut(index) else {
+            return false;
+        };
+        let Some((name, status, blocks, streaming)) =
+            task.turns.iter_mut().rev().find_map(|turn| match turn {
+                Turn::Agent {
+                    name,
+                    status,
+                    blocks,
+                    streaming,
+                } => Some((name, status, blocks, streaming)),
+                Turn::User { .. } => None,
+            })
+        else {
+            return false;
+        };
+
+        match event {
+            AgentEvent::Started { name: agent_name } => *name = agent_name,
+            AgentEvent::Status { text } => *status = Some(text),
+            AgentEvent::Delta { text } => {
+                if let Some(Block::Text(existing)) = blocks.last_mut() {
+                    existing.push_str(&text);
+                } else {
+                    blocks.push(Block::Text(text));
+                }
+            }
+            AgentEvent::Block { block } => blocks.push(block),
+            AgentEvent::Usage { used: _, total: _ } => {
+                // Kept for the usage ring in M2.2; the initial model has no
+                // per-turn meter to render yet.
+            }
+            AgentEvent::Finished => {
+                *streaming = false;
+                *status = None;
+            }
+            AgentEvent::Failed { message } => {
+                *streaming = false;
+                *status = Some(format!("Failed: {message}"));
+            }
+            AgentEvent::Artifact { .. } => unreachable!("handled above"),
+        }
+        true
+    }
+
+    /// Record a completed user + agent turn. Kept for callers/tests that do not
+    /// stream; the live path uses [`Self::begin_task`] plus
+    /// [`Self::apply_agent_event`].
+    pub fn submit_turns(&mut self, text: &str, answer: Turn, artifact: Option<Artifact>) {
+        let Some(index) = self.begin_task(text) else {
+            return;
+        };
+        let has_artifact = artifact.is_some();
+        if let Some(task) = self.tasks.get_mut(index) {
+            task.artifact = artifact;
+            if task.turns.len() == 2 {
+                task.turns[1] = answer;
+            }
+        }
+        self.detail_visible = has_artifact;
     }
 }
 
@@ -189,4 +278,82 @@ fn summarize(text: &str) -> String {
         title.push('…');
     }
     title
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AgentEvent;
+
+    #[test]
+    fn streamed_events_form_one_agent_turn() {
+        let mut app = App::new();
+        let index = app.begin_task("hello").unwrap();
+        assert!(matches!(
+            app.tasks[index].turns[1],
+            Turn::Agent {
+                streaming: true,
+                ..
+            }
+        ));
+
+        app.apply_agent_event(index, AgentEvent::Started { name: "Test".into() });
+        app.apply_agent_event(index, AgentEvent::Delta { text: "one ".into() });
+        app.apply_agent_event(index, AgentEvent::Delta { text: "two".into() });
+        app.apply_agent_event(
+            index,
+            AgentEvent::Block {
+                block: Block::Tool {
+                    status: "Ran".into(),
+                    primary: "echo".into(),
+                    detail: None,
+                },
+            },
+        );
+        app.apply_agent_event(
+            index,
+            AgentEvent::Artifact {
+                artifact: Artifact {
+                    name: "a.txt".into(),
+                    code: "x".into(),
+                },
+            },
+        );
+        app.apply_agent_event(index, AgentEvent::Finished);
+
+        let task = &app.tasks[index];
+        assert!(matches!(
+            &task.turns[1],
+            Turn::Agent { name, blocks, streaming: false, .. }
+                if name == "Test"
+                    && blocks.len() == 2
+                    && matches!(&blocks[0], Block::Text(text) if text == "one two")
+                    && matches!(&blocks[1], Block::Tool { .. })
+        ));
+        assert!(task.artifact.is_some());
+        assert!(app.detail_visible);
+    }
+
+    #[test]
+    fn failed_event_closes_the_stream() {
+        let mut app = App::new();
+        let index = app.begin_task("hello").unwrap();
+        app.apply_agent_event(
+            index,
+            AgentEvent::Failed {
+                message: "boom".into(),
+            },
+        );
+        assert!(matches!(
+            &app.tasks[index].turns[1],
+            Turn::Agent { streaming: false, status: Some(status), .. } if status == "Failed: boom"
+        ));
+    }
+
+    #[test]
+    fn empty_prompt_is_ignored() {
+        let mut app = App::new();
+        assert!(app.begin_task("   ").is_none());
+        assert!(app.tasks.is_empty());
+    }
 }
