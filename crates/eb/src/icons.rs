@@ -32,6 +32,8 @@ fn bytes(name: &str) -> Option<&'static [u8]> {
         "ring" => include_bytes!("../assets/icons/ring.png"),
         "logo" => include_bytes!("../assets/icons/logo.png"),
         "agent" => include_bytes!("../assets/icons/agent.png"),
+        "thumb-up" => include_bytes!("../assets/icons/thumb-up.png"),
+        "thumb-down" => include_bytes!("../assets/icons/thumb-down.png"),
         "mascot" => include_bytes!("../assets/mascot.png"),
         _ => return None,
     })

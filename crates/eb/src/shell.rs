@@ -262,6 +262,7 @@ pub fn build(
             reveal: reveal.clone(),
         },
         &chat_composer,
+        &contribs.message_actions,
     );
     note(&mut probes, "eb-chat-topbar", &conversation.topbar);
     note(&mut probes, "eb-chat-actions", &conversation.actions);

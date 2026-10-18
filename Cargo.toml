@@ -14,6 +14,7 @@ members = [
     "crates/eb-api",
     "crates/plugins/eb-plugin-nav",
     "crates/plugins/eb-plugin-notices",
+    "crates/plugins/eb-plugin-dsh-feedback",
     "crates/plugins/eb-plugin-composer",
     "crates/plugins/eb-plugin-demo-agent",
     "crates/plugins/eb-plugin-acp-agent",

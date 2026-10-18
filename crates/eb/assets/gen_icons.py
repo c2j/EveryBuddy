@@ -177,6 +177,21 @@ def check():
     return im
 
 
+def thumb_up():
+    im = canvas(); d = ImageDraw.Draw(im)
+    # palm and thumb, deliberately simple geometric shapes
+    d.rounded_rectangle((30, 44, 70, 82), radius=6, outline=BLACK, width=7)
+    d.rounded_rectangle((36, 22, 52, 48), radius=6, outline=BLACK, width=7)
+    d.line((54, 52, 78, 52), fill=BLACK, width=6)
+    d.line((54, 62, 78, 62), fill=BLACK, width=6)
+    d.line((54, 72, 74, 72), fill=BLACK, width=6)
+    return im
+
+
+def thumb_down():
+    return thumb_up().rotate(180)
+
+
 def ring():
     im = canvas(); d = ImageDraw.Draw(im)
     d.arc((18, 18, 78, 78), 0, 360, fill=BLACK, width=6)
@@ -223,6 +238,7 @@ def main():
         "send": send(), "stop": stop(), "menu": menu(), "filter": filter(),
         "user": user(), "chevron-down": chevron_down(), "chevron-right": chevron_right(),
         "check": check(), "ring": ring(), "logo": logo(), "agent": agent(),
+        "thumb-up": thumb_up(), "thumb-down": thumb_down(),
     }
     for name, image in icons.items():
         save(image, name)

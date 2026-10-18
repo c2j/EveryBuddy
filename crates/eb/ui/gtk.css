@@ -532,6 +532,38 @@ button.eb-task-active .eb-task-title {
   font-size: 15px;
 }
 
+/* DSH message-feedback port: Like/Dislike under a finalized agent turn. */
+.eb-feedback-active {
+  background-color: rgba(0, 194, 154, 0.12);
+  border-radius: 8px;
+}
+
+.eb-feedback-popover {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+}
+
+.eb-feedback-title {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.eb-feedback-copy {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
+.eb-feedback-close {
+  padding: 4px 8px;
+}
+
+.eb-feedback-close-label {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
 /* Action row under a user message: right-aligned, 28px tall, `padding-top: 4px`,
  * 8px gap, time 14px/400 at rgba(0,0,0,.5). */
 .eb-message-toolbar {
