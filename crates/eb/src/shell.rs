@@ -75,6 +75,9 @@ impl Refresher {
     }
 
     pub fn request_now(&self) {
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("refresher: now {:?}", std::thread::current().id());
+        }
         if let Some(refresh) = self.immediate.borrow().as_ref() {
             refresh();
         } else {
@@ -358,7 +361,8 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
             }
         })
     };
-    views.refresher.install_immediate(immediate);
+    views.refresher.install_immediate(immediate.clone());
+    views.agent.set_immediate_refresh(immediate);
 
     // `show_all` first, then repaint: `refresh` is what sets the pane
     // visibilities, and running it afterwards means no frame is drawn in
@@ -395,7 +399,7 @@ impl Views {
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
         if std::env::var_os("EB_DEBUG").is_some() {
-            eprintln!("refresh: enter");
+            eprintln!("refresh: enter {:?}", std::thread::current().id());
         }
         let app = store.borrow();
         if std::env::var_os("EB_DEBUG").is_some() {

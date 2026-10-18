@@ -123,6 +123,7 @@ pub struct Runner {
     permission_rx: RefCell<Receiver<PermissionJob>>,
     permissions: Arc<PermissionBridge>,
     permission_anchor: RefCell<Option<gtk::Widget>>,
+    immediate_refresh: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 /// A permission request crossing from the agent worker to the GTK thread.
@@ -168,6 +169,7 @@ impl Runner {
             permission_rx: RefCell::new(permission_rx),
             permissions,
             permission_anchor: RefCell::new(None),
+            immediate_refresh: RefCell::new(None),
         });
 
         // Permission requests can arrive while no agent event is being drained;
@@ -187,10 +189,29 @@ impl Runner {
         *self.permission_anchor.borrow_mut() = Some(widget);
     }
 
+    /// Install the direct repaint the agent uses after applying events.
+    pub fn set_immediate_refresh(&self, refresh: Rc<dyn Fn()>) {
+        *self.immediate_refresh.borrow_mut() = Some(refresh);
+    }
+
+    fn refresh_now(&self) {
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("runner: refresh_now {:?}", std::thread::current().id());
+        }
+        if let Some(refresh) = self.immediate_refresh.borrow().as_ref() {
+            refresh();
+        } else {
+            self.refresher.request_now();
+        }
+    }
+
     /// Start an answer for `text`. A previous in-flight answer is marked
     /// cancelled before the new task is created, so a task can never be left
     /// "streaming" after the user moves on.
     pub fn submit(self: &Rc<Self>, text: String) {
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("runner: submit start {:?}", std::thread::current().id());
+        }
         self.supersede();
 
         let task = self.store.borrow_mut().begin_task(&text);
@@ -199,7 +220,7 @@ impl Runner {
             return;
         };
         // Paint the user's turn before waiting for any agent handshake.
-        self.refresher.request_now();
+        self.refresh_now();
 
         let (sink, stream) = AgentSink::channel();
         let handle =
@@ -228,7 +249,7 @@ impl Runner {
         // Synchronous sources (the demo agent) have already sent everything.
         self.drain();
         self.schedule();
-        self.refresher.request_now();
+        self.refresh_now();
 
         if let Some(ms) = cancel_after_ms() {
             let runner = self.clone();
@@ -506,7 +527,7 @@ impl Runner {
             // Agent events must paint even when no UI handler follows them.
             // `request_now` avoids relying on an idle callback that can be
             // starved while a modal permission popover owns a nested loop.
-            self.refresher.request_now();
+            self.refresh_now();
         }
     }
 
