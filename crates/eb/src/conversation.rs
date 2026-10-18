@@ -23,8 +23,6 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::composer::Composer;
-use eb_api::contrib::MessageAction;
-
 use crate::model::{Block, DiffLine, PlanEntry, Task, Turn};
 use crate::spec;
 use crate::widgets::*;
@@ -47,11 +45,9 @@ pub struct Conversation {
     /// Repopulated on every refresh.
     pub messages: gtk::Box,
     pub reveal: gtk::Button,
-    /// Plugin-contributed actions shown under a finalized assistant turn.
-    pub message_actions: Vec<MessageAction>,
 }
 
-pub fn build(wiring: &Wiring, composer: &Composer, message_actions: &[MessageAction]) -> Conversation {
+pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     let root = vbox(0);
     class(&root, "eb-content");
 
@@ -132,7 +128,6 @@ pub fn build(wiring: &Wiring, composer: &Composer, message_actions: &[MessageAct
         scroll,
         messages,
         reveal,
-        message_actions: message_actions.to_vec(),
     }
 }
 
@@ -155,18 +150,7 @@ pub fn fill_messages(conversation: &Conversation, task: &Task) {
             } => {
                 conversation
                     .messages
-                    .pack_start(
-                        &agent_turn(
-                            name,
-                            status.as_deref(),
-                            blocks,
-                            *streaming,
-                            &conversation.message_actions,
-                        ),
-                        false,
-                        false,
-                        0,
-                    );
+                    .pack_start(&agent_turn(name, status.as_deref(), blocks, *streaming), false, false, 0);
             }
         }
     }
@@ -237,13 +221,7 @@ fn user_turn(value: &str, time: &str) -> gtk::Box {
 
 /// Measured: a 500 wide frame; a 24.5px header with a 10px gap between the
 /// agent mark and its name (14px/600); then the blocks.
-fn agent_turn(
-    name: &str,
-    status: Option<&str>,
-    blocks: &[Block],
-    streaming: bool,
-    actions: &[MessageAction],
-) -> gtk::Box {
+fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: bool) -> gtk::Box {
     let frame = vbox(0);
     class(&frame, "eb-frame");
 
@@ -281,62 +259,9 @@ fn agent_turn(
 
     if streaming {
         frame.pack_start(&streaming_footer(), false, false, 0);
-    } else if !actions.is_empty() {
-        frame.pack_start(&assistant_action_strip(actions), false, false, 0);
     }
 
     frame
-}
-
-fn assistant_action_strip(actions: &[MessageAction]) -> gtk::Box {
-    let strip = hbox(4);
-    class(&strip, "eb-message-toolbar");
-    strip.set_halign(gtk::Align::End);
-    strip.set_margin_top(8);
-    for action in actions {
-        let button = flat_button("eb-icon-mini");
-        button.set_tooltip_text(Some(action.tooltip));
-        button.add(&crate::icons::named(action.icon, 16, "eb-glyph"));
-        let id = action.id;
-        button.connect_clicked(move |button| feedback_popover(button, id));
-        strip.pack_start(&button, false, false, 0);
-    }
-    strip
-}
-
-fn feedback_popover(button: &gtk::Button, id: &str) {
-    class(button, "eb-feedback-active");
-    let popover = gtk::Popover::new(Some(button));
-    class(&popover, "eb-feedback-popover");
-
-    let body = vbox(6);
-    body.set_margin_top(10);
-    body.set_margin_bottom(10);
-    body.set_margin_start(12);
-    body.set_margin_end(12);
-    let title = if id.ends_with(".like") {
-        "Liked"
-    } else {
-        "Disliked"
-    };
-    body.pack_start(&text(title, "eb-feedback-title"), false, false, 0);
-    body.pack_start(
-        &text(
-            "Recorded locally by the DSH message-feedback port.",
-            "eb-feedback-copy",
-        ),
-        false,
-        false,
-        0,
-    );
-    let close = flat_button("eb-feedback-close");
-    close.add(&text("Close", "eb-feedback-close-label"));
-    let popover_clone = popover.clone();
-    close.connect_clicked(move |_| popover_clone.popdown());
-    body.pack_start(&close, false, false, 0);
-    popover.add(&body);
-    body.show_all();
-    popover.popup();
 }
 
 /// Measured: a one-line block occupies 53px — a 24px line plus 14px of margin

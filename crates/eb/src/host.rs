@@ -47,7 +47,6 @@ impl Host {
         let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),
             Arc::new(eb_plugin_notices::NoticesPlugin),
-            Arc::new(eb_plugin_dsh_feedback::DshFeedbackPlugin),
             Arc::new(eb_plugin_composer::ComposerPlugin),
             answer,
         ];

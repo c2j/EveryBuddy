@@ -128,7 +128,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 ### P2 图标与吉祥物(中)✅ 已完成(2026-10-18)
 
-- 25 个自有 PNG 图标 + 120px 吉祥物,由 `crates/eb/assets/gen_icons.py` 从几何图元生成;`include_bytes!` 嵌入二进制,不依赖图标主题/librsvg/文件路径。
+- 23 个自有 PNG 图标 + 120px 吉祥物,由 `crates/eb/assets/gen_icons.py` 从几何图元生成;`include_bytes!` 嵌入二进制,不依赖图标主题/librsvg/文件路径。
 - 资产许可:仓库 MIT,见 [`crates/eb/assets/README.md`](../crates/eb/assets/README.md)。
 - 已替换侧栏、顶栏、工具行、文件面板、composer、agent/brand mark;欢迎页吉祥物用 overlay 放置,不改 hero/输入卡几何。
 
@@ -148,7 +148,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 ### 远期/挂起
 
-- **dsh 兼容**(prototype 路线 A):Node+Cordis 宿主、dsh 插件原样装载、Rust 兑现 fs/search 服务——原型已通 read 工具全链路;**rutis 不能直接执行 dsh JS 插件**。UI 验收采用 `eb-plugin-dsh-feedback` 原生移植 DSH `ui-message-feedback` 的 Like/Dislike action strip;faithful JS 客户端仍需 WebView/sidecar(见 [dsh-plugin-acceptance.md](dsh-plugin-acceptance.md))。UI 侧在 M2.0a 定 agent 边界时决定 in-process 还是 sidecar,避免异步协议返工。
+- **dsh 兼容**(prototype 路线 A):Node+Cordis 宿主、dsh 插件原样装载、Rust 兑现 fs/search 服务——原型已通 read 工具全链路;扩展 write/edit、agent-loop/session 注册表是后续工作。UI 侧在 M2.0a 定 agent 边界时决定 in-process 还是 sidecar,避免异步协议返工。
 - **Windows 自包含**(缺口 23/24):需真机;`.cmd` 启动器做路径改写 + Win7/8.1 可行性定论。当前 zip 文档如实标注"未验证"。
 - **macOS 公证 / .dmg**:需要 Apple Developer ID;`hdiutil` 一步之遥。
 - **缺口 7**:UI 字族在 token 层定义并整体替换重测(影响全部文本宽度,动一次全量回归)。

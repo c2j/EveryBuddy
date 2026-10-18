@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = {
     "evobuddy", "eb-api", "eb-plugin-acp-agent", "eb-plugin-composer",
     "eb-plugin-demo-agent", "eb-plugin-nav", "eb-plugin-notices",
-    "eb-plugin-dsh-feedback",
 }
 SYSTEM = [
     ("gtk", "3.24.x", "LGPL-2.1-or-later", "https://gitlab.gnome.org/GNOME/gtk"),

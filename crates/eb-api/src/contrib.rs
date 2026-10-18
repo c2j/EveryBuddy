@@ -42,15 +42,6 @@ pub struct ComposerCopy {
     pub chat_hint: &'static str,
 }
 
-/// One action in an assistant message's action strip. The host owns the widget
-/// and the click behaviour; a plugin declares the entry, its icon and tooltip.
-#[derive(Clone, Copy)]
-pub struct MessageAction {
-    pub id: &'static str,
-    pub icon: &'static str,
-    pub tooltip: &'static str,
-}
-
 /// Everything the built-in plugins contribute. The host reads this after the
 /// mount and validates the parts it cannot render without.
 #[derive(Clone, Default)]
@@ -65,7 +56,6 @@ pub struct Contribs {
     pub menus: Vec<(&'static str, Vec<&'static str>)>,
     pub composer_copy: Option<ComposerCopy>,
     pub chips: Vec<ChipSpec>,
-    pub message_actions: Vec<MessageAction>,
 }
 
 impl Contribs {
@@ -120,9 +110,4 @@ pub fn composer_copy(ui: &Ui, copy: ComposerCopy) {
 /// Declare one scenario chip.
 pub fn chip(ui: &Ui, spec: ChipSpec) {
     ui.contribs.lock().unwrap().chips.push(spec);
-}
-
-/// Declare one action in the assistant message action strip.
-pub fn message_action(ui: &Ui, action: MessageAction) {
-    ui.contribs.lock().unwrap().message_actions.push(action);
 }

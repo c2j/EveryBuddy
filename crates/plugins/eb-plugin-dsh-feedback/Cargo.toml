@@ -1,9 +1,0 @@
-[package]
-name = "eb-plugin-dsh-feedback"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "A GTK port of the DSH client ui-message-feedback action strip"
-
-[dependencies]
-eb-api = { path = "../../eb-api" }

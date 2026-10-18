@@ -36,7 +36,6 @@ cairo-rs = { version = "0.22", features = ["png"] }
 eb-api = { path = "../eb-api" }
 eb-plugin-nav = { path = "../plugins/eb-plugin-nav" }
 eb-plugin-notices = { path = "../plugins/eb-plugin-notices" }
-eb-plugin-dsh-feedback = { path = "../plugins/eb-plugin-dsh-feedback" }
 eb-plugin-composer = { path = "../plugins/eb-plugin-composer" }
 eb-plugin-demo-agent = { path = "../plugins/eb-plugin-demo-agent" }
 eb-plugin-acp-agent = { path = "../plugins/eb-plugin-acp-agent" }
