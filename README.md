@@ -152,7 +152,7 @@ EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS="acp" EVOB
 EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" DEEPSEEK_API_KEY="…" cargo run
 ```
 
-`EVOBUDDY_ACP_AUTO_APPROVE=1` allows tool calls (default is reject);
+Tool permissions open a modal allow/reject dialog by default; `EVOBUDDY_ACP_AUTO_APPROVE=1` bypasses the dialog;
 `EVOBUDDY_ACP_DEBUG=1` forwards the agent's stderr. The full env table, event
 mapping, permission model and limitations are in
 [`docs/acp-agent.md`](docs/acp-agent.md).
@@ -182,7 +182,8 @@ For ACP screenshots, `EB_ACP_DEMO=1` submits once and leaves the window open;
 `EB_SHOT_AFTER_MS=1500` delays the capture until the agent stream settles:
 
 ```bash
-EVOBUDDY_ACP_COMMAND=python3 EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" EB_ACP_DEMO=1 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
+EVOBUDDY_ACP_COMMAND=python3 EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" EB_ACP_DEMO=1 EB_PERMISSION_AUTO=allow \
+EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
 ```
 
 Popovers are not in the widget walk — GTK parents them to the window when they

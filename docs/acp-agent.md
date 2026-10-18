@@ -41,7 +41,7 @@ dsh 的 ACP profile 会把会话持久化到 `~/.dsh`；在普通桌面用户下
 | `EVOBUDDY_ACP_ARGS` | 否 | 参数，空白分隔或 JSON 字符串数组，如 `["dsh","--profile","acp"]` |
 | `EVOBUDDY_ACP_CWD` | 否 | 会话工作区，必须是绝对路径；默认启动进程的 cwd |
 | `EVOBUDDY_ACP_AUTH_METHOD` | 否 | `initialize` 后调用 `authenticate` 的 method id |
-| `EVOBUDDY_ACP_AUTO_APPROVE` | 否 | `1/true/yes` 时自动选 allow 权限项；默认选 reject |
+| `EVOBUDDY_ACP_AUTO_APPROVE` | 否 | `1/true/yes` 时绕过权限弹窗自动 allow；默认弹窗让用户选 |
 | `EVOBUDDY_ACP_NAME` | 否 | agent 未上报名称时的显示名，默认 `ACP agent` |
 | `EVOBUDDY_ACP_DEBUG` | 否 | 把 agent 的 stderr 转发到宿主 stderr |
 
@@ -69,9 +69,9 @@ JSON-RPC 生命周期：
 
 ## 权限与安全
 
-- **默认拒绝**工具权限请求：客户端还不弹权限 UI，所以没有明确 allow 时选
-  `reject_once`/`reject_always`。需要工具执行的本地开发可显式设
-  `EVOBUDDY_ACP_AUTO_APPROVE=1`。
+- **默认弹窗**：工具权限请求会走 GTK 模态对话框，选项来自 ACP 的
+  `options[].name`，用户可以逐个 allow/reject。需要无人值守的本地开发可显式设
+  `EVOBUDDY_ACP_AUTO_APPROVE=1` 绕过弹窗。
 - agent 的读写/命令由 agent 自己执行；本插件只负责协议，不把客户端 fs/terminal
   能力广告出去（`clientCapabilities: {}`），所以 agent 不会反过来调用宿主文件系统。
 - agent 进程继承宿主环境；不要把 API key 写进 `EVOBUDDY_ACP_ARGS`（会出现在
@@ -87,11 +87,11 @@ JSON-RPC 生命周期：
   到达模型层；未设置 `DEEPSEEK_API_KEY` 时，错误被回显为可换行的 Failed 状态，
   窗口宽度保持 1440。设置 key 后应直接出文本。
 - 真实 **opencode** `opencode acp`：能流式输出、上报 tool_call/usage，并渲染
-  exec/tool 块；需要 `EVOBUDDY_ACP_AUTO_APPROVE=1` 才允许工具执行。
+  exec/tool 块；工具执行会弹权限对话框，或由 `EVOBUDDY_ACP_AUTO_APPROVE=1` 放行。
 
 ## 已知限制
 
-- 没有交互式权限弹窗（只有环境变量策略）；没有 `authenticate` 之外的登录 UI。
+- 权限对话框是基础 GTK `MessageDialog`，还没有记住 allow-always 选项或把权限历史写进任务；也没有 `authenticate` 之外的登录 UI。
 - 不支持 `session/load`/`session/list`/`session/resume`；一次 app 运行一个活动
   session，重启后由 agent 自己持久化。
 - 只发送 text prompt；图片/resource/embedded context 还没接。
@@ -106,7 +106,8 @@ JSON-RPC 生命周期：
 # fake ACP：确认协议/宿主/渲染链路，不依赖真实模型
 EVOBUDDY_ACP_COMMAND=python3 \
 EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" \
-EB_ACP_DEMO=1 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 \
+EB_ACP_DEMO=1 EB_PERMISSION_AUTO=allow \
+EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 \
 cargo run
 
 # 真实 agent：把上面的 COMMAND/ARGS/CWD 换成 dsh 或 opencode
@@ -114,4 +115,5 @@ cargo run
 
 `EB_ACP_DEMO=1` 只提交一次、不提前退出；`EB_SHOT_AFTER_MS` 让截图等到 agent
 流稳定后再拍。`EB_FAKE_DEMO=1` 也可以和 ACP 环境变量一起用：它会在终端事件
-（`Finished`/`Failed`）后退出，适合 CI 做“能跑完”检查。
+（`Finished`/`Failed`）后退出，适合 CI 做“能跑完”检查。无人值守测试可用
+`EB_PERMISSION_AUTO=allow|reject` 代替点击权限对话框。

@@ -12,10 +12,16 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use eb_api::{AgentEvent, AgentSink, AgentStream, AgentStreamError, AnswerHandle, AnswerSource};
+use gtk::prelude::*;
+
+use eb_api::{
+    AgentEvent, AgentSink, AgentStream, AgentStreamError, AnswerHandle, AnswerSource,
+    PermissionDecision, PermissionPrompter, PermissionRequest,
+};
 
 use crate::model::Store;
 use crate::shell::Refresher;
@@ -67,6 +73,7 @@ impl AgentRuntime {
         source: Arc<dyn AnswerSource>,
         prompt: String,
         sink: AgentSink,
+        permissions: Arc<dyn PermissionPrompter>,
     ) -> Result<Box<dyn AnswerHandle>, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
         let tx = self
@@ -75,7 +82,7 @@ impl AgentRuntime {
             .ok_or_else(|| "the agent runtime is gone".to_string())?;
         tx.send(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.start(&prompt, sink)
+                source.start_with_permissions(&prompt, sink, permissions)
             }))
             .map_err(|_| "the agent panicked while starting".to_string());
             let _ = reply_tx.send(result);
@@ -112,6 +119,31 @@ pub struct Runner {
     /// One timer serves whichever answer is current; starting another timer per
     /// submit would double-drain the same stream.
     polling: Cell<bool>,
+    window: gtk::ApplicationWindow,
+    permission_rx: RefCell<Receiver<PermissionJob>>,
+    permissions: Arc<PermissionBridge>,
+}
+
+/// A permission request crossing from the agent worker to the GTK thread.
+struct PermissionJob {
+    request: PermissionRequest,
+    reply: SyncSender<PermissionDecision>,
+}
+
+/// The worker-side half of the permission bridge. `ask` blocks the agent thread;
+/// the Runner polls the other end on the GTK main loop.
+struct PermissionBridge {
+    tx: mpsc::Sender<PermissionJob>,
+}
+
+impl PermissionPrompter for PermissionBridge {
+    fn ask(&self, request: PermissionRequest) -> PermissionDecision {
+        let (reply, answer) = mpsc::sync_channel(1);
+        if self.tx.send(PermissionJob { request, reply }).is_err() {
+            return PermissionDecision::Cancelled;
+        }
+        answer.recv().unwrap_or(PermissionDecision::Cancelled)
+    }
 }
 
 impl Runner {
@@ -120,15 +152,30 @@ impl Runner {
         refresher: Refresher,
         source: Arc<dyn AnswerSource>,
         runtime: Arc<AgentRuntime>,
+        window: gtk::ApplicationWindow,
     ) -> Rc<Self> {
-        Rc::new(Runner {
+        let (permission_tx, permission_rx) = mpsc::channel();
+        let permissions = Arc::new(PermissionBridge { tx: permission_tx });
+        let runner = Rc::new(Runner {
             store,
             refresher,
             source,
             runtime,
             active: RefCell::new(None),
             polling: Cell::new(false),
-        })
+            window,
+            permission_rx: RefCell::new(permission_rx),
+            permissions,
+        });
+
+        // Permission requests can arrive while no agent event is being drained;
+        // poll independently of the 16ms stream timer.
+        let poll = runner.clone();
+        gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
+            poll.poll_permissions();
+            gtk::glib::ControlFlow::Continue
+        });
+        runner
     }
 
     /// Start an answer for `text`. A previous in-flight answer is marked
@@ -144,19 +191,23 @@ impl Runner {
         };
 
         let (sink, stream) = AgentSink::channel();
-        let handle = match self.runtime.start(self.source.clone(), text, sink) {
-            Ok(handle) => handle,
-            Err(message) => {
-                if std::env::var_os("EB_DEBUG").is_some() {
-                    eprintln!("agent: start failed: {message}");
+        let handle =
+            match self
+                .runtime
+                .start(self.source.clone(), text, sink, self.permissions.clone())
+            {
+                Ok(handle) => handle,
+                Err(message) => {
+                    if std::env::var_os("EB_DEBUG").is_some() {
+                        eprintln!("agent: start failed: {message}");
+                    }
+                    self.store
+                        .borrow_mut()
+                        .apply_agent_event(task, AgentEvent::Failed { message });
+                    self.refresher.request();
+                    return;
                 }
-                self.store
-                    .borrow_mut()
-                    .apply_agent_event(task, AgentEvent::Failed { message });
-                self.refresher.request();
-                return;
-            }
-        };
+            };
         *self.active.borrow_mut() = Some(Active {
             task,
             handle,
@@ -185,6 +236,64 @@ impl Runner {
         if let Some(active) = self.active.borrow().as_ref() {
             active.handle.cancel();
         }
+    }
+
+    fn poll_permissions(&self) {
+        let jobs: Vec<PermissionJob> = {
+            let rx = self.permission_rx.borrow();
+            let mut jobs = Vec::new();
+            while let Ok(job) = rx.try_recv() {
+                jobs.push(job);
+            }
+            jobs
+        };
+        for job in jobs {
+            self.ask_permission(job);
+        }
+    }
+
+    fn ask_permission(&self, job: PermissionJob) {
+        let options = job.request.options.clone();
+        // Headless harness path: answer without opening a window. The default
+        // (unset) is the real modal dialog below.
+        if let Ok(mode) = std::env::var("EB_PERMISSION_AUTO") {
+            let wanted: &[&str] = if mode == "allow" {
+                &["allow_once", "allow_always"]
+            } else {
+                &["reject_once", "reject_always"]
+            };
+            let selected = options
+                .iter()
+                .find(|option| wanted.contains(&option.kind.as_str()))
+                .map(|option| PermissionDecision::Selected(option.id.clone()))
+                .unwrap_or(PermissionDecision::Cancelled);
+            let _ = job.reply.send(selected);
+            return;
+        }
+        let dialog = gtk::MessageDialog::new(
+            Some(&self.window),
+            gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+            gtk::MessageType::Question,
+            gtk::ButtonsType::None,
+            &job.request.title,
+        );
+        dialog.set_title("Permission required");
+        dialog.format_secondary_text(Some("Allow this tool call?"));
+        for (index, option) in options.iter().enumerate() {
+            dialog.add_button(&option.label, gtk::ResponseType::Other(index as u16));
+        }
+        dialog.add_button("Reject", gtk::ResponseType::Cancel);
+        let response = dialog.run();
+        dialog.close();
+
+        let decision = match response {
+            gtk::ResponseType::Other(index) => options
+                .get(index as usize)
+                .map(|option| PermissionDecision::Selected(option.id.clone()))
+                .unwrap_or(PermissionDecision::Cancelled),
+            _ => PermissionDecision::Cancelled,
+        };
+        let _ = job.reply.send(decision);
     }
 
     /// Whether an answer is still streaming. The fake-agent harness polls this

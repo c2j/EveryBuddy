@@ -82,6 +82,44 @@ pub enum AgentEvent {
     },
 }
 
+/// One option offered by an agent's permission request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermissionOption {
+    pub id: String,
+    pub label: String,
+    /// ACP `kind` (`allow_once`, `reject_once`, …); UI uses it only for styling.
+    pub kind: String,
+}
+
+/// A tool permission request that must be answered before the agent continues.
+#[derive(Clone, Debug)]
+pub struct PermissionRequest {
+    pub title: String,
+    pub options: Vec<PermissionOption>,
+}
+
+/// The user's answer to [`PermissionRequest`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PermissionDecision {
+    Selected(String),
+    Cancelled,
+}
+
+/// Host-side permission UI. Called on the agent worker thread; implementations
+/// must marshal to the UI thread and block until the user answers.
+pub trait PermissionPrompter: Send + Sync {
+    fn ask(&self, request: PermissionRequest) -> PermissionDecision;
+}
+
+/// A safe default for sources/tests that never ask for permission.
+pub struct DenyAll;
+
+impl PermissionPrompter for DenyAll {
+    fn ask(&self, _request: PermissionRequest) -> PermissionDecision {
+        PermissionDecision::Cancelled
+    }
+}
+
 /// The sending half of an agent event stream.
 ///
 /// Cheap to clone and safe to move to an agent's worker thread. A send fails
@@ -188,6 +226,18 @@ impl AnswerHandle for NoopHandle {
 /// producer stop as soon as possible.
 pub trait AnswerSource: Send + Sync + 'static {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle>;
+
+    /// Start with a host-provided permission prompt. Sources that never ask for
+    /// permission can keep implementing only [`AnswerSource::start`].
+    fn start_with_permissions(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: std::sync::Arc<dyn PermissionPrompter>,
+    ) -> Box<dyn AnswerHandle> {
+        let _ = permissions;
+        self.start(prompt, sink)
+    }
 }
 
 /// Provide the answer source as a rutis service. The host reads it with

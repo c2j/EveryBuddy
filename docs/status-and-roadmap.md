@@ -104,7 +104,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 **M2.3 ACP 真实对话**(中)✅ 已完成(2026-10-18):
 - 新插件 `crates/plugins/eb-plugin-acp-agent`:JSON-RPC stdio 启动外部 ACP agent,dsh/opencode 等无需改宿主;配置 `EVOBUDDY_ACP_COMMAND` 时替代 demo。
 - 映射 `agent_message_chunk`→Delta、`usage_update`→Usage、exec/diff/tool_call→`Block::Exec/Diff/Tool`;session 跨 turn 保留。
-- `session/cancel` 接入 UI stop;权限默认拒绝,`EVOBUDDY_ACP_AUTO_APPROVE=1` 显式放开。
+- `session/cancel` 接入 UI stop;权限请求走 GTK 模态 allow/reject 对话框,`EVOBUDDY_ACP_AUTO_APPROVE=1` 可绕过。
 - fake ACP 5 个测试(含 cancel/permission);真实 dsh 的 initialize/session/prompt 链路已验证(缺 `DEEPSEEK_API_KEY` 时错误可换行显示),真实 opencode 已流式输出并渲染 tool/exec 块。
 - 配置、限制与截图 harness 见 [`docs/acp-agent.md`](acp-agent.md)。
 
@@ -155,7 +155,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 4. **CI runner 屏幕 < 1440×868**:macOS/任何真屏验证几何时,窗口会被钳到工作区——断言用屏幕无关不变量(spec 已记录);P0.1 已把这个规则写进退出码。
 5. **Windows 无验证环境**:在拿到真机前,不要把 Windows 产物从"未验证"升级为"可用"。
 6. **rutis 0.11 是 pre-1.0**:vendored fork 是唯一事实源;上游若发 1.0,评估回迁(收窄 tokio 特性的 3 行补丁值得向上游提)。
-7. **M2.0b 已交付,ACP 也已接入**:runtime 线程、有界队列、UI stop、panic 隔离已做;真实 agent 的流式文本、tool/exec/diff、usage 与 cancel 已验证。剩余风险是交互式权限 UI、agent 认证/会话恢复与长输出布局。
+7. **M2.0b 已交付,ACP 也已接入**:runtime 线程、有界队列、UI stop、panic 隔离已做;真实 agent 的流式文本、tool/exec/diff、usage 与 cancel 已验证。剩余风险是权限记忆/历史、agent 认证/会话恢复与长输出布局。
 8. **发布合规风险**:LGPL 动态库随包分发、字体/图标再分发、产品文案/i18n 的边界,都需要在发布前明确记录。
 
 ## 五、近期待办(按序)

@@ -127,7 +127,7 @@ M2.0a 不把它和 agent 流混在一起。
 `agent_message_chunk` 映射为 `Delta`、`usage_update` 映射为 `Usage`、
 `tool_call_update` 的 execute/diff content 映射为 `Exec`/`Diff`，其余为
 `Tool`。会话跨 turn 保留；`session/cancel` 由 `AnswerHandle::cancel` 发出；
-权限请求默认拒绝，`EVOBUDDY_ACP_AUTO_APPROVE=1` 才自动允许。
+权限请求默认弹 GTK 模态框让用户 allow/reject，`EVOBUDDY_ACP_AUTO_APPROVE=1` 可绕过。
 
 配置与限制见 [`docs/acp-agent.md`](acp-agent.md)。已验证 fake ACP（5 个测试，
 含 cancel）与真实 dsh/opencode 的 initialize/prompt 链路；dsh 需要本地
@@ -155,7 +155,7 @@ M2.0a 不把它和 agent 流混在一起。
   隔离、慢流期间 UI 可交互的 harness 已完成。
 - ✅ ACP:文本流、usage、exec/diff/tool 块、权限策略、cancel、跨 turn session
   已接;fake ACP 与真实 dsh/opencode 验证。
-- ⏳ 仍待:交互式权限 UI、ACP `plan`/thought 渲染、session resume/list、图片/
+- ⏳ 仍待:权限记忆/历史、ACP `plan`/thought 渲染、session resume/list、图片/
   resource prompt、贡献热更新。
 
 ## 7. 待确认

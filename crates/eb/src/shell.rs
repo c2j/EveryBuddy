@@ -126,7 +126,7 @@ pub fn build(
     });
     let open_task = act1(store, &refresher, |app, index: usize| app.open_task(index));
     let scene = act1(store, &refresher, |app, scene: Scene| app.set_scene(scene));
-    let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime);
+    let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime, window.clone());
     let submit = {
         let agent = agent.clone();
         Rc::new(move |text: String| {

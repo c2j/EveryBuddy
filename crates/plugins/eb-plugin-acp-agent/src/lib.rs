@@ -27,7 +27,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use eb_api::model::{Block, DiffLine};
-use eb_api::{AgentEvent, AgentSink, AnswerHandle, AnswerSource, EbPlugin, Ui};
+use eb_api::{
+    AgentEvent, AgentSink, AnswerHandle, AnswerSource, DenyAll, EbPlugin, PermissionDecision,
+    PermissionOption, PermissionPrompter, PermissionRequest, Ui,
+};
 use serde_json::{json, Value};
 
 const PROTOCOL_VERSION: u64 = 1;
@@ -129,7 +132,13 @@ impl AcpAgent {
         AcpConfig::from_env().map(Self::new)
     }
 
-    fn run(&self, prompt: String, sink: AgentSink, cancelled: Arc<AtomicBool>) {
+    fn run(
+        &self,
+        prompt: String,
+        sink: AgentSink,
+        cancelled: Arc<AtomicBool>,
+        permissions: Arc<dyn PermissionPrompter>,
+    ) {
         // The external agent may take seconds to boot (opencode/dsh load their
         // own runtime). Acknowledge immediately so the composer switches to its
         // stop state instead of looking like the click did nothing.
@@ -150,7 +159,7 @@ impl AcpAgent {
             if self.config.debug {
                 eprintln!("acp: launching {}", self.config.program);
             }
-            match AcpSession::launch(&self.config) {
+            match AcpSession::launch(&self.config, permissions.clone()) {
                 Ok(session) => {
                     let mut cancel = lock(&self.cancel);
                     cancel.stdin = Some(session.stdin.clone());
@@ -166,6 +175,7 @@ impl AcpAgent {
         let Some(session) = slot.as_mut() else {
             return;
         };
+        session.permissions = permissions;
         if sink
             .send(AgentEvent::Started {
                 name: session.agent_name.clone(),
@@ -215,6 +225,15 @@ impl EbPlugin for AcpAgent {
 
 impl AnswerSource for AcpAgent {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle> {
+        self.start_with_permissions(prompt, sink, Arc::new(DenyAll))
+    }
+
+    fn start_with_permissions(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: Arc<dyn PermissionPrompter>,
+    ) -> Box<dyn AnswerHandle> {
         if self.config.debug || std::env::var_os("EB_DEBUG").is_some() {
             eprintln!(
                 "acp: start ({} chars, command={})",
@@ -231,7 +250,7 @@ impl AnswerSource for AcpAgent {
         let prompt = prompt.to_string();
         std::thread::Builder::new()
             .name("evobuddy-acp".to_string())
-            .spawn(move || agent.run(prompt, sink, cancelled))
+            .spawn(move || agent.run(prompt, sink, cancelled, permissions))
             .expect("spawn ACP worker");
         Box::new(handle)
     }
@@ -268,11 +287,15 @@ struct AcpSession {
     session_id: String,
     agent_name: String,
     auto_approve: bool,
+    permissions: Arc<dyn PermissionPrompter>,
     debug: bool,
 }
 
 impl AcpSession {
-    fn launch(config: &AcpConfig) -> Result<Self, String> {
+    fn launch(
+        config: &AcpConfig,
+        permissions: Arc<dyn PermissionPrompter>,
+    ) -> Result<Self, String> {
         let mut command = Command::new(&config.program);
         command
             .args(&config.args)
@@ -310,6 +333,7 @@ impl AcpSession {
             session_id: String::new(),
             agent_name: config.name.clone(),
             auto_approve: config.auto_approve,
+            permissions,
             debug: config.debug,
         };
 
@@ -460,12 +484,48 @@ impl AcpSession {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         if method == "session/request_permission" {
-            let options = message
+            let raw_options = message
                 .pointer("/params/options")
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let selected = pick_permission(&options, self.auto_approve);
+            let options: Vec<PermissionOption> = raw_options
+                .iter()
+                .filter_map(|option| {
+                    Some(PermissionOption {
+                        id: option.get("optionId")?.as_str()?.to_string(),
+                        label: option
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Allow")
+                            .to_string(),
+                        kind: option
+                            .get("kind")
+                            .and_then(Value::as_str)
+                            .unwrap_or("other")
+                            .to_string(),
+                    })
+                })
+                .collect();
+            let title = message
+                .pointer("/params/toolCall/title")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("Tool permission")
+                .to_string();
+            let selected = if self.auto_approve {
+                pick_permission(&raw_options, true)
+            } else {
+                match self.permissions.ask(PermissionRequest { title, options }) {
+                    PermissionDecision::Selected(id) => Some(id),
+                    PermissionDecision::Cancelled => None,
+                }
+            };
+            let selected = selected.filter(|id| {
+                raw_options
+                    .iter()
+                    .any(|option| option.get("optionId").and_then(Value::as_str) == Some(id))
+            });
             let outcome = match selected {
                 Some(option_id) => json!({
                     "outcome": { "outcome": "selected", "optionId": option_id }
@@ -847,6 +907,19 @@ mod integration_tests {
     use super::*;
     use std::time::Duration;
 
+    struct AllowOnce;
+
+    impl PermissionPrompter for AllowOnce {
+        fn ask(&self, request: PermissionRequest) -> PermissionDecision {
+            request
+                .options
+                .iter()
+                .find(|option| option.kind == "allow_once")
+                .map(|option| PermissionDecision::Selected(option.id.clone()))
+                .unwrap_or(PermissionDecision::Cancelled)
+        }
+    }
+
     fn python_available() -> bool {
         Command::new("python3")
             .arg("--version")
@@ -876,7 +949,7 @@ mod integration_tests {
         };
         let agent = AcpAgent::new(config);
         let (sink, stream) = AgentSink::channel();
-        let _handle = agent.start("hello", sink);
+        let _handle = agent.start_with_permissions("hello", sink, Arc::new(AllowOnce));
 
         let mut events = Vec::new();
         loop {
