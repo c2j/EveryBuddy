@@ -37,11 +37,18 @@ impl Host {
         let ctx = Ctx::root_with(runtime.handle().clone());
         let contribs = Arc::new(Mutex::new(Contribs::default()));
 
+        // One answer source, selected at mount time. An ACP command means a
+        // real external agent; otherwise the built-in demo keeps the UI
+        // runnable with no configuration.
+        let answer: Arc<dyn EbPlugin> = match eb_plugin_acp_agent::AcpAgent::from_env() {
+            Some(agent) => Arc::new(agent),
+            None => Arc::new(eb_plugin_demo_agent::DemoAgent::new()),
+        };
         let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),
             Arc::new(eb_plugin_notices::NoticesPlugin),
             Arc::new(eb_plugin_composer::ComposerPlugin),
-            Arc::new(eb_plugin_demo_agent::DemoAgent::new()),
+            answer,
         ];
 
         let mut fibers = Vec::new();

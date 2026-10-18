@@ -84,7 +84,7 @@ pub trait AnswerSource: Send + Sync + 'static {
 - `Contribs` 仍是挂载期快照,运行期贡献热更新未做(agent 内容走 `AgentEvent`)。
 
 测试:`eb-api` 5 个(事件增量、失败、空 prompt、有界队列背压、Usage),demo-agent 5 个
-(完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`evobuddy` 2 个(26 步期望表、负向断言)。
+(完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`eb-plugin-acp-agent` 5 个(协议/权限/cancel),`evobuddy` 2 个(26 步期望表、负向断言)。
 
 ## 3. 线程模型
 
@@ -120,15 +120,28 @@ glib::idle / timeout_add_local  <----  AgentEvent 经 mpsc 回传
 如果后续需要插件在运行期新增导航/菜单,再单独设计 `UiEvent` 的贡献通道;
 M2.0a 不把它和 agent 流混在一起。
 
+## 4.5 ACP 真实 agent ✅
+
+`crates/plugins/eb-plugin-acp-agent` 把外部 ACP agent 接成 `AnswerSource`：
+启动子进程、`initialize` → `session/new` → 每次 `session/prompt`，把
+`agent_message_chunk` 映射为 `Delta`、`usage_update` 映射为 `Usage`、
+`tool_call_update` 的 execute/diff content 映射为 `Exec`/`Diff`，其余为
+`Tool`。会话跨 turn 保留；`session/cancel` 由 `AnswerHandle::cancel` 发出；
+权限请求默认拒绝，`EVOBUDDY_ACP_AUTO_APPROVE=1` 才自动允许。
+
+配置与限制见 [`docs/acp-agent.md`](acp-agent.md)。已验证 fake ACP（5 个测试，
+含 cancel）与真实 dsh/opencode 的 initialize/prompt 链路；dsh 需要本地
+`DEEPSEEK_API_KEY`，opencode 用本机认证。
+
 ## 5. dsh 边界(已先选 A)
 
 - **A. 进程内 Rust agent**(当前):实现简单,线程/取消可控;dsh 生态另做适配。
-- **B. Node/dsh sidecar**(后续):复用现有 agent-loop;需要 JSON/stdio 或本地
-  socket 传输,以及会话/工具注册表留在 JS 进程的约束。
+- **B. 外部 agent 进程**(已由 ACP 兑现):dsh/opencode 作为 ACP stdio 子进程;
+  `AgentEvent` 仍是宿主内部合同,ACP 只是它的一个生产者。
 
-`AgentEvent` 是传输无关的;sidecar 只是把同一组事件序列化。M2.0a/P0.4 先用
-**A + fake agent** 打通线程与重绘;B 留到协议稳定后再评估,不把 UI surface 绑到
-Node 进程模型上。
+`AgentEvent` 是传输无关的;ACP 只是把同一组事件从子进程翻译进来。M2.0a/P0.4
+先用 **A + fake agent** 打通线程与重绘;B 已经由 ACP 插件落地,不把 UI surface
+绑到 Node 进程模型上。
 
 ## 6. 验收
 
@@ -140,7 +153,10 @@ Node 进程模型上。
 - ✅ demo agent 同步适配;M2.0a 时截图仍为 `5b0eef6b…`,M2.2 因 table/宽度/2px 调整后 baseline 为 `06524855…`。
 - ✅ M2.0b:专用 runtime 线程、有界 channel(容量 64)、UI stop、start panic
   隔离、慢流期间 UI 可交互的 harness 已完成。
-- ⏳ 仍待:真实 agent 的工具调用/usage 渲染、贡献热更新、dsh sidecar 边界。
+- ✅ ACP:文本流、usage、exec/diff/tool 块、权限策略、cancel、跨 turn session
+  已接;fake ACP 与真实 dsh/opencode 验证。
+- ⏳ 仍待:交互式权限 UI、ACP `plan`/thought 渲染、session resume/list、图片/
+  resource prompt、贡献热更新。
 
 ## 7. 待确认
 

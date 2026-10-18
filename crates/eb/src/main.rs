@@ -216,6 +216,13 @@ fn build_ui(application: &gtk::Application) {
         views.refresh(&store);
     }
 
+    // ACP harness: submit and leave the window open so a delayed screenshot
+    // (`EB_SHOT_AFTER_MS`) can catch the real stream after it settles.
+    if std::env::var_os("EB_ACP_DEMO").is_some() {
+        views.agent.submit(DEMO_PROMPT.to_string());
+        views.refresh(&store);
+    }
+
     // A harness mode for the fake streaming agent: submit, let the events drain,
     // then quit. `EB_CANCEL_AFTER_MS` exercises the cancellation path.
     if std::env::var_os("EB_FAKE_DEMO").is_some() {

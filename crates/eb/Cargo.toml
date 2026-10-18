@@ -36,6 +36,7 @@ eb-plugin-nav = { path = "../plugins/eb-plugin-nav" }
 eb-plugin-notices = { path = "../plugins/eb-plugin-notices" }
 eb-plugin-composer = { path = "../plugins/eb-plugin-composer" }
 eb-plugin-demo-agent = { path = "../plugins/eb-plugin-demo-agent" }
+eb-plugin-acp-agent = { path = "../plugins/eb-plugin-acp-agent" }
 
 # Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,0 +1,10 @@
+[package]
+name = "eb-plugin-acp-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "EvoBuddy's ACP (Agent Client Protocol) answer source: drives external agents over JSON-RPC stdio"
+
+[dependencies]
+eb-api = { path = "../../eb-api" }
+serde_json = "1"

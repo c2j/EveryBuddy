@@ -64,6 +64,7 @@ prototype/          dsh 兼容测量工作区(不进 UI 构建;kernel 引 ../ven
 7. **M2.0b**:`AgentRuntime` 专用线程 + current-thread tokio;`AgentSink` 改为容量 64 的有界队列;`start` panic 经 `catch_unwind` 转 `Failed`;send 按钮流式期间变 stop;Linux/macOS verify 增加 stop 与 panic 用例。
 8. **M2.1 采集**:WorkBuddy AI 5.8.4 的 8 个状态已落 spec §5.3 与 fixtures;修正了 752/500 会话宽度;`cr-status-chips`/`--summary` 未出现。
 9. **P1a + M2.2(进行中)**:token 生成器新增 metrics(json/rs/css)与 CI 防漂移;`Block::Diff`/`Block::Exec`/`Block::Group`、diff/exec/table 渲染器、752/500 会话宽度与 832/580 输入区、usage 环/最小 popover 已落地;`EB_DEMO_BLOCKS=1` 覆盖新块,Linux/macOS verify 通过。四类 usage 分解与贡献面仍待做。
+10. **M2.3 ACP 真实对话**:新增 `eb-plugin-acp-agent`(JSON-RPC stdio),接 dsh/opencode 等 ACP agent;文本流、usage、exec/diff/tool、权限策略、cancel 与跨 turn session 已落;fake ACP 5 测试,真实 dsh/opencode 链路已验证。配置见 [`docs/acp-agent.md`](acp-agent.md)。
 
 ## 三、后续规划
 
@@ -76,7 +77,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - **P0.1 `EB_ASSERT=1`**(已完成):按平台断言几何/颜色,以退出码驱动 CI。Linux(Xvfb 1920×1080)断言精确窗口与固定块;macOS runner 屏幕更小时只断言屏幕无关不变量。
 - **P0.2 `EB_CLICK_ASSERT=1`**(已完成):对 26 步的 label 与稳定观察值做断言,忽略 toplevels、popover 坐标、代码区滚动宽度等易变数值;Linux 裸机与 macOS verify 都已接线并通过。
 - **P0.3 快速检查**(已完成):新增 `.github/workflows/check.yml`,push/PR 跑 `cargo test --workspace`;tag-only 的发布链保持独立,不把发布条件放宽。测试包含 26 步期望表覆盖与"缺一个观察值必须失败"的负向用例。
-- **P0.4 假插件测试**(已完成):`EB_FAKE_AGENT=1` 的慢流 fake agent + `EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS`/`EB_FAKE_STOP_AFTER_MS`/`EB_FAKE_PANIC_START` harness;Linux 与 macOS verify 都验证完成、取消、UI stop 与启动 panic;`eb-api` 5 个、demo-agent 5 个测试覆盖事件顺序、取消、sink 关闭、有界队列背压与第二 demo 的三种新块。
+- **P0.4 假插件测试**(已完成):`EB_FAKE_AGENT=1` 的慢流 fake agent + `EB_FAKE_DEMO=1`/`EB_CANCEL_AFTER_MS`/`EB_FAKE_STOP_AFTER_MS`/`EB_FAKE_PANIC_START` harness;Linux 与 macOS verify 都验证完成、取消、UI stop 与启动 panic;`eb-api` 5 个、demo-agent 5 个、acp-agent 5 个测试覆盖事件顺序、取消、sink 关闭、有界队列背压、第二 demo 的三种新块与 ACP 协议。
 - 验收:P0.1/P0.2 在 Linux 与 macOS 的 `verify` 脚本里执行;P0.4 额外跑 fake streaming/API cancel/UI stop/start panic。正向验证已完成;故意改坏几何/交互的完整负向演练仍可补做。
 
 ### M2 真实异步 agent + 会话内容块(大)⭐ 推荐下一步
@@ -99,6 +100,13 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - ⏳ 尚未做:usage popover 的五类分解(采集到但事件流没有分类数据)、`ConversationBlock` 贡献面、未知块 fallback、旧 CSS 字面量迁移。
 
 **验收**:每块几何与配色进 spec,并进入 `EB_SELFTEST` / `EB_CLICK_ASSERT` 的断言范围;M2.0c 的 fake agent 在 CI 可跑。
+
+**M2.3 ACP 真实对话**(中)✅ 已完成(2026-10-18):
+- 新插件 `crates/plugins/eb-plugin-acp-agent`:JSON-RPC stdio 启动外部 ACP agent,dsh/opencode 等无需改宿主;配置 `EVOBUDDY_ACP_COMMAND` 时替代 demo。
+- 映射 `agent_message_chunk`→Delta、`usage_update`→Usage、exec/diff/tool_call→`Block::Exec/Diff/Tool`;session 跨 turn 保留。
+- `session/cancel` 接入 UI stop;权限默认拒绝,`EVOBUDDY_ACP_AUTO_APPROVE=1` 显式放开。
+- fake ACP 5 个测试(含 cancel/permission);真实 dsh 的 initialize/session/prompt 链路已验证(缺 `DEEPSEEK_API_KEY` 时错误可换行显示),真实 opencode 已流式输出并渲染 tool/exec 块。
+- 配置、限制与截图 harness 见 [`docs/acp-agent.md`](acp-agent.md)。
 
 ### P1 像素精修包(小-中,可并行穿插)
 
@@ -147,7 +155,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 4. **CI runner 屏幕 < 1440×868**:macOS/任何真屏验证几何时,窗口会被钳到工作区——断言用屏幕无关不变量(spec 已记录);P0.1 已把这个规则写进退出码。
 5. **Windows 无验证环境**:在拿到真机前,不要把 Windows 产物从"未验证"升级为"可用"。
 6. **rutis 0.11 是 pre-1.0**:vendored fork 是唯一事实源;上游若发 1.0,评估回迁(收窄 tokio 特性的 3 行补丁值得向上游提)。
-7. **M2.0b 已交付,但还没接真实 agent**:runtime 线程、有界队列、UI stop、panic 隔离已做;下一块风险转移到真实 agent 的流式语义、工具调用与 dsh sidecar 边界。
+7. **M2.0b 已交付,ACP 也已接入**:runtime 线程、有界队列、UI stop、panic 隔离已做;真实 agent 的流式文本、tool/exec/diff、usage 与 cancel 已验证。剩余风险是交互式权限 UI、agent 认证/会话恢复与长输出布局。
 8. **发布合规风险**:LGPL 动态库随包分发、字体/图标再分发、产品文案/i18n 的边界,都需要在发布前明确记录。
 
 ## 五、近期待办(按序)
@@ -156,6 +164,6 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 2. ~~P0 验证加固:`EB_ASSERT` / `EB_CLICK_ASSERT` + Linux/macOS verify 接线 + 快速检查~~(P0.1–P0.4 已完成,2026-10-18)。
 3. ~~M2.1 采集:清单见 [`docs/m2-capture-checklist.md`](m2-capture-checklist.md)~~(已完成,2026-10-18;结果见 spec §5.3 与 fixture)。
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
-5. **M2.2**:内容块数据模型 + 渲染器(进行中;diff/exec/table、752/500 布局、collapse 组与 usage 环已落;usage 分类/贡献面待做)。
+5. **M2.2**:内容块数据模型 + 渲染器(进行中;diff/exec/table、752/500 布局、collapse 组与 usage 环已落;usage 分类/贡献面待做);**M2.3 ACP 真实对话已完成**。
 6. **P1a 缺口 6/4 已完成**(生成 metrics + CI 校验;输入卡 2px 已修;旧 CSS 迁移留后);缺口 3 与 P3 可穿插;P1b/P2/P4/P5 按依赖推进。
 7. **发布合规闸门**:根 LICENSE、第三方许可、SBOM/LGPL source offer。

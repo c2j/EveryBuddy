@@ -134,6 +134,29 @@ For the full local launch + plugin checklist (manual UI passes, plugin boundary
 checks and troubleshooting), see
 [`docs/local-verification.md`](docs/local-verification.md).
 
+### Real ACP agents
+
+When `EVOBUDDY_ACP_COMMAND` is set, the host mounts
+`eb-plugin-acp-agent` instead of the demo agent. It launches an
+[Agent Client Protocol](https://agentclientprotocol.com) agent over JSON-RPC
+stdio, creates one persistent session per app launch, and maps
+`session/update` into the same `Delta`/`Block`/`Usage` events the renderer
+already understands. dsh, opencode and other ACP-speaking agents are supported
+without code changes.
+
+```bash
+# opencode's ACP mode
+EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS="acp" EVOBUDDY_ACP_CWD="$PWD" cargo run
+
+# dsh's ACP profile (see docs/acp-agent.md for the checkout path)
+EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" DEEPSEEK_API_KEY="…" cargo run
+```
+
+`EVOBUDDY_ACP_AUTO_APPROVE=1` allows tool calls (default is reject);
+`EVOBUDDY_ACP_DEBUG=1` forwards the agent's stderr. The full env table, event
+mapping, permission model and limitations are in
+[`docs/acp-agent.md`](docs/acp-agent.md).
+
 `EB_FAKE_AGENT=1` replaces the demo agent with a slow streaming one. The
 `EB_FAKE_DEMO=1` harness submits a prompt, waits for the terminal event and
 quits; `EB_CANCEL_AFTER_MS` cancels via the API, `EB_FAKE_STOP_AFTER_MS` clicks
@@ -154,6 +177,13 @@ EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 cargo run
 control the stream. For a live window, run `EB_FAKE_AGENT=1 cargo run`, click a
 chip and press Enter; the streaming footer and chunks arrive while the rest of
 the UI stays interactive, and the send button becomes a stop button.
+
+For ACP screenshots, `EB_ACP_DEMO=1` submits once and leaves the window open;
+`EB_SHOT_AFTER_MS=1500` delays the capture until the agent stream settles:
+
+```bash
+EVOBUDDY_ACP_COMMAND=python3 EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" EB_ACP_DEMO=1 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
+```
 
 Popovers are not in the widget walk — GTK parents them to the window when they
 pop up — so the audit reads them through the input grab instead.
@@ -217,7 +247,7 @@ because both look like \"that control is broken\" and neither raises anything:
 | `crates/eb/src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
 | `crates/eb/src/agent.rs` | the in-flight agent runner: drains `AgentEvent`s, applies them to `App`, handles cancel |
 | `crates/eb-api/` | the **plugin surface**: data model, contribution registries, `EbPlugin` — the only crate a plugin may depend on |
-| `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent` |
+| `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent`, `acp-agent` |
 | `vendor/rutis/` | the vendored plugin runtime (narrowed tokio features; see its README) |
 | `prototype/` | the measurement workspace that chose the plugin runtime (dsh compatibility experiments; not part of the build) |
 | `crates/eb/ui/gtk.css` | colours, type, radii, shadows (GTK CSS is not web CSS — no `var()`, no `flex`, no `gap`) |
@@ -232,10 +262,11 @@ because both look like \"that control is broken\" and neither raises anything:
 ## Plugins
 
 "Everything is a plugin" is enforced by the workspace layout: a plugin crate
-depends on `eb-api` and on nothing else — Cargo will not let it reach into the
-host, and the host never names a plugin's internals. A plugin's `mount` receives
+depends on `eb-api` (plus data-only crates where unavoidable, such as
+`serde_json` in the ACP plugin) and never on the host or GTK — Cargo will not
+let it reach into the host, and the host never names a plugin's internals. A plugin's `mount` receives
 a `Ui` handle and *declares* content — nav rows, dropdown menus, notice copy,
-scenario chips — or *provides a service* (the demo agent implements
+scenario chips — or *provides a service* (the demo/ACP agents implement
 `AnswerSource`, the service behind the composer's send path).
 
 An `AnswerSource` now starts an answer instead of returning one: `start` gets an

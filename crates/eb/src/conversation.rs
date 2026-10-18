@@ -106,6 +106,9 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     class(&messages, "eb-messages");
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    // Long model output must scroll inside the message column, never widen the
+    // conversation pane (and with it the whole window).
+    scroll.set_propagate_natural_width(false);
     scroll.add(&messages);
     body.pack_start(&scroll, true, true, 0);
 
@@ -186,6 +189,7 @@ fn user_turn(value: &str, time: &str) -> gtk::Box {
     label.set_xalign(1.0);
     label.set_justify(gtk::Justification::Right);
     label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    label.set_width_chars(1);
     // The product's bubble is a little over half the message column
     // (255 of 500 for a two-line message), so the wrap is pinned to a
     // comparable character count. GTK has no `max-width` percentage.
@@ -231,9 +235,15 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
     frame.pack_start(&header, false, false, 0);
 
     if let Some(status) = status {
-        // Measured: 15px at rgba(0,0,0,.5), directly under the header.
+        // Measured: 15px at rgba(0,0,0,.5), directly under the header. Errors
+        // arrive through this line too, so it must be able to wrap instead of
+        // becoming the window's minimum width.
         let line = text(status, "eb-agent-status");
         line.set_margin_top(8);
+        line.set_line_wrap(true);
+        line.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+        line.set_width_chars(1);
+        line.set_xalign(0.0);
         frame.pack_start(&line, false, false, 0);
     }
 
@@ -261,6 +271,9 @@ fn block_widget(block: &Block) -> gtk::Widget {
             label.set_line_wrap(true);
             label.set_xalign(0.0);
             label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+            // A long unbroken token (JSON errors, URLs) otherwise becomes the
+            // label's minimum width and drags the whole window wider.
+            label.set_width_chars(1);
             class(&label, "eb-text-block");
             label.upcast()
         }
@@ -299,10 +312,17 @@ fn tool_row(status: &str, primary: &str, detail: Option<&str>) -> gtk::Box {
     class(&row, "eb-tool-row");
 
     row.pack_start(&glyph("▸"), false, false, 0);
-    row.pack_start(&text(status, "eb-tool-status"), false, false, 0);
-    row.pack_start(&ellipsized(primary, "eb-tool-primary"), true, true, 0);
+    let status = text(status, "eb-tool-status");
+    status.set_width_chars(1);
+    row.pack_start(&status, false, false, 0);
+    let primary = ellipsized(primary, "eb-tool-primary");
+    primary.set_width_chars(1);
+    row.pack_start(&primary, true, true, 0);
     if let Some(detail) = detail {
-        row.pack_end(&text(detail, "eb-tool-detail"), false, false, 0);
+        let detail = ellipsized(detail, "eb-tool-detail");
+        detail.set_width_chars(1);
+        detail.set_max_width_chars(40);
+        row.pack_end(&detail, false, false, 0);
     }
 
     row
@@ -320,6 +340,8 @@ fn diff_block(path: &str, added: u32, removed: u32, lines: &[DiffLine]) -> gtk::
 
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    // Keep long code lines from becoming the window's minimum width.
+    scroll.set_propagate_natural_width(false);
     let content_height = (lines.len() as i32 * 21).clamp(21, 252);
     scroll.set_min_content_height(content_height);
     scroll.set_size_request(-1, content_height);
@@ -346,6 +368,8 @@ fn diff_block(path: &str, added: u32, removed: u32, lines: &[DiffLine]) -> gtk::
         class(&value, "eb-fs-3");
         value.set_xalign(0.0);
         value.set_hexpand(true);
+        value.set_width_chars(1);
+        value.set_ellipsize(gtk::pango::EllipsizeMode::End);
         row.pack_start(&value, true, true, 0);
 
         rows.pack_start(&row, false, false, 0);
@@ -363,8 +387,13 @@ fn diff_block(path: &str, added: u32, removed: u32, lines: &[DiffLine]) -> gtk::
 fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::ScrolledWindow {
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    // Long command output is horizontally scrollable, not a reason to widen the
+    // conversation column (which used to drag the whole window).
+    scroll.set_propagate_natural_width(false);
+    scroll.set_min_content_width(1);
+    scroll.set_hexpand(true);
     scroll.set_min_content_height(300);
-    scroll.set_size_request(-1, 300);
+    scroll.set_size_request(1, 300);
     class(&scroll, "eb-exec-card");
     class(&scroll, "eb-radius-2xl");
     if let Some(code) = exit_code {
@@ -384,6 +413,8 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
 
     let command = text(command, "eb-exec-command");
     class(&command, "eb-fs-3");
+    command.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    command.set_width_chars(1);
     body.pack_start(&command, false, false, 0);
 
     let output_view = gtk::TextView::new();
@@ -401,7 +432,8 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
         buffer.set_text(output);
     }
     let lines = output.lines().count().max(1) as i32;
-    output_view.set_size_request(-1, lines * 18);
+    output_view.set_hexpand(true);
+    output_view.set_size_request(1, lines * 18);
     body.pack_start(&output_view, false, false, 0);
 
     scroll.add(&body);

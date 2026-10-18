@@ -84,12 +84,26 @@ EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 cargo run
 
 # 11) Enter 发送链路
 EB_ENTER=1 cargo run
+
+# 12) ACP：fake server 驱动真实 UI（不依赖模型/网络）
+EVOBUDDY_ACP_COMMAND=python3 \
+EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" \
+EB_ACP_DEMO=1 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
+
+# 13) ACP：本机 opencode（工具调用需要显式 allow）
+EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS=acp \
+EVOBUDDY_ACP_CWD="$PWD" EVOBUDDY_ACP_AUTO_APPROVE=1 cargo run
+
+# 14) ACP：dsh profile（key 只放本地环境）
+EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" \
+EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" \
+DEEPSEEK_API_KEY="…" cargo run
 ```
 
 期望：
 
 - `cargo test --workspace`：`eb-api` 5 个、`eb-plugin-demo-agent` 5 个、
-  `evobuddy` 2 个测试通过，其余 crate 0 测试。
+  `eb-plugin-acp-agent` 5 个、`evobuddy` 2 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
 - `EB_CLICK_ASSERT=1`：最后一行 `click: assertions passed (26 steps)`，退出码 0。
@@ -140,10 +154,12 @@ fake streaming/cancel），macOS 跑 `packaging/macos/verify.sh`（藏 Homebrew 
 cargo tree -p eb-plugin-nav --edges normal
 cargo tree -p eb-plugin-composer --edges normal
 cargo tree -p eb-plugin-demo-agent --edges normal
+cargo tree -p eb-plugin-acp-agent --edges normal
 ```
 
-每个插件应只有 `eb-api`（再往下是 vendored `rutis`/tokio），**不应出现 `evobuddy`
-或 `gtk`**。宿主 `evobuddy` 的依赖里才会同时出现四个插件和 `gtk`。
+每个插件应只有 `eb-api`（再往下是 vendored `rutis`/tokio）；ACP 插件额外有
+纯数据依赖 `serde_json`，这是协议允许的例外。任何插件都**不应出现 `evobuddy`
+或 `gtk`**。宿主 `evobuddy` 的依赖里才会同时出现五个插件和 `gtk`。
 
 ```bash
 cargo metadata --no-deps --format-version 1 |

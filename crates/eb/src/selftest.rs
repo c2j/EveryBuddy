@@ -60,6 +60,7 @@ pub fn requested() -> bool {
         "EB_ASSERT",
         "EB_DEMO",
         "EB_DEMO_BLOCKS",
+        "EB_ACP_DEMO",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -72,6 +73,9 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
         .map(|(name, widget)| ((*name).to_string(), widget.clone()))
         .collect();
     let shot = std::env::var_os("EB_SHOT").map(|path| path.to_string_lossy().into_owned());
+    let shot_delay = std::env::var("EB_SHOT_AFTER_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok());
 
     // ---- the geometry report, once the first frame has been allocated ----
     let reported = Rc::new(Cell::new(false));
@@ -153,10 +157,20 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
             let views = views.clone();
             let path = path.clone();
             let application = application.clone();
-            gtk::glib::idle_add_local_once(move || {
-                snapshot(&views, &path);
-                application.quit();
-            });
+            if let Some(delay) = shot_delay {
+                gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(delay),
+                    move || {
+                        snapshot(&views, &path);
+                        application.quit();
+                    },
+                );
+            } else {
+                gtk::glib::idle_add_local_once(move || {
+                    snapshot(&views, &path);
+                    application.quit();
+                });
+            }
         }
         gtk::glib::Propagation::Proceed
     });
