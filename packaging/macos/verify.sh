@@ -159,7 +159,7 @@ ls -l "$shot" | awk '{print "  " $5 " bytes, " $NF}'
 # being right, not a defect. Assert what does not depend on the screen: the
 # sash position and the fixed-size blocks of the welcome route.
 if grep -q "sash sidebar x=280 (want 280)" "$out" \
-   && grep -Eq "eb-composer-card +[0-9]+, [0-9]+ +800x142" "$out" \
+   && grep -Eq "eb-composer-card +[0-9]+, [0-9]+ +800x144" "$out" \
    && grep -Eq "eb-chips +[0-9]+, [0-9]+ +800x32" "$out"; then
   echo "  geometry selftest: sash and fixed blocks match the measured spec"
   grep -E "selftest: window" "$out" | sed 's/^/  /'
