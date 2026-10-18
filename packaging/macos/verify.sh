@@ -154,11 +154,18 @@ fi
 
 echo "== renders =="
 ls -l "$shot" | awk '{print "  " $5 " bytes, " $NF}'
-if grep -q "window 1440x868 (want 1440x868)" "$out" \
-   && grep -q "sash sidebar x=280 (want 280)" "$out"; then
-  echo "  geometry selftest: window and sash match the measured spec"
+# The window itself is GTK's default 1440x868 only when the display is that
+# large — CI's screens are smaller, and clamping to the workarea is the OS
+# being right, not a defect. Assert what does not depend on the screen: the
+# sash position and the fixed-size blocks of the welcome route.
+if grep -q "sash sidebar x=280 (want 280)" "$out" \
+   && grep -Eq "eb-composer-card +[0-9]+, [0-9]+ +800x142" "$out" \
+   && grep -Eq "eb-chips +[0-9]+, [0-9]+ +800x32" "$out"; then
+  echo "  geometry selftest: sash and fixed blocks match the measured spec"
+  grep -E "selftest: window" "$out" | sed 's/^/  /'
 else
   echo "  geometry selftest did not report the expected values" >&2
+  grep -E "sash|composer-card|chips" "$out" | sed 's/^/  /' >&2
   exit 1
 fi
 cmp -s "$out" "$out2" && echo "  second launch rendered the same layout" \

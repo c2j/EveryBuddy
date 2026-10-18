@@ -72,6 +72,11 @@ directories at all.
   `LC_BUILD_VERSION` `minos`, and written into `LSMinimumSystemVersion`. What
   it means in practice: the .app's floor tracks the Homebrew tier of the image
   that built it (macOS 26 locally, the macos-15 tier on CI).
+- **The window is only 1440x868 when the display is.** GTK clamps the default
+  size to the workarea, and CI's screens are smaller than the spec's measured
+  window (the arm64 runner gave 1222x778). verify.sh therefore asserts the
+  screen-independent invariants — sash x=280, composer card 800x142, chips
+  800x32 — and reports the window size as information.
 - **Apple's `/bin/bash` is 3.2.** Both scripts avoid associative arrays and
   everything else 3.2 lacks; CI's lint parses them with `dash -n` too, since
   the launcher runs under `/bin/sh`.
