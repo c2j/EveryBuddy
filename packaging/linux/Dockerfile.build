@@ -48,6 +48,9 @@ COPY src/ /src/src/
 COPY ui/ /src/ui/
 COPY docs/ui-spec/gtk/ /src/docs/ui-spec/gtk/
 COPY packaging/linux/ /src/packaging/linux/
+# The app icon moved to packaging/ (the macOS bundle renders it too); the
+# bundle stages it from there.
+COPY packaging/evobuddy.svg /src/packaging/evobuddy.svg
 
 WORKDIR /src
 RUN cargo build --release --bin evobuddy
