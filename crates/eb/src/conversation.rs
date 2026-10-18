@@ -109,6 +109,7 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     // Long model output must scroll inside the message column, never widen the
     // conversation pane (and with it the whole window).
     scroll.set_propagate_natural_width(false);
+    scroll.set_max_content_width(spec::MESSAGE_WIDTH_CLOSED);
     scroll.add(&messages);
     body.pack_start(&scroll, true, true, 0);
 
@@ -230,7 +231,10 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
     // EvoBuddy's own agent mark (embedded PNG), not the product mascot.
     let logo = crate::icons::named("agent", 24, "eb-agent-logo");
     header.pack_start(&logo, false, false, 0);
-    header.pack_start(&text(name, "eb-agent-name"), false, false, 0);
+    let agent_name = text(name, "eb-agent-name");
+    agent_name.set_width_chars(1);
+    agent_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    header.pack_start(&agent_name, false, false, 0);
     frame.pack_start(&header, false, false, 0);
 
     if let Some(status) = status {
@@ -342,6 +346,7 @@ fn diff_block(path: &str, added: u32, removed: u32, lines: &[DiffLine]) -> gtk::
     scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     // Keep long code lines from becoming the window's minimum width.
     scroll.set_propagate_natural_width(false);
+    scroll.set_max_content_width(spec::MESSAGE_WIDTH_CLOSED);
     let content_height = (lines.len() as i32 * 21).clamp(21, 252);
     scroll.set_min_content_height(content_height);
     scroll.set_size_request(-1, content_height);
@@ -390,6 +395,7 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
     // Long command output is horizontally scrollable, not a reason to widen the
     // conversation column (which used to drag the whole window).
     scroll.set_propagate_natural_width(false);
+    scroll.set_max_content_width(spec::MESSAGE_WIDTH_CLOSED);
     scroll.set_min_content_width(1);
     scroll.set_hexpand(true);
     scroll.set_min_content_height(300);
@@ -421,7 +427,7 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
     output_view.set_editable(false);
     output_view.set_cursor_visible(false);
     output_view.set_monospace(true);
-    output_view.set_wrap_mode(gtk::WrapMode::None);
+    output_view.set_wrap_mode(gtk::WrapMode::Char);
     output_view.set_top_margin(0);
     output_view.set_bottom_margin(0);
     output_view.set_left_margin(0);
@@ -476,7 +482,10 @@ fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
     let row = hbox(8);
     row.set_valign(gtk::Align::Center);
     let chevron = text(if collapsed { "›" } else { "⌄" }, "eb-group-chevron");
-    row.pack_start(&text(title, "eb-group-title"), false, false, 0);
+    let group_title = text(title, "eb-group-title");
+    group_title.set_width_chars(1);
+    group_title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    row.pack_start(&group_title, false, false, 0);
     row.pack_start(&chevron, false, false, 0);
     header.add(&row);
 
@@ -537,6 +546,8 @@ fn table_cell(value: &str, class_name: &str, header: bool) -> gtk::Box {
     let label = gtk::Label::new(Some(value));
     label.set_xalign(0.0);
     label.set_line_wrap(true);
+    label.set_width_chars(1);
+    label.set_max_width_chars(40);
     if header {
         label.set_hexpand(true);
     }

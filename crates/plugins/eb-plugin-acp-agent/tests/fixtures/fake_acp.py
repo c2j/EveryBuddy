@@ -81,6 +81,11 @@ def main():
                 "sessionUpdate": "agent_message_chunk",
                 "content": {"type": "text", "text": "from ACP."},
             })
+            if os.environ.get("FAKE_ACP_LONG") == "1":
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "A" * 4000},
+                })
             update(session_id, {
                 "sessionUpdate": "usage_update",
                 "used": 42,
@@ -136,7 +141,10 @@ def main():
                 "sessionUpdate": "tool_call_update",
                 "toolCallId": "call_exec",
                 "status": "completed",
-                "content": [{"type": "content", "content": {"type": "text", "text": "hi\n"}}],
+                "content": [{"type": "content", "content": {
+                    "type": "text",
+                    "text": ("hi\n" if os.environ.get("FAKE_ACP_LONG") != "1" else ("L" * 4000 + "\n")),
+                }}],
             })
             update(session_id, {
                 "sessionUpdate": "tool_call",
