@@ -268,7 +268,16 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
 /// on each side. Applying that margin per block reproduces the captured rhythm
 /// without any per-block spacing at the container level.
 fn block_widget(block: &Block) -> gtk::Widget {
-    let widget: gtk::Widget = match block {
+    let widget = block_widget_raw(block);
+    widget.set_margin_top(14);
+    widget.set_margin_bottom(14);
+    widget
+}
+
+/// A block without the inter-block 14px rhythm, used inside a tool group where
+/// the product keeps rows on a compact 26px line.
+fn block_widget_raw(block: &Block) -> gtk::Widget {
+    match block {
         Block::Text(value) => crate::markdown::render(value).upcast(),
         Block::Tool {
             status,
@@ -293,10 +302,7 @@ fn block_widget(block: &Block) -> gtk::Widget {
         } => group_block(title, blocks, *collapsed).upcast(),
         Block::Plan { entries } => plan_block(entries).upcast(),
         Block::Table { headers, rows } => table(headers, rows).upcast(),
-    };
-    widget.set_margin_top(14);
-    widget.set_margin_bottom(14);
-    widget
+    }
 }
 
 /// Measured: a single 26.25px line, 8px gap — status, command, then the muted
@@ -482,7 +488,7 @@ fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
     let content = vbox(0);
     class(&content, "eb-group-content");
     for block in blocks {
-        content.pack_start(&block_widget(block), false, false, 0);
+        content.pack_start(&block_widget_raw(block), false, false, 0);
     }
     let expanded = Rc::new(Cell::new(!collapsed));
     if collapsed {

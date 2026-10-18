@@ -73,14 +73,32 @@ def main():
                         prompt_id = None
                         break
                 continue
-            update(session_id, {
-                "sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": "Hello "},
-            })
-            update(session_id, {
-                "sessionUpdate": "agent_message_chunk",
-                "content": {"type": "text", "text": "from ACP."},
-            })
+            if os.environ.get("FAKE_ACP_CODE") == "1":
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": (
+                        "已创建 `Demo.java`。\n\n"
+                        "```java\n"
+                        "public class Demo {\n"
+                        "    public static void main(String[] args) {\n"
+                        "        System.out.println(\"hello\");\n"
+                        "    }\n"
+                        "}\n"
+                        "```\n\n"
+                        "**说明**\n"
+                        "- 第一项使用 `Markdown`\n"
+                        "- 第二项\n"
+                    )},
+                })
+            else:
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "Hello "},
+                })
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "from ACP."},
+                })
             if os.environ.get("FAKE_ACP_LONG") == "1":
                 update(session_id, {
                     "sessionUpdate": "agent_message_chunk",

@@ -138,6 +138,7 @@ dependencies = [
  "eb-plugin-notices",
  "gtk",
  "libc",
+ "pango",
  "rutis",
  "tokio",
 ]

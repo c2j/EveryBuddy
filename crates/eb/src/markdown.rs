@@ -9,7 +9,7 @@ use gtk::prelude::*;
 use crate::widgets::{class, icon_button, text};
 
 pub fn render(value: &str) -> gtk::Box {
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 9);
     class(&root, "eb-markdown");
 
     let mut paragraph: Vec<String> = Vec::new();
@@ -46,12 +46,13 @@ pub fn render(value: &str) -> gtk::Box {
             label.set_xalign(0.0);
             let class_name = if level <= 2 { "eb-md-h1" } else { "eb-md-h2" };
             class(&label, class_name);
+            line_height(&label, 1.35);
             root.pack_start(&label, false, false, 0);
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
             flush_paragraph(&root, &mut paragraph);
-            root.pack_start(&bullet("•", rest), false, false, 0);
+            root.pack_start(&bullet("*", rest), false, false, 0);
             continue;
         }
         if let Some((number, rest)) = numbered(trimmed) {
@@ -67,6 +68,18 @@ pub fn render(value: &str) -> gtk::Box {
     }
     flush_paragraph(&root, &mut paragraph);
     root
+}
+
+fn line_height(label: &gtk::Label, factor: f64) {
+    let attrs = gtk::pango::AttrList::new();
+    attrs.insert(gtk::pango::AttrFloat::new_line_height(factor));
+    label.set_attributes(Some(&attrs));
+}
+
+fn absolute_line_height(label: &gtk::Label, height: i32) {
+    let attrs = gtk::pango::AttrList::new();
+    attrs.insert(gtk::pango::AttrInt::new_line_height_absolute(height));
+    label.set_attributes(Some(&attrs));
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {
@@ -99,6 +112,7 @@ fn flush_paragraph(root: &gtk::Box, lines: &mut Vec<String>) {
     label.set_width_chars(1);
     label.set_xalign(0.0);
     class(&label, "eb-md-text");
+    line_height(&label, 1.6);
     root.pack_start(&label, false, false, 0);
 }
 
@@ -114,6 +128,7 @@ fn bullet(marker: &str, value: &str) -> gtk::Box {
     label.set_width_chars(1);
     label.set_xalign(0.0);
     class(&label, "eb-md-text");
+    line_height(&label, 1.6);
     row.pack_start(&label, true, true, 0);
     row
 }
@@ -125,8 +140,12 @@ fn code_block(language: &str, code: &str) -> gtk::Box {
 
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     class(&header, "eb-code-header");
+    header.set_margin_top(8);
+    header.set_margin_bottom(4);
+    header.set_margin_start(12);
+    header.set_margin_end(8);
     let language = if language.is_empty() { "code" } else { language };
-    header.pack_start(&text(&language.to_uppercase(), "eb-code-language"), false, false, 0);
+    header.pack_start(&text(language, "eb-code-language"), false, false, 0);
 
     let copy = icon_button("⧉", "eb-icon-mini", "Copy code");
     let code_value = code.to_string();
@@ -144,7 +163,12 @@ fn code_block(language: &str, code: &str) -> gtk::Box {
     label.set_selectable(true);
     label.set_xalign(0.0);
     label.set_line_wrap(false);
+    label.set_margin_top(4);
+    label.set_margin_bottom(12);
+    label.set_margin_start(16);
+    label.set_margin_end(16);
     class(&label, "eb-code");
+    absolute_line_height(&label, 20 * 1024);
 
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
@@ -171,7 +195,7 @@ fn inline(value: &str) -> String {
                 let end = index + 1 + end;
                 let code: String = chars[index + 1..end].iter().collect();
                 out.push_str(&format!(
-                    "<span font_family=\"monospace\" background=\"#f1f1f1\">{}</span>",
+                    "<span font_family=\"monospace\" foreground=\"#c7254e\">{}</span>",
                     escape(&code)
                 ));
                 index = end + 1;

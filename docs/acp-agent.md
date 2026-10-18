@@ -54,7 +54,7 @@ dsh 的 ACP profile 会把会话持久化到 `~/.dsh`；在普通桌面用户下
 | `tool_call` | 状态行（工具标题） |
 | `tool_call_update`（`kind=execute`，completed/failed） | `Block::Exec`（命令 + 输出 + exit code） |
 | `tool_call_update`（content 含 `diff`） | `Block::Diff`（path、+/- 计数、行级 add/remove/context） |
-| 其他完成的 tool call | `Block::Tool`（状态 + 标题 + 输出首行） |
+| 其他完成的 tool call | `Block::Tool`（状态 + 标题 + 输出首行）；同一 turn 的工具块在文本前聚合为 `Block::Group`（Completed） |
 | `plan` | `Block::Plan`：执行计划列表（完成/进行中状态） |
 | `agent_thought_chunk` | 暂不渲染（保留给后续状态区） |
 

@@ -410,6 +410,7 @@ impl AcpSession {
         .map_err(PromptError::Message)?;
 
         let mut tools: HashMap<String, ToolState> = HashMap::new();
+        let mut pending_tools: Vec<Block> = Vec::new();
         let mut cancel_sent = false;
         loop {
             if cancelled.load(Ordering::SeqCst) && !cancel_sent {
@@ -436,6 +437,7 @@ impl AcpSession {
                     .pointer("/result/stopReason")
                     .and_then(Value::as_str)
                     .unwrap_or("end_turn");
+                flush_tool_group(sink, &mut pending_tools).map_err(PromptError::Message)?;
                 if stop == "cancelled" {
                     return Err(PromptError::Cancelled);
                 }
@@ -451,7 +453,7 @@ impl AcpSession {
                 continue;
             }
             if method == "session/update" {
-                map_update(&message["params"]["update"], sink, &mut tools)
+                map_update(&message["params"]["update"], sink, &mut tools, &mut pending_tools)
                     .map_err(PromptError::Message)?;
             }
         }
@@ -627,6 +629,7 @@ fn map_update(
     update: &Value,
     sink: &AgentSink,
     tools: &mut HashMap<String, ToolState>,
+    pending_tools: &mut Vec<Block>,
 ) -> Result<(), String> {
     let kind = update
         .get("sessionUpdate")
@@ -634,6 +637,7 @@ fn map_update(
         .unwrap_or("");
     match kind {
         "agent_message_chunk" => {
+            flush_tool_group(sink, pending_tools)?;
             if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
                 send(
                     sink,
@@ -677,6 +681,7 @@ fn map_update(
                 })
                 .unwrap_or_default();
             if !entries.is_empty() {
+                flush_tool_group(sink, pending_tools)?;
                 send(sink, AgentEvent::Block { block: Block::Plan { entries } })?;
             }
         }
@@ -701,7 +706,7 @@ fn map_update(
                     )?;
                 }
             } else if matches!(state.status.as_str(), "completed" | "failed") {
-                emit_tool(state, sink)?;
+                emit_tool(state, pending_tools);
             }
         }
         _ => {}
@@ -765,7 +770,7 @@ fn merge_tool(state: &mut ToolState, update: &Value) {
     }
 }
 
-fn emit_tool(state: &ToolState, sink: &AgentSink) -> Result<(), String> {
+fn emit_tool(state: &ToolState, pending: &mut Vec<Block>) {
     let status = if state.status == "completed" {
         "Ran"
     } else {
@@ -774,36 +779,27 @@ fn emit_tool(state: &ToolState, sink: &AgentSink) -> Result<(), String> {
     if !state.diffs.is_empty() {
         for (path, old, new) in &state.diffs {
             let (lines, added, removed) = diff_lines(old, new);
-            send(
-                sink,
-                AgentEvent::Block {
-                    block: Block::Diff {
-                        path: path.clone(),
-                        added,
-                        removed,
-                        lines,
-                    },
-                },
-            )?;
+            pending.push(Block::Diff {
+                path: path.clone(),
+                added,
+                removed,
+                lines,
+            });
         }
-        return Ok(());
+        return;
     }
     if state.kind == "execute" {
         if let Some(command) = &state.command {
-            return send(
-                sink,
-                AgentEvent::Block {
-                    block: Block::Exec {
-                        command: command.clone(),
-                        output: state.output.clone(),
-                        exit_code: if state.status == "completed" {
-                            Some(0)
-                        } else {
-                            Some(1)
-                        },
-                    },
+            pending.push(Block::Exec {
+                command: command.clone(),
+                output: state.output.clone(),
+                exit_code: if state.status == "completed" {
+                    Some(0)
+                } else {
+                    Some(1)
                 },
-            );
+            });
+            return;
         }
     }
     let detail = if state.output.is_empty() {
@@ -811,17 +807,29 @@ fn emit_tool(state: &ToolState, sink: &AgentSink) -> Result<(), String> {
     } else {
         Some(first_line(&state.output, 80))
     };
+    pending.push(Block::Tool {
+        status: status.to_string(),
+        primary: if state.title.is_empty() {
+            "Tool call".to_string()
+        } else {
+            state.title.clone()
+        },
+        detail,
+    });
+}
+
+fn flush_tool_group(sink: &AgentSink, pending: &mut Vec<Block>) -> Result<(), String> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let blocks = std::mem::take(pending);
     send(
         sink,
         AgentEvent::Block {
-            block: Block::Tool {
-                status: status.to_string(),
-                primary: if state.title.is_empty() {
-                    "Tool call".to_string()
-                } else {
-                    state.title.clone()
-                },
-                detail,
+            block: Block::Group {
+                title: "Completed".to_string(),
+                blocks,
+                collapsed: false,
             },
         },
     )
@@ -1023,17 +1031,23 @@ mod integration_tests {
                 block: Block::Plan { entries }
             } if entries.len() == 2 && entries[0].status == "completed"
         )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            AgentEvent::Block {
-                block: Block::Exec { command, .. }
-            } if command == "echo hi"
+        let grouped: Vec<&Block> = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::Block {
+                    block: Block::Group { blocks, .. },
+                } => Some(blocks.iter().collect()),
+                _ => None,
+            })
+            .expect("tool calls should be grouped");
+        assert!(grouped.iter().any(|block| matches!(
+            block,
+            Block::Exec { command, .. } if command == "echo hi"
         )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            AgentEvent::Block {
-                block: Block::Diff { path, added, removed, .. }
-            } if path == "demo.txt" && *added == 1 && *removed == 1
+        assert!(grouped.iter().any(|block| matches!(
+            block,
+            Block::Diff { path, added, removed, .. }
+                if path == "demo.txt" && *added == 1 && *removed == 1
         )));
         assert!(matches!(events.last(), Some(AgentEvent::Finished)));
     }
