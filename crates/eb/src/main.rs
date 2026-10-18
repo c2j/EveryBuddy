@@ -141,7 +141,16 @@ fn load_css() {
                 println!("css: parsed {} bytes", css.len());
             }
         }
-        Err(error) => eprintln!("css: LOAD FAILED, styling disabled: {error}"),
+        Err(error) => {
+            eprintln!("css: LOAD FAILED, styling disabled: {error}");
+            // A broken stylesheet is exactly the silent failure the harness
+            // exists to catch; do not let an assertion run pass on it.
+            if std::env::var_os("EB_ASSERT").is_some()
+                || std::env::var_os("EB_CLICK_ASSERT").is_some()
+            {
+                std::process::exit(1);
+            }
+        }
     }
 
     match gtk::gdk::Screen::default() {
@@ -172,6 +181,7 @@ fn build_ui(application: &gtk::Application) {
 
     if std::env::var_os("EB_DEMO").is_some()
         && std::env::var_os("EB_CLICK").is_none()
+        && std::env::var_os("EB_CLICK_ASSERT").is_none()
         && std::env::var_os("EB_ENTER").is_none()
     {
         let (turn, artifact) = host.answer().answer(DEMO_PROMPT);

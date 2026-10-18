@@ -39,6 +39,18 @@ pub const SASH: i32 = 4;
 pub const CONTENT_WIDTH: i32 = 1160;
 pub const COLUMN_WIDTH: i32 = 800;
 
+/// Fixed blocks the CI assertions pin down. The welcome card is the 800-wide
+/// column; its 142px height is the implementation value (the product's 144 is
+/// ui-spec §10-4). The conversation card's 531 is the measured 532 minus the
+/// 1px sash compromise (ui-spec §10-13); the artifact pane stays at 579.
+pub const WELCOME_CARD_WIDTH: i32 = COLUMN_WIDTH;
+pub const WELCOME_CARD_HEIGHT: i32 = 142;
+pub const CHIPS_WIDTH: i32 = COLUMN_WIDTH;
+pub const CHIPS_HEIGHT: i32 = 32;
+pub const CHAT_CARD_WIDTH: i32 = 531;
+pub const CHAT_CARD_HEIGHT: i32 = 132;
+pub const DETAIL_WIDTH: i32 = 579;
+
 /// Measured: the conversation and artifact panes are 500 wide with 40px gutters
 /// inside a 580 pane; the artifact pane pads its body by 24px vertically.
 pub const MESSAGE_WIDTH: i32 = 500;

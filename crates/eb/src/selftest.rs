@@ -14,9 +14,15 @@
 //! check that catches a colour on the wrong node or text clipped by a too-small
 //! allocation. `EB_DEMO=1` submits a message first, so the conversation state can
 //! be photographed too.
+//!
+//! `EB_ASSERT=1` turns the printed geometry report into an exit-code check (the
+//! CI verify scripts use it), and `EB_CLICK_ASSERT=1` does the same for the
+//! click audit's stable observations. Both skip values that move with the window
+//! server, fonts or layout timing.
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gtk::glib::translate::{ToGlibPtr, ToGlibPtrMut};
 use gtk::prelude::*;
@@ -50,6 +56,8 @@ pub fn requested() -> bool {
         "EB_SHOT",
         "EB_ENTER",
         "EB_CLICK",
+        "EB_CLICK_ASSERT",
+        "EB_ASSERT",
         "EB_DEMO",
     ]
     .iter()
@@ -162,7 +170,17 @@ fn enter_requested() -> bool {
 }
 
 fn click_requested() -> bool {
-    std::env::var_os("EB_CLICK").is_some()
+    std::env::var_os("EB_CLICK").is_some() || click_assert_requested()
+}
+
+/// `EB_ASSERT=1` turns the geometry/colour report into an exit-code assertion.
+fn assert_requested() -> bool {
+    std::env::var_os("EB_ASSERT").is_some()
+}
+
+/// `EB_CLICK_ASSERT=1` asserts the audit's stable observations, not just prints.
+fn click_assert_requested() -> bool {
+    std::env::var_os("EB_CLICK_ASSERT").is_some()
 }
 
 /// `EB_CLICK_SIGNAL=1` activates controls by emitting `clicked` instead of
@@ -186,9 +204,77 @@ struct Step {
     observe: Rc<dyn Fn(&Views) -> String>,
 }
 
+/// Counted across the audit; `EB_CLICK_ASSERT=1` turns a non-zero count into a
+/// failing exit status at the end.
+static CLICK_FAILURES: AtomicUsize = AtomicUsize::new(0);
+
+/// The observations that must hold for each step. Deliberately *not* the whole
+/// line: toplevel counts, popover coordinates and the code pane's measured
+/// scroll width move with the window server, fonts and layout timing.
+fn expected_click(label: &str) -> &'static [&'static str] {
+    match label {
+        "chip[0]" => &["Help me plan and build a small desktop utility."],
+        "segmented 'Code'" => &["active segments: [1]"],
+        "nav[1] (second row)" => &["route=unbuilt"],
+        "nav[0] (New Task)" => &["route=welcome"],
+        "sidebar collapse" => &["sidebar visible=false", "reveal visible=true"],
+        "sidebar reveal" => &["sidebar visible=true", "reveal visible=false"],
+        "sidebar search" => &["menu open: visible=true", "notice=\"Global search"],
+        "sidebar mini programs" => &["notice=\"Mini programs"],
+        "sidebar filter menu" => &["3 of 3 menu rows visible"],
+        "composer '+' menu" => &["4 of 4 menu rows visible"],
+        "model selector menu" => &["3 of 3 menu rows visible"],
+        "Enter (submit via chip text)" => &["route=conversation", "Ask anything"],
+        "chat search" => &["notice=\"Searching inside a task"],
+        "chat share" => &["notice=\"Sharing a task"],
+        "artifact expand" => &["detail visible=true"],
+        "artifact expand (back)" => &["detail visible=true"],
+        "artifact tab" => &["detail visible=true"],
+        "artifact new tab" => &["notice=\"Only the one artifact"],
+        "artifact tab close (x)" => &["detail visible=false"],
+        "artifact panel close (header)" => &["detail visible=false"],
+        "task row (reopens panel)" => &["detail visible=true"],
+        "copy message" => &["Copied"],
+        "section label (Tasks)" => &["GtkButton:hidden"],
+        "section label (expand again)" => &["GtkButton:shown"],
+        "user row menu" => &["4 of 4 menu rows visible"],
+        "send button (empty input)" => &["route=conversation"],
+        _ => &[],
+    }
+}
+
+fn assert_click_observation(label: &str, observed: &str) {
+    if !click_assert_requested() {
+        return;
+    }
+    let expected = expected_click(label);
+    if expected.is_empty() {
+        eprintln!("click: ASSERT FAILED: no expectation for step {label:?}");
+        CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
+        return;
+    }
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|needle| !observed.contains(needle))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    eprintln!("click: ASSERT FAILED: {label}: missing {missing:?} in {observed:?}");
+    CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
+}
+
 fn start_click_audit(views: &Rc<Views>, application: &gtk::Application) {
     let steps: Vec<Step> = build_steps();
     println!("click: --- audit ({} steps) ---", steps.len());
+    if click_assert_requested() && steps.len() != 26 {
+        eprintln!(
+            "click: ASSERT FAILED: expected 26 steps, the audit now has {}",
+            steps.len()
+        );
+        CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
+    }
     // A user's window is active; a bare `cargo run` has nothing to activate it,
     // and several GTK paths behave differently for an inactive window, so ask
     // for activation explicitly before judging what does not respond.
@@ -219,6 +305,16 @@ fn drive(
     let position = index.get();
     if position >= steps.len() {
         println!("click: --- end ---");
+        let failures = CLICK_FAILURES.load(Ordering::SeqCst);
+        if click_assert_requested() {
+            if failures == 0 {
+                println!("click: assertions passed ({} steps)", steps.len());
+            } else {
+                eprintln!("click: {failures} assertion(s) failed");
+                application.quit();
+                std::process::exit(1);
+            }
+        }
         application.quit();
         return;
     }
@@ -231,7 +327,9 @@ fn drive(
     let index = index.clone();
     let application = application.clone();
     gtk::glib::idle_add_local_once(move || {
-        println!("click: {label:<34} {}", observe(&views));
+        let observed = observe(&views);
+        println!("click: {label:<34} {observed}");
+        assert_click_observation(&label, &observed);
         index.set(position + 1);
         drive(views, steps, index, application);
     });
@@ -893,6 +991,136 @@ fn find_editor(root: &gtk::Widget) -> Option<gtk::TextView> {
     container.children().into_iter().find_map(|child| find_editor(&child))
 }
 
+fn check(ok: bool, message: String, failures: &mut usize) {
+    if ok {
+        return;
+    }
+    eprintln!("selftest: ASSERT FAILED: {message}");
+    *failures += 1;
+}
+
+/// Turn the printed report into an exit-code check with `EB_ASSERT=1`.
+///
+/// The fixed blocks are measured values, so they are asserted on every screen
+/// that has room for them. A window clamped to a small CI workarea is expected
+/// (the OS is right); only the screen-independent invariants are asserted there.
+fn assert_geometry(
+    window: &gtk::ApplicationWindow,
+    views: &Views,
+    probes: &[(String, gtk::Widget)],
+) {
+    if !assert_requested() {
+        return;
+    }
+
+    let mut failures = 0usize;
+    let allocation = window.allocation();
+    let roomy = allocation.width() >= spec::WINDOW_WIDTH;
+    let small_screen = gtk::gdk::Screen::default()
+        .and_then(|screen| screen.root_window())
+        .map(|screen| {
+            screen.width() < spec::WINDOW_WIDTH || screen.height() < spec::WINDOW_HEIGHT + 32
+        })
+        .unwrap_or(false);
+
+    check(
+        !small_screen
+            || (allocation.width() == spec::WINDOW_WIDTH
+                && allocation.height() == spec::WINDOW_HEIGHT),
+        format!(
+            "window is {}x{}, want {}x{} on a screen with room",
+            allocation.width(),
+            allocation.height(),
+            spec::WINDOW_WIDTH,
+            spec::WINDOW_HEIGHT
+        ),
+        &mut failures,
+    );
+    check(
+        views.inner.position() == spec::SIDEBAR_WIDTH,
+        format!(
+            "sash sidebar x={}, want {}",
+            views.inner.position(),
+            spec::SIDEBAR_WIDTH
+        ),
+        &mut failures,
+    );
+
+    // Welcome-only fixed blocks: asserted whenever they are visible.
+    for (name, want_width, want_height) in [
+        (
+            "eb-composer-card",
+            spec::WELCOME_CARD_WIDTH,
+            spec::WELCOME_CARD_HEIGHT,
+        ),
+        ("eb-chips", spec::CHIPS_WIDTH, spec::CHIPS_HEIGHT),
+    ] {
+        let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == name) else {
+            check(false, format!("probe {name} is missing"), &mut failures);
+            continue;
+        };
+        if !widget.is_visible() {
+            continue;
+        }
+        let actual = widget.allocation();
+        check(
+            actual.width() == want_width && actual.height() == want_height,
+            format!(
+                "{name} is {}x{}, want {want_width}x{want_height}",
+                actual.width(),
+                actual.height()
+            ),
+            &mut failures,
+        );
+    }
+
+    // Conversation-only blocks: the three-pane layout does not fit when the
+    // window is clamped to a small screen, so only assert with room.
+    if roomy {
+        for (name, want_width, want_height) in [
+            (
+                "eb-chat-card",
+                spec::CHAT_CARD_WIDTH,
+                spec::CHAT_CARD_HEIGHT,
+            ),
+            ("eb-detail", spec::DETAIL_WIDTH, spec::WINDOW_HEIGHT),
+        ] {
+            let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == name) else {
+                check(false, format!("probe {name} is missing"), &mut failures);
+                continue;
+            };
+            if !widget.is_visible() {
+                continue;
+            }
+            let actual = widget.allocation();
+            check(
+                actual.width() == want_width && actual.height() == want_height,
+                format!(
+                    "{name} is {}x{}, want {want_width}x{want_height}",
+                    actual.width(),
+                    actual.height()
+                ),
+                &mut failures,
+            );
+        }
+    }
+
+    let context = window.style_context();
+    for name in COLOURS {
+        check(
+            context.lookup_color(name).is_some(),
+            format!("@{name} did not resolve (malformed/incomplete stylesheet?)"),
+            &mut failures,
+        );
+    }
+
+    if failures > 0 {
+        eprintln!("selftest: {failures} assertion(s) failed");
+        std::process::exit(1);
+    }
+    println!("selftest: assertions passed");
+}
+
 /// Print the resolved palette and the geometry of every probed widget.
 fn report(window: &gtk::ApplicationWindow, views: &Views, probes: &[(String, gtk::Widget)]) {
     let allocation = window.allocation();
@@ -972,6 +1200,8 @@ fn report(window: &gtk::ApplicationWindow, views: &Views, probes: &[(String, gtk
             allocation.height()
         );
     }
+
+    assert_geometry(window, views, probes);
 }
 
 /// Render the widget tree into a PNG with Cairo.
@@ -1049,5 +1279,39 @@ fn snapshot(views: &Views, path: &str) {
     match surface.write_to_png(&mut file) {
         Ok(()) => println!("shot: wrote {path} ({width}x{height})"),
         Err(error) => eprintln!("shot: write failed: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The assertion map is keyed by label; a new step without an expectation
+    /// would silently pass the audit. This keeps the two lists in sync.
+    #[test]
+    fn every_click_step_has_an_expectation() {
+        let steps = build_steps();
+        assert_eq!(steps.len(), 26, "the audit's step count changed");
+        for step in &steps {
+            assert!(
+                !expected_click(&step.label).is_empty(),
+                "no assertion for step {:?}",
+                step.label
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod assertion_tests {
+    use super::*;
+
+    #[test]
+    fn click_assertion_detects_a_missing_observation() {
+        std::env::set_var("EB_CLICK_ASSERT", "1");
+        let before = CLICK_FAILURES.load(Ordering::SeqCst);
+        assert_click_observation("chip[0]", "composer=\"definitely not the chip text\"");
+        assert_eq!(CLICK_FAILURES.load(Ordering::SeqCst), before + 1);
+        std::env::remove_var("EB_CLICK_ASSERT");
     }
 }

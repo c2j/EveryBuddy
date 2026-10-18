@@ -137,7 +137,7 @@ fi
 
 shot="$dist/macos-verify/app.png"
 out="$dist/macos-verify/stdout-1.log"
-if ! EB_SELFTEST=1 EB_SHOT="$shot" \
+if ! EB_SELFTEST=1 EB_ASSERT=1 EB_SHOT="$shot" \
      "$appdir/Contents/MacOS/evobuddy" >"$out" 2>"$dist/macos-verify/stderr-1.log"; then
   echo "the .app exited non-zero" >&2
   tail -20 "$dist/macos-verify/stderr-1.log" | sed 's/^/  /' >&2
@@ -147,7 +147,7 @@ sed 's/^/  /' "$out"
 
 echo "== run again (warm caches) =="
 out2="$dist/macos-verify/stdout-2.log"
-if ! EB_SELFTEST=1 "$appdir/Contents/MacOS/evobuddy" >"$out2" 2>/dev/null; then
+if ! EB_SELFTEST=1 EB_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$out2" 2>/dev/null; then
   echo "the .app exited non-zero on the second run" >&2
   exit 1
 fi
@@ -168,5 +168,15 @@ else
   grep -E "sash|composer-card|chips" "$out" | sed 's/^/  /' >&2
   exit 1
 fi
+
+echo "== click audit =="
+click_out="$dist/macos-verify/click.log"
+if ! EB_CLICK_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$click_out" 2>&1; then
+  echo "the click audit failed" >&2
+  grep -E "ASSERT FAILED|assertion" "$click_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -E "click: assertions|click: --- end" "$click_out" | sed 's/^/  /'
+
 cmp -s "$out" "$out2" && echo "  second launch rendered the same layout" \
   || echo "  note: first and second launch reports differ"

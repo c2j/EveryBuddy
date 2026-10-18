@@ -81,6 +81,13 @@ if [ "$runs_appimage" = yes ]; then
   fi
 fi
 
+# The click audit is the only check that the controls are *wired*, not merely
+# drawn. It asserts the stable observations (route, visibility, notice copy),
+# not the environment-sensitive numbers; see `EB_CLICK_ASSERT` in selftest.rs.
+echo "== click audit (tree) =="
+xvfb-run -a --server-args="-screen 0 1920x1080x24" env "$@" EB_CLICK_ASSERT=1 \
+  "$prefix/run" 2>&1 | sed 's/^/  /'
+
 # install.sh is only exercised here: it copies the tree, links the launcher and
 # registers the menu entry, and a typo in it would otherwise ship unnoticed.
 echo "== install.sh =="
