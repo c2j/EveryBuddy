@@ -221,7 +221,9 @@ fn build_ui(application: &gtk::Application) {
     // second is the new-content variant.
     if std::env::var_os("EB_DEMO_BLOCKS").is_some() {
         views.agent.submit(DEMO_PROMPT.to_string());
-        views.agent.submit(DEMO_PROMPT.to_string());
+        // Explicitly a second task: normal chat sends now continue the current
+        // conversation, which is what the product does.
+        views.agent.submit_as_new(DEMO_PROMPT.to_string());
         views.refresh(&store);
     }
 
@@ -236,6 +238,21 @@ fn build_ui(application: &gtk::Application) {
             if let Some(views) = views.upgrade() {
                 views.welcome_composer.fill("hi");
                 views.welcome_composer.click_send();
+            }
+        });
+    }
+
+    // Harness: send a second message from the in-conversation composer, which
+    // must continue the current task rather than create a sidebar row.
+    if let Some(ms) = std::env::var("EB_CHAT_SEND_AFTER_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        let views = Rc::downgrade(&views);
+        gtk::glib::timeout_add_local_once(Duration::from_millis(ms), move || {
+            if let Some(views) = views.upgrade() {
+                views.chat_composer.fill("second message");
+                views.chat_composer.click_send();
             }
         });
     }

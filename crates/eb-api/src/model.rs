@@ -233,6 +233,31 @@ impl App {
         Some(index)
     }
 
+    /// Append another turn pair to an existing conversation. Sending from the
+    /// chat composer continues the task the user is looking at; only the
+    /// landing page's first send (or "New Task") starts a new sidebar task.
+    pub fn begin_turn(&mut self, index: usize, text: &str) -> Option<usize> {
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        let task = self.tasks.get_mut(index)?;
+        task.meta = "now".to_string();
+        task.turns.push(Turn::User {
+            text: text.to_string(),
+            time: "now".to_string(),
+        });
+        task.turns.push(Turn::Agent {
+            name: "EvoBuddy".to_string(),
+            status: None,
+            blocks: Vec::new(),
+            streaming: true,
+        });
+        self.nav = None;
+        self.route = Route::Task(index);
+        Some(index)
+    }
+
     /// Apply one event to the agent turn of task `index`. Returns false if the
     /// task or turn is gone (for example after the user opened another task).
     pub fn apply_agent_event(&mut self, index: usize, event: crate::AgentEvent) -> bool {
@@ -331,6 +356,30 @@ fn summarize(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::AgentEvent;
+
+    #[test]
+    fn a_chat_send_appends_to_the_current_task() {
+        let mut app = App::new();
+        let index = app.begin_task("first").unwrap();
+        assert!(matches!(app.route, Route::Task(current) if current == index));
+        assert_eq!(app.tasks.len(), 1);
+
+        let again = app.begin_turn(index, "second").unwrap();
+        assert_eq!(again, index);
+        assert_eq!(app.tasks.len(), 1);
+        assert_eq!(app.tasks[index].turns.len(), 4);
+        assert!(matches!(
+            app.tasks[index].turns[2],
+            Turn::User { ref text, .. } if text == "second"
+        ));
+        assert!(matches!(
+            app.tasks[index].turns[3],
+            Turn::Agent {
+                streaming: true,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn streamed_events_form_one_agent_turn() {

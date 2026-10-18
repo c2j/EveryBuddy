@@ -209,12 +209,32 @@ impl Runner {
     /// cancelled before the new task is created, so a task can never be left
     /// "streaming" after the user moves on.
     pub fn submit(self: &Rc<Self>, text: String) {
+        self.submit_inner(text, false);
+    }
+
+    /// Start a fresh sidebar task even when a conversation is open. Used by
+    /// harnesses that explicitly need the "second task" screenshot.
+    pub fn submit_as_new(self: &Rc<Self>, text: String) {
+        self.submit_inner(text, true);
+    }
+
+    fn submit_inner(self: &Rc<Self>, text: String, force_new_task: bool) {
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("runner: submit start {:?}", std::thread::current().id());
         }
         self.supersede();
 
-        let task = self.store.borrow_mut().begin_task(&text);
+        let task = {
+            let mut app = self.store.borrow_mut();
+            let current = match app.route {
+                crate::model::Route::Task(index) if app.tasks.get(index).is_some() => Some(index),
+                _ => None,
+            };
+            match (force_new_task, current) {
+                (false, Some(index)) => app.begin_turn(index, &text),
+                _ => app.begin_task(&text),
+            }
+        };
         let Some(task) = task else {
             self.refresher.request();
             return;

@@ -110,7 +110,7 @@ DEEPSEEK_API_KEY="…" cargo run
 
 期望：
 
-- `cargo test --workspace`：`eb-api` 5 个、`eb-plugin-demo-agent` 5 个、
+- `cargo test --workspace`：`eb-api` 6 个、`eb-plugin-demo-agent` 5 个、
   `eb-plugin-acp-agent` 5 个、`evobuddy` 4 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
@@ -123,6 +123,8 @@ DEEPSEEK_API_KEY="…" cargo run
 - `EB_ENTER=1`：应打印 `enter: before=welcome` 和 `enter: after=conversation`。
 - `EB_SEND_AFTER_MS`：在 `build_ui` 返回后模拟发送，应出现 `submit:`、
   `runner: refresh_now` 和 `refresh: begin tasks=1`；这是 Views 生命周期回归。
+- `EB_CHAT_SEND_AFTER_MS`：在对话里再发一条，`Tasks (1)` 必须保持不变；
+  只有欢迎页/New Task 的发送才新增任务。
 
 CI 里的同一条路径：Linux 跑
 `packaging/linux/verify.sh`（裸 Debian 10 + `EB_ASSERT` + `EB_CLICK_ASSERT` +
