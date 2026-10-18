@@ -32,7 +32,11 @@ for required in "Contents/MacOS/evobuddy" "Contents/Info.plist" "Contents/PkgInf
                 "Contents/Resources/evobuddy.icns" \
                 "Contents/Resources/share/glib-2.0/schemas/gschemas.compiled" \
                 "Contents/Resources/lib/gtk-3.0/3.0.0/immodules/im-quartz.so" \
-                "Contents/Resources/etc/fonts.conf.template"; do
+                "Contents/Resources/etc/fonts.conf.template" \
+                "Contents/Resources/share/doc/evobuddy/LICENSE" \
+                "Contents/Resources/share/doc/evobuddy/THIRD_PARTY_NOTICES.md" \
+                "Contents/Resources/share/doc/evobuddy/SBOM.json" \
+                "Contents/Resources/share/doc/evobuddy/lgpl-source-offer.md"; do
   [ -e "$appdir/$required" ] || { echo "missing from the .app: $required" >&2; exit 1; }
 done
 

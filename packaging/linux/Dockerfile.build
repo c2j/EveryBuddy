@@ -44,6 +44,11 @@ RUN case "$(uname -m)" in \
  && chmod +x /usr/local/bin/appimagetool "/usr/local/lib/appimage/runtime-$appimage_arch"
 
 COPY Cargo.toml Cargo.lock /src/
+# Compliance files travel with the source so bundle.sh can copy them into the
+# package's share/doc/evobuddy/.
+COPY LICENSE THIRD_PARTY_NOTICES.md SBOM.json /src/
+COPY LICENSES/ /src/LICENSES/
+COPY docs/lgpl-source-offer.md /src/docs/
 # The workspace: the GTK host (with its ui/ resource), the plugin surface, and
 # the built-in plugins.
 COPY crates/ /src/crates/

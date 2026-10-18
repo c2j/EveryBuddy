@@ -21,6 +21,11 @@ jobs:
       - name: Check generated tokens
         run: bash docs/ui-spec/check_tokens.sh
 
+      - name: Check compliance manifest
+        run: |
+          python3 packaging/generate_compliance.py
+          git diff --exit-code SBOM.json THIRD_PARTY_NOTICES.md
+
       - name: Install GTK 3
         run: |
           sudo apt-get update

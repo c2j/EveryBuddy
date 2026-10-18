@@ -131,6 +131,14 @@ grep -q "fake-demo: finished" "$panic_out"
 
 # install.sh is only exercised here: it copies the tree, links the launcher and
 # registers the menu entry, and a typo in it would otherwise ship unnoticed.
+echo "== compliance files =="
+for f in LICENSE THIRD_PARTY_NOTICES.md SBOM.json LICENSES/MIT.txt lgpl-source-offer.md; do
+  test -f "$prefix/share/doc/evobuddy/$f" || {
+    echo "missing compliance file: $f" >&2
+    exit 1
+  }
+done
+
 echo "== install.sh =="
 rm -rf /tmp/inst-prefix
 "$prefix/install.sh" /tmp/inst-prefix 2>&1 | sed 's/^/  /'

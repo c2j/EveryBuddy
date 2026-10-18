@@ -149,7 +149,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 - **Windows 自包含**(缺口 23/24):需真机;`.cmd` 启动器做路径改写 + Win7/8.1 可行性定论。当前 zip 文档如实标注"未验证"。
 - **macOS 公证 / .dmg**:需要 Apple Developer ID;`hdiutil` 一步之遥。
 - **缺口 7**:UI 字族在 token 层定义并整体替换重测(影响全部文本宽度,动一次全量回归)。
-- **发布合规闸门**(建议随下一个 release 落地):仓库目前没有根 `LICENSE` 文件,发布物也没有 third-party notices / SBOM / LGPL source offer。自包含包包含 GTK(LGPL)、字体、图标;补 `LICENSE`、第三方许可清单与 GTK 对应源码获取方式,P2/P5 新增资产一律先过许可审查。
+- **发布合规闸门**✅ 已落地(2026-10-18):根 `LICENSE`(MIT)、`THIRD_PARTY_NOTICES.md`、`SBOM.json`(CycloneDX)、`LICENSES/` 标准文本、[`docs/lgpl-source-offer.md`](lgpl-source-offer.md);Linux/macOS 包都把 `LICENSE`/notices/SBOM/LGPL offer 复制到 `share/doc/evobuddy/`,verify 脚本检查存在。P2 资产为自有 MIT 图。
 
 ## 四、风险与已知限制
 
@@ -170,4 +170,4 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 4. ~~M2.0b:宿主专用 runtime 线程 + 有界 channel + UI 取消按钮~~(已完成,2026-10-18;贡献热更新留后)。
 5. **M2.2/M2.3/P2**:diff/exec/table + 752/500 布局、collapse 组、usage 环、ACP 真实对话与权限弹层、自绘图标/吉祥物均已完成;usage 分类/贡献面待做。
 6. **P1a 缺口 6/4 已完成**(生成 metrics + CI 校验;输入卡 2px 已修;旧 CSS 迁移留后);缺口 3 与 P3 可穿插;P1b/P2/P4/P5 按依赖推进。
-7. **发布合规闸门**:根 LICENSE、第三方许可、SBOM/LGPL source offer。
+7. ~~发布合规闸门:根 LICENSE、第三方许可、SBOM/LGPL source offer~~(已完成)。

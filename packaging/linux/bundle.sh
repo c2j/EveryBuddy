@@ -20,6 +20,11 @@ stage=/tmp/stage/$app-$version
 rm -rf "$prefix" "$stage"
 mkdir -p "$prefix"/{bin,lib,etc,share/fonts,share/glib-2.0/schemas,share/icons,share/applications}
 mkdir -p "$prefix/share/icons/hicolor/scalable/apps" "$prefix/share/icons/hicolor/256x256/apps"
+mkdir -p "$prefix/share/doc/evobuddy"
+root=$(CDPATH= cd -- "$here/../.." && pwd)
+cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$root/SBOM.json" "$prefix/share/doc/evobuddy/"
+cp -r "$root/LICENSES" "$prefix/share/doc/evobuddy/"
+cp "$root/docs/lgpl-source-offer.md" "$prefix/share/doc/evobuddy/"
 
 cp "$src_bin" "$prefix/bin/$app"
 strip --strip-unneeded "$prefix/bin/$app" 2>/dev/null || true

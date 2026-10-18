@@ -14,6 +14,15 @@ cargo run                 # runs evobuddy (default-run)
 cargo run --bin notebook  # the CJK baseline demo
 ```
 
+## Licensing
+
+EvoBuddy is MIT-licensed; see [`LICENSE`](LICENSE). The self-contained Linux
+and macOS packages dynamically link the GTK 3 stack (LGPL-2.1-or-later).
+[`SBOM.json`](SBOM.json) lists the exact components, [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+records the Rust/system/font notices, and [`docs/lgpl-source-offer.md`](docs/lgpl-source-offer.md)
+is the LGPL corresponding-source offer. The same files are copied into the
+packages under `share/doc/evobuddy/`.
+
 ## Requirements
 
 - Rust (edition 2021, stable toolchain)
