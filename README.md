@@ -152,7 +152,7 @@ EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS="acp" EVOB
 EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" DEEPSEEK_API_KEY="…" cargo run
 ```
 
-Tool permissions open a modal allow/reject dialog by default; `EVOBUDDY_ACP_AUTO_APPROVE=1` bypasses the dialog;
+Tool permissions open an in-window allow/reject popover by default; `EVOBUDDY_ACP_AUTO_APPROVE=1` bypasses the popover;
 `EVOBUDDY_ACP_DEBUG=1` forwards the agent's stderr. The full env table, event
 mapping, permission model and limitations are in
 [`docs/acp-agent.md`](docs/acp-agent.md).

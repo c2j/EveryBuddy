@@ -188,6 +188,7 @@ pub fn build(
         composer_wiring,
         contribs,
     ));
+    agent.set_permission_anchor(chat_composer.root.clone().upcast());
 
     let chip = {
         let composer = welcome_composer.clone();

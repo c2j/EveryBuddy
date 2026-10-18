@@ -122,6 +122,7 @@ pub struct Runner {
     window: gtk::ApplicationWindow,
     permission_rx: RefCell<Receiver<PermissionJob>>,
     permissions: Arc<PermissionBridge>,
+    permission_anchor: RefCell<Option<gtk::Widget>>,
 }
 
 /// A permission request crossing from the agent worker to the GTK thread.
@@ -166,6 +167,7 @@ impl Runner {
             window,
             permission_rx: RefCell::new(permission_rx),
             permissions,
+            permission_anchor: RefCell::new(None),
         });
 
         // Permission requests can arrive while no agent event is being drained;
@@ -176,6 +178,13 @@ impl Runner {
             gtk::glib::ControlFlow::Continue
         });
         runner
+    }
+
+    /// Anchor permission prompts to an in-window widget. Without this the
+    /// fallback modal dialog is used; the popover avoids a separate OS window
+    /// that can map behind the main window on some window managers.
+    pub fn set_permission_anchor(&self, widget: gtk::Widget) {
+        *self.permission_anchor.borrow_mut() = Some(widget);
     }
 
     /// Start an answer for `text`. A previous in-flight answer is marked
@@ -247,6 +256,9 @@ impl Runner {
             }
             jobs
         };
+        if !jobs.is_empty() && std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("permission: {} pending", jobs.len());
+        }
         for job in jobs {
             self.ask_permission(job);
         }
@@ -255,7 +267,7 @@ impl Runner {
     fn ask_permission(&self, job: PermissionJob) {
         let options = job.request.options.clone();
         // Headless harness path: answer without opening a window. The default
-        // (unset) is the real modal dialog below.
+        // (unset) is the in-window popover below.
         if let Ok(mode) = std::env::var("EB_PERMISSION_AUTO") {
             let wanted: &[&str] = if mode == "allow" {
                 &["allow_once", "allow_always"]
@@ -270,6 +282,10 @@ impl Runner {
             let _ = job.reply.send(selected);
             return;
         }
+        if let Some(anchor) = self.permission_anchor.borrow().clone() {
+            self.ask_permission_popover(job, anchor);
+            return;
+        }
         let dialog = gtk::MessageDialog::new(
             Some(&self.window),
             gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
@@ -279,10 +295,30 @@ impl Runner {
         );
         dialog.set_title("Permission required");
         dialog.format_secondary_text(Some("Allow this tool call?"));
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!(
+                "permission: showing {:?} ({} options) parent_visible={}",
+                job.request.title,
+                options.len(),
+                self.window.is_visible()
+            );
+        }
         for (index, option) in options.iter().enumerate() {
             dialog.add_button(&option.label, gtk::ResponseType::Other(index as u16));
         }
         dialog.add_button("Reject", gtk::ResponseType::Cancel);
+        dialog.set_keep_above(true);
+        dialog.set_position(gtk::WindowPosition::CenterOnParent);
+        dialog.show_all();
+        dialog.present();
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!(
+                "permission: dialog visible={} mapped={} allocation={:?}",
+                dialog.is_visible(),
+                dialog.is_mapped(),
+                dialog.allocation()
+            );
+        }
         let response = dialog.run();
         dialog.close();
 
@@ -293,6 +329,110 @@ impl Runner {
                 .unwrap_or(PermissionDecision::Cancelled),
             _ => PermissionDecision::Cancelled,
         };
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("permission: decision {decision:?}");
+        }
+        let _ = job.reply.send(decision);
+    }
+
+    fn ask_permission_popover(&self, job: PermissionJob, anchor: gtk::Widget) {
+        let popover = gtk::Popover::new(Some(&anchor));
+        popover.set_modal(true);
+        popover.set_position(gtk::PositionType::Top);
+        popover.set_constrain_to(gtk::PopoverConstraint::Window);
+
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        let title = gtk::Label::new(Some(&job.request.title));
+        title.set_xalign(0.0);
+        title.set_line_wrap(true);
+        title.set_width_chars(1);
+        title.set_max_width_chars(60);
+        content.pack_start(&title, false, false, 0);
+
+        let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        buttons.set_halign(gtk::Align::End);
+        let decision = Rc::new(RefCell::new(None));
+        let main_loop = gtk::glib::MainLoop::new(None, false);
+        let mut auto_click: Option<gtk::Button> = None;
+        let click_mode = std::env::var("EB_PERMISSION_CLICK").ok();
+        for option in &job.request.options {
+            let button = gtk::Button::with_label(&option.label);
+            if auto_click.is_none()
+                && click_mode.as_deref() == Some("allow")
+                && option.kind.starts_with("allow")
+            {
+                auto_click = Some(button.clone());
+            }
+            button.connect_clicked({
+                let decision = decision.clone();
+                let popover = popover.clone();
+                let main_loop = main_loop.clone();
+                let id = option.id.clone();
+                move |_| {
+                    *decision.borrow_mut() = Some(PermissionDecision::Selected(id.clone()));
+                    popover.popdown();
+                    main_loop.quit();
+                }
+            });
+            buttons.pack_start(&button, false, false, 0);
+        }
+        // ACP normally includes a reject option already; only add the escape
+        // hatch when it does not.
+        if !job
+            .request
+            .options
+            .iter()
+            .any(|option| option.kind.starts_with("reject"))
+        {
+            let reject = gtk::Button::with_label("Reject");
+            reject.connect_clicked({
+                let decision = decision.clone();
+                let popover = popover.clone();
+                let main_loop = main_loop.clone();
+                move |_| {
+                    *decision.borrow_mut() = Some(PermissionDecision::Cancelled);
+                    popover.popdown();
+                    main_loop.quit();
+                }
+            });
+            if auto_click.is_none() && click_mode.as_deref() == Some("reject") {
+                auto_click = Some(reject.clone());
+            }
+            buttons.pack_start(&reject, false, false, 0);
+        }
+        content.pack_start(&buttons, false, false, 0);
+
+        popover.connect_closed({
+            let main_loop = main_loop.clone();
+            move |_| main_loop.quit()
+        });
+        popover.add(&content);
+        content.show_all();
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!(
+                "permission: popover {:?} ({} options)",
+                job.request.title,
+                job.request.options.len()
+            );
+        }
+        popover.popup();
+        if let Some(button) = auto_click {
+            gtk::glib::timeout_add_local_once(Duration::from_millis(100), move || {
+                button.clicked();
+            });
+        }
+        main_loop.run();
+        let decision = decision
+            .borrow_mut()
+            .take()
+            .unwrap_or(PermissionDecision::Cancelled);
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("permission: decision {decision:?}");
+        }
         let _ = job.reply.send(decision);
     }
 

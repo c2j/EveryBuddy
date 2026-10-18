@@ -91,7 +91,7 @@ EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_a
 EB_ACP_DEMO=1 EB_PERMISSION_AUTO=allow \
 EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
 
-# 13) ACP：本机 opencode（工具调用会弹 allow/reject 对话框；
+# 13) ACP：本机 opencode（工具调用会弹 allow/reject 弹层；
 #     无人值守可加 EVOBUDDY_ACP_AUTO_APPROVE=1 绕过）
 EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS=acp \
 EVOBUDDY_ACP_CWD="$PWD" cargo run

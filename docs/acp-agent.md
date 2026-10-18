@@ -69,7 +69,7 @@ JSON-RPC 生命周期：
 
 ## 权限与安全
 
-- **默认弹窗**：工具权限请求会走 GTK 模态对话框，选项来自 ACP 的
+- **默认弹窗**：工具权限请求会走输入框上方的 GTK 弹层，选项来自 ACP 的
   `options[].name`，用户可以逐个 allow/reject。需要无人值守的本地开发可显式设
   `EVOBUDDY_ACP_AUTO_APPROVE=1` 绕过弹窗。
 - agent 的读写/命令由 agent 自己执行；本插件只负责协议，不把客户端 fs/terminal
@@ -91,7 +91,7 @@ JSON-RPC 生命周期：
 
 ## 已知限制
 
-- 权限对话框是基础 GTK `MessageDialog`，还没有记住 allow-always 选项或把权限历史写进任务；也没有 `authenticate` 之外的登录 UI。
+- 权限弹层是基础 GTK `Popover`，还没有记住 allow-always 选项或把权限历史写进任务；也没有 `authenticate` 之外的登录 UI。
 - 不支持 `session/load`/`session/list`/`session/resume`；一次 app 运行一个活动
   session，重启后由 agent 自己持久化。
 - 只发送 text prompt；图片/resource/embedded context 还没接。

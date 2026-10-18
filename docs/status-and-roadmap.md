@@ -104,7 +104,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 **M2.3 ACP 真实对话**(中)✅ 已完成(2026-10-18):
 - 新插件 `crates/plugins/eb-plugin-acp-agent`:JSON-RPC stdio 启动外部 ACP agent,dsh/opencode 等无需改宿主;配置 `EVOBUDDY_ACP_COMMAND` 时替代 demo。
 - 映射 `agent_message_chunk`→Delta、`usage_update`→Usage、exec/diff/tool_call→`Block::Exec/Diff/Tool`;session 跨 turn 保留。
-- `session/cancel` 接入 UI stop;权限请求走 GTK 模态 allow/reject 对话框,`EVOBUDDY_ACP_AUTO_APPROVE=1` 可绕过。
+- `session/cancel` 接入 UI stop;权限请求走输入框上方的 allow/reject 弹层,`EVOBUDDY_ACP_AUTO_APPROVE=1` 可绕过。
 - fake ACP 5 个测试(含 cancel/permission);真实 dsh 的 initialize/session/prompt 链路已验证(缺 `DEEPSEEK_API_KEY` 时错误可换行显示),真实 opencode 已流式输出并渲染 tool/exec 块。
 - 配置、限制与截图 harness 见 [`docs/acp-agent.md`](acp-agent.md)。
 

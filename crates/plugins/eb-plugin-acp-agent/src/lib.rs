@@ -513,6 +513,14 @@ impl AcpSession {
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or("Tool permission")
                 .to_string();
+            if self.debug {
+                eprintln!(
+                    "acp: permission request {:?} ({} options, auto={})",
+                    title,
+                    options.len(),
+                    self.auto_approve
+                );
+            }
             let selected = if self.auto_approve {
                 pick_permission(&raw_options, true)
             } else {
