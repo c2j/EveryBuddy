@@ -222,7 +222,7 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     window.setContentView(Some(&webview));
-    window.setLevel(NSFloatingWindowLevel);
+    window.setLevel(objc2_app_kit::NSStatusWindowLevel);
     window.orderFrontRegardless();
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
     window.makeKeyAndOrderFront(None);

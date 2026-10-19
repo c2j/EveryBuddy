@@ -204,6 +204,26 @@ fn build_ui(application: &gtk::Application) {
 
     shell::finish(&views, &store);
 
+    if std::env::var_os("EB_ARTIFACT").is_some() {
+        {
+            let mut app = store.borrow_mut();
+            app.tasks.push(model::Task {
+                title: "Artifact test".into(),
+                meta: String::new(),
+                turns: Vec::new(),
+                artifact: Some(model::Artifact {
+                    name: "demo.py".into(),
+                    code: "print('hello')\n".into(),
+                }),
+                usage: None,
+            });
+            app.route = model::Route::Task(0);
+            app.nav = None;
+            app.detail_visible = true;
+        }
+        views.refresh(&store);
+    }
+
     if std::env::var_os("EB_PANEL").is_some() {
         store.borrow_mut().detail_visible = true;
         views.refresh(&store);
