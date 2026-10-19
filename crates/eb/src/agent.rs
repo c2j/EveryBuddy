@@ -291,11 +291,12 @@ impl Runner {
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();
 
+        let agent_text = crate::catalog::prompt_for(&text);
         let (sink, stream) = AgentSink::channel();
         let handle =
             match self
                 .runtime
-                .start(self.source.clone(), text, sink, self.permissions.clone(), workspace.clone())
+                .start(self.source.clone(), agent_text, sink, self.permissions.clone(), workspace.clone())
             {
                 Ok(handle) => handle,
                 Err(message) => {

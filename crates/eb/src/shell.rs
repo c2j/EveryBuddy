@@ -99,6 +99,8 @@ pub struct Views {
     pub detail: Detail,
     pub unbuilt_root: gtk::Box,
     pub unbuilt_title: gtk::Label,
+    unbuilt_note: gtk::Label,
+    unbuilt_info: gtk::Box,
     pub welcome_composer: Rc<Composer>,
     pub chat_composer: Rc<Composer>,
     /// Every "show sidebar" button: one per route's topbar, since only the
@@ -120,6 +122,8 @@ pub struct Views {
 struct Unbuilt {
     root: gtk::Box,
     title: gtk::Label,
+    note: gtk::Label,
+    info: gtk::Box,
     reveal: gtk::Button,
 }
 
@@ -390,6 +394,8 @@ pub fn build(
         detail,
         unbuilt_root: unbuilt.root,
         unbuilt_title: unbuilt.title,
+        unbuilt_note: unbuilt.note,
+        unbuilt_info: unbuilt.info,
         welcome_composer,
         chat_composer,
         reveals,
@@ -429,6 +435,21 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
     };
     views.refresher.install_immediate(immediate.clone());
     views.agent.set_immediate_refresh(immediate);
+
+    // Poll the persisted schedule queue. A due job becomes a normal task, so
+    // it uses the same workspace/session/agent path as a typed prompt.
+    let weak = Rc::downgrade(views);
+    gtk::glib::timeout_add_seconds_local(5, move || {
+        if let Some(views) = weak.upgrade() {
+            for (title, prompt) in crate::catalog::take_due() {
+                if !prompt.is_empty() {
+                    eprintln!("scheduler: running '{title}'");
+                    views.agent.submit(prompt);
+                }
+            }
+        }
+        gtk::glib::ControlFlow::Continue
+    });
 
     // `show_all` first, then repaint: `refresh` is what sets the pane
     // visibilities, and running it afterwards means no frame is drawn in
@@ -581,6 +602,15 @@ impl Views {
         match &app.route {
             Route::Unbuilt(name) => {
                 self.unbuilt_title.set_text(name);
+                clear_children(&self.unbuilt_info);
+                let specialized = *name == "Experts · Skills · Connectors" || *name == "Scheduled";
+                self.unbuilt_note.set_visible(!specialized);
+                if *name == "Experts · Skills · Connectors" {
+                    fill_catalog(&self.unbuilt_info, &self.refresher);
+                } else if *name == "Scheduled" {
+                    fill_scheduled(&self.unbuilt_info);
+                }
+                self.unbuilt_info.show_all();
                 shown = "unbuilt";
             }
             Route::Task(index) => match app.tasks.get(*index) {
@@ -744,11 +774,17 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
     class(&note, "eb-unbuilt-note");
     body.pack_start(&note, false, false, 0);
 
+    let info = vbox(4);
+    info.set_halign(gtk::Align::Fill);
+    body.pack_start(&info, false, false, 0);
+
     root.pack_start(&body, true, true, 0);
 
     Unbuilt {
         root,
         title,
+        note,
+        info,
         reveal: button,
     }
 }
@@ -862,5 +898,69 @@ fn sync_session_projection(store: &Store) {
     let mut app = store.borrow_mut();
     if let Some(task) = app.tasks.get_mut(index) {
         task.turns = projected;
+    }
+}
+
+fn clear_children(container: &gtk::Box) {
+    while let Some(child) = container.children().first() {
+        container.remove(child);
+    }
+}
+
+fn fill_catalog(container: &gtk::Box, refresher: &Refresher) {
+    let skills = crate::catalog::skills();
+    let active = skills.iter().filter(|skill| skill.enabled).count();
+    let header = gtk::Label::new(Some(&format!(
+        "Skills  ·  {active}/{} active",
+        skills.len()
+    )));
+    header.set_xalign(0.0);
+    class(&header, "eb-task-title");
+    container.pack_start(&header, false, false, 0);
+    for skill in skills {
+        let row = hbox(8);
+        let label = gtk::Label::new(Some(&format!("{} — {}", skill.name, skill.description)));
+        label.set_xalign(0.0);
+        label.set_line_wrap(true);
+        label.set_hexpand(true);
+        row.pack_start(&label, true, true, 0);
+        let button = gtk::Button::with_label(if skill.enabled { "Disable" } else { "Enable" });
+        let name = skill.name.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            crate::catalog::toggle(&name);
+            refresher.request();
+        });
+        row.pack_end(&button, false, false, 0);
+        container.pack_start(&row, false, false, 0);
+    }
+    let connector_header = gtk::Label::new(Some("Connectors"));
+    connector_header.set_xalign(0.0);
+    class(&connector_header, "eb-task-title");
+    container.pack_start(&connector_header, false, false, 0);
+    for (name, state) in crate::catalog::connectors() {
+        let label = gtk::Label::new(Some(&format!("{name} — {state}")));
+        label.set_xalign(0.0);
+        container.pack_start(&label, false, false, 0);
+    }
+}
+
+fn fill_scheduled(container: &gtk::Box) {
+    let jobs = crate::catalog::scheduled();
+    if jobs.is_empty() {
+        let label = gtk::Label::new(Some(
+            "No scheduled tasks. Add entries to ~/.evobuddy/scheduled.json as \
+             [{\"title\":\"…\",\"prompt\":\"…\",\"due_at\":\"ISO-8601\"}].",
+        ));
+        label.set_line_wrap(true);
+        label.set_xalign(0.0);
+        container.pack_start(&label, false, false, 0);
+        return;
+    }
+    for (title, prompt, due) in jobs {
+        let label = gtk::Label::new(Some(&format!("{title} — {due}\n{prompt}")));
+        label.set_xalign(0.0);
+        label.set_line_wrap(true);
+        container.pack_start(&label, false, false, 0);
     }
 }

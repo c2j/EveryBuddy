@@ -30,6 +30,7 @@
 
 mod agent;
 mod bridge;
+mod catalog;
 mod plugin_panel;
 mod preview_server;
 mod composer;
