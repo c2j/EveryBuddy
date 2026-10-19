@@ -178,7 +178,13 @@ fn serve(
                 let input: Value = serde_json::from_str(&body).unwrap_or_default();
                 let prompt = input["prompt"].as_str().unwrap_or("EvoBuddy conversation");
                 let answer = input["answer"].as_str().unwrap_or("No answer was produced.");
-                match probe.append_turn(prompt, answer) {
+                let tools = input["tools"].as_array().cloned().unwrap_or_default();
+                let result = if tools.is_empty() {
+                    probe.append_turn(prompt, answer)
+                } else {
+                    probe.append_turn_projected(prompt, answer, &serde_json::to_string(&tools).unwrap_or_else(|_| "[]".into()))
+                };
+                match result {
                     Ok(appended) => {
                         *session_json.lock().unwrap() = probe.live_snapshot().unwrap_or_default();
                         json_response(json!({"ok": true, "appended": serde_json::from_str::<Value>(&appended).unwrap_or_default()}))
@@ -201,6 +207,9 @@ fn serve(
                     }
                     Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
                 }
+            }
+            ("GET", "/projection") => {
+                json_response(serde_json::from_str(&probe.live_projection().unwrap_or_else(|_| "{\"items\": []}".into())).unwrap_or_else(|_| json!({"items": []})))
             }
             ("GET", "/feedback") => {
                 let result = handle.block_on(feedback.list(&agent::MessageFeedbackListRequest {

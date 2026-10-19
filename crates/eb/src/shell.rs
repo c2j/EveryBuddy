@@ -769,22 +769,55 @@ fn sync_session_projection(store: &Store) {
         (index, session_id)
     };
     let _ = session_id;
-    let turns = crate::bridge::session_turns();
-    if turns.is_empty() {
+    let items = crate::bridge::session_projection();
+    if items.is_empty() {
         return;
     }
     let mut projected = Vec::new();
-    for (role, text) in turns {
-        match role.as_str() {
-            "user" => projected.push(Turn::User { text, time: "now".into() }),
-            "assistant" => projected.push(Turn::Agent {
-                name: "EvoBuddy".into(),
-                status: Some("Finished".into()),
-                blocks: vec![crate::model::Block::Text(text)],
-                streaming: false,
-            }),
+    let mut blocks: Vec<crate::model::Block> = Vec::new();
+    for item in items {
+        match item["kind"].as_str() {
+            Some("message") if item["role"] == "user" => {
+                if !blocks.is_empty() {
+                    projected.push(Turn::Agent {
+                        name: "EvoBuddy".into(),
+                        status: Some("Finished".into()),
+                        blocks: std::mem::take(&mut blocks),
+                        streaming: false,
+                    });
+                }
+                let text = item["content"]
+                    .as_array()
+                    .map(|parts| parts.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join(""))
+                    .unwrap_or_default();
+                projected.push(Turn::User { text, time: "now".into() });
+            }
+            Some("message") if item["role"] == "assistant" => {
+                let text = item["content"]
+                    .as_array()
+                    .map(|parts| parts.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join(""))
+                    .unwrap_or_default();
+                blocks.push(crate::model::Block::Text(text));
+            }
+            Some("tool") => {
+                let name = item["name"].as_str().unwrap_or("Tool").to_string();
+                let result = item["result"].as_str().unwrap_or("").to_string();
+                blocks.push(crate::model::Block::Tool {
+                    status: "Used".into(),
+                    primary: name,
+                    detail: (!result.is_empty()).then_some(result),
+                });
+            }
             _ => {}
         }
+    }
+    if !blocks.is_empty() {
+        projected.push(Turn::Agent {
+            name: "EvoBuddy".into(),
+            status: Some("Finished".into()),
+            blocks,
+            streaming: false,
+        });
     }
     if projected.is_empty() {
         return;
@@ -794,4 +827,3 @@ fn sync_session_projection(store: &Store) {
         task.turns = projected;
     }
 }
-

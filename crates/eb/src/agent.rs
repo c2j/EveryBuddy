@@ -558,7 +558,7 @@ impl Runner {
             let finished = self.active.borrow().as_ref().map(|active| active.task);
             self.active.borrow_mut().take();
             // Commit the finished turn to the task's dsh session.
-            let (session_id, prompt, answer) = {
+            let (session_id, prompt, answer, tools) = {
                 let app = self.store.borrow();
                 let Some(active) = finished else { return };
                 let Some(task) = app.tasks.get(active) else { return };
@@ -589,11 +589,32 @@ impl Runner {
                         _ => None,
                     })
                     .unwrap_or_default();
-                (task.session_id.clone(), prompt, answer)
+                let tools = task
+                    .turns
+                    .iter()
+                    .rev()
+                    .find_map(|turn| match turn {
+                        crate::model::Turn::Agent { blocks, .. } => Some(
+                            blocks
+                                .iter()
+                                .filter_map(|block| match block {
+                                    crate::model::Block::Tool { primary, detail, .. } => Some((
+                                        primary.clone(),
+                                        detail.clone().unwrap_or_default(),
+                                        String::new(),
+                                    )),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                (task.session_id.clone(), prompt, answer, tools)
             };
             if let Some(session_id) = session_id {
                 if !answer.is_empty() {
-                    let _ = crate::bridge::append_turn(&session_id, &prompt, &answer);
+                    let _ = crate::bridge::append_turn(&session_id, &prompt, &answer, &tools);
                 }
             }
         }

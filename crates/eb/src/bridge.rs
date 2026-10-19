@@ -142,11 +142,23 @@ pub fn create_session(session_id: &str) -> Result<(), String> {
 }
 
 /// Append one completed turn to the task's retained dsh session.
-pub fn append_turn(session_id: &str, prompt: &str, answer: &str) -> Result<(), String> {
+pub fn append_turn(
+    session_id: &str,
+    prompt: &str,
+    answer: &str,
+    tools: &[(String, String, String)],
+) -> Result<(), String> {
+    let tools: Vec<_> = tools
+        .iter()
+        .map(|(name, arguments, result)| {
+            serde_json::json!({ "name": name, "arguments": arguments, "result": result })
+        })
+        .collect();
     let body = serde_json::json!({
         "sessionId": session_id,
         "prompt": prompt,
         "answer": answer,
+        "tools": tools,
     })
     .to_string();
     let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
@@ -221,4 +233,17 @@ pub fn resume_session(session_id: &str) -> Result<(), String> {
     } else {
         Err(response)
     }
+}
+
+/// Ordered session projection including tool rows.
+pub fn session_projection() -> Vec<serde_json::Value> {
+    let Ok(mut stream) = TcpStream::connect(ADDR) else { return Vec::new() };
+    let request = "GET /projection HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if stream.write_all(request.as_bytes()).is_err() { return Vec::new() }
+    let mut response = String::new();
+    use std::io::Read;
+    if stream.read_to_string(&mut response).is_err() { return Vec::new() }
+    let Some(body) = response.split("\r\n\r\n").nth(1) else { return Vec::new() };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return Vec::new() };
+    value["items"].as_array().cloned().unwrap_or_default()
 }
