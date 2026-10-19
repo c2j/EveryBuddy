@@ -13,7 +13,7 @@ use objc2::runtime::{AnyClass, Imp, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSApplication, NSBackingStoreType, NSFloatingWindowLevel, NSPanel,
-    NSView, NSWindow, NSWindowStyleMask,
+    NSView, NSWindow, NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSEventType};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
@@ -222,6 +222,17 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     window.setContentView(Some(&webview));
+    if let Some(gdk_window) = toplevel.window() {
+        let native: *mut gtk::gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
+        let nsview = unsafe { gdk_quartz_window_get_nsview(native as *mut std::ffi::c_void) };
+        if !nsview.is_null() {
+            let parent = unsafe { &*nsview };
+            if let Some(parent_window) = parent.window() {
+                parent_window.resignKeyWindow();
+                unsafe { parent_window.addChildWindow_ordered(&window, NSWindowOrderingMode::Above) };
+            }
+        }
+    }
     window.setLevel(objc2_app_kit::NSStatusWindowLevel);
     window.orderFrontRegardless();
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
