@@ -55,7 +55,7 @@ const CATALOG: &[Plugin] = &[
         id: "commands",
         package: "@deepseek-ai/dsh-commands",
         title: "Commands",
-        description: "Slash-command runtime",
+        description: "Registry only; needs a command UI adapter",
     },
 ];
 
@@ -222,7 +222,7 @@ pub fn open() {
     header.pack_start(&text("Plugins", "eb-settings-title"), false, false, 0);
     header.pack_start(
         &text(
-            "Runtime dsh host plugins via rutis-loader. Apply rewrites rutis.json; no rebuild.",
+            "Runtime dsh host plugins via rutis-loader. Apply rewrites rutis.json; no rebuild. Host services only — no UI bridge yet.",
             "eb-settings-subtitle",
         ),
         false,
