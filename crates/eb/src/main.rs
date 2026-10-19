@@ -211,7 +211,20 @@ fn build_ui(application: &gtk::Application) {
             app.tasks.push(model::Task {
                 title: "Artifact test".into(),
                 meta: String::new(),
-                turns: Vec::new(),
+                turns: vec![
+                    model::Turn::User {
+                        text: "Explain the selected artifact.".into(),
+                        time: "now".into(),
+                    },
+                    model::Turn::Agent {
+                        name: "EvoBuddy".into(),
+                        status: Some("Finished".into()),
+                        blocks: vec![model::Block::Text(
+                            "This is the real EvoBuddy answer for the bound session.".into(),
+                        )],
+                        streaming: false,
+                    },
+                ],
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

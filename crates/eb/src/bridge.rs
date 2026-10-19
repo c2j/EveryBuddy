@@ -4,6 +4,7 @@
 //! messageFeedback service on 127.0.0.1:39472. This module is the single owner:
 //! Settings starts/stops it, previews ensure it is up, and app shutdown stops it.
 
+use std::io::Write;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -84,5 +85,28 @@ pub fn status() -> &'static str {
         "running · http://127.0.0.1:39472"
     } else {
         "stopped"
+    }
+}
+
+/// Mirror the active EvoBuddy conversation into the live dsh session before
+/// opening the feedback panel. The bridge turns the real user text and the real
+/// assistant answer into one dsh session, then the feedback surface addresses
+/// that session's assistant message.
+pub fn bind_conversation(prompt: &str, answer: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "prompt": prompt, "answer": answer }).to_string();
+    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST /session HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    use std::io::Read;
+    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        Ok(())
+    } else {
+        Err(response)
     }
 }

@@ -298,6 +298,7 @@ pub fn build(
     let feedback_anchor: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
     let open_feedback: Rc<dyn Fn(&'static str)> = {
         let anchor = feedback_anchor.clone();
+        let store = store.clone();
         let feedback_root = feedback_root.clone();
         let feedback_outer = feedback_outer.clone();
         Rc::new(move |plugin_id: &'static str| {
@@ -317,6 +318,11 @@ pub fn build(
                     gtk::main_iteration_do(false);
                 }
                 crate::bridge::ensure();
+                if plugin_id == "ui-message-feedback" {
+                    if let Some((prompt, answer)) = active_conversation(&store) {
+                        let _ = crate::bridge::bind_conversation(&prompt, &answer);
+                    }
+                }
                 crate::preview_server::ensure();
                 let anchor = anchor.clone();
                 gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
@@ -747,4 +753,30 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
         title,
         reveal: button,
     }
+}
+
+/// The active task's visible conversation, used to bind the dsh feedback
+/// session to the same user prompt and assistant answer the human sees.
+fn active_conversation(store: &Store) -> Option<(String, String)> {
+    let app = store.borrow();
+    let Route::Task(index) = app.route else { return None };
+    let task = app.tasks.get(index)?;
+    let mut prompt = Vec::new();
+    let mut answer = Vec::new();
+    for turn in &task.turns {
+        match turn {
+            crate::model::Turn::User { text, .. } => prompt.push(text.clone()),
+            crate::model::Turn::Agent { blocks, .. } => {
+                for block in blocks {
+                    if let crate::model::Block::Text(text) = block {
+                        answer.push(text.clone());
+                    }
+                }
+            }
+        }
+    }
+    if prompt.is_empty() && answer.is_empty() {
+        return None;
+    }
+    Some((prompt.join("\n\n"), answer.join("\n\n")))
 }

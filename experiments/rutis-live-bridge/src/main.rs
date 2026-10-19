@@ -2,7 +2,7 @@
 //! composition, keeps one live Session, and exposes the real messageFeedback
 //! service to the WebKit component host over local HTTP.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aimux_core::stream_part::StreamPart;
@@ -16,11 +16,21 @@ use tiny_http::{Header, Response, Server};
 
 const PORT: u16 = 39472;
 
-struct Scripted;
+struct Scripted {
+    /// When set by `POST /session`, the next turn mirrors this assistant text
+    /// into the real dsh session instead of running the canned tool loop.
+    answer: Arc<Mutex<Option<String>>>,
+}
 
 #[async_trait::async_trait]
 impl LlmService for Scripted {
     async fn stream(&self, req: StreamRequest) -> Result<PartStream, LlmServiceError> {
+        if let Some(answer) = self.answer.lock().unwrap().clone() {
+            return Ok(Box::pin(futures::stream::iter(vec![
+                Ok(StreamPart::TextDelta { id: "t".into(), delta: answer, provider_metadata: None }),
+                Ok(finish(FinishReasonUnified::Stop)),
+            ])));
+        }
         let last = req.options.messages.last();
         let parts = if last.and_then(|message| message.role.as_deref()) == Some("tool") {
             let answer = format!("The code is {}.", last.unwrap().text);
@@ -62,9 +72,9 @@ fn finish(reason: FinishReasonUnified) -> StreamPart {
     }
 }
 
-async fn mount() -> Ctx {
+async fn mount(scripted: Arc<Scripted>) -> Ctx {
     let ctx = Ctx::root().unwrap();
-    rutis_dsh::provide_agent_aimux(&ctx, Arc::new(Scripted)).unwrap();
+    rutis_dsh::provide_agent_aimux(&ctx, scripted).unwrap();
     let view = ctx.plugin(agent::Plugin::new(agent::Config {
         invariants: Default::default(),
         typert: Default::default(),
@@ -108,7 +118,9 @@ fn serve(
     server: Server,
     handle: tokio::runtime::Handle,
     feedback: Arc<agent::MessageFeedbackService>,
-    session_json: String,
+    probe: Arc<agent::AgentProbe>,
+    scripted: Arc<Scripted>,
+    session_json: Arc<Mutex<String>>,
 ) {
     for mut request in server.incoming_requests() {
         if request.method().as_str() == "OPTIONS" {
@@ -124,15 +136,32 @@ fn serve(
             .unwrap_or("")
             .to_string();
         let session_id = if session_id.is_empty() {
-            let parsed: Value = serde_json::from_str(&session_json).unwrap_or_default();
+            let parsed: Value = serde_json::from_str(&session_json.lock().unwrap()).unwrap_or_default();
             parsed["sessionId"].as_str().unwrap_or_default().to_string()
         } else {
             session_id
         };
         let response = match (request.method().as_str(), path) {
             ("GET", "/session") => json_response(
-                serde_json::from_str(&session_json).unwrap_or_else(|_| json!({"sessionId": null, "messages": []})),
+                serde_json::from_str(&session_json.lock().unwrap())
+                    .unwrap_or_else(|_| json!({"sessionId": null, "messages": []})),
             ),
+            ("POST", "/session") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let prompt = input["prompt"].as_str().unwrap_or("EvoBuddy conversation");
+                let answer = input["answer"].as_str().unwrap_or("No answer was produced.");
+                *scripted.answer.lock().unwrap() = Some(answer.to_string());
+                let _ = handle.block_on(probe.dispose_persistent());
+                match handle.block_on(probe.run_persistent("evobuddy", "fake", prompt)) {
+                    Ok(session) => {
+                        *session_json.lock().unwrap() = session.clone();
+                        json_response(json!({"ok": true, "session": serde_json::from_str::<Value>(&session).unwrap_or_default()}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("GET", "/feedback") => {
                 let result = handle.block_on(feedback.list(&agent::MessageFeedbackListRequest {
                     session_id: agent::SessionId(session_id.clone()),
@@ -186,7 +215,8 @@ fn serve(
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let ctx = mount().await;
+    let scripted = Arc::new(Scripted { answer: Arc::new(Mutex::new(None)) });
+    let ctx = mount(scripted.clone()).await;
     let probe = ctx.get::<agent::AgentProbe>().unwrap();
     let feedback = ctx.get::<agent::MessageFeedbackService>().unwrap();
     let session = probe
@@ -197,7 +227,8 @@ async fn main() {
     eprintln!("evobuddy-bridge: listening on http://127.0.0.1:{PORT}");
     let server = Server::http(("127.0.0.1", PORT)).expect("bind feedback bridge");
     let handle = tokio::runtime::Handle::current();
-    std::thread::spawn(move || serve(server, handle, feedback, session));
+    let session_json = Arc::new(Mutex::new(session));
+    std::thread::spawn(move || serve(server, handle, feedback, probe, scripted, session_json));
     loop {
         tokio::time::sleep(Duration::from_secs(3600)).await;
     }
