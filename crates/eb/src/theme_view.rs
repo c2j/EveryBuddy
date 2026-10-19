@@ -264,12 +264,13 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             let Some(event_window) = shot.window() else { return };
             if std::env::var_os("EB_PANEL_DEBUG").is_some() {
                 eprintln!(
-                    "panel autclick: key={} main={} visible={} can_key={} level={:?}",
+                    "panel autclick: key={} main={} visible={} can_key={} level={:?} app_active={}",
                     event_window.isKeyWindow(),
                     event_window.isMainWindow(),
                     event_window.isVisible(),
                     event_window.canBecomeKeyWindow(),
                     event_window.level(),
+                    NSApplication::sharedApplication(mtm).isActive(),
                 );
             }
             let frame = shot.frame();
