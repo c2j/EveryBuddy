@@ -66,6 +66,8 @@ const CATALOG: &[Plugin] = &[
 struct Controller {
     selected: RefCell<HashSet<&'static str>>,
     child: RefCell<Option<Child>>,
+    files_windows: RefCell<Vec<gtk::Window>>,
+    fs_running: Cell<bool>,
     log: Arc<Mutex<Vec<String>>>,
     config_path: PathBuf,
 }
@@ -75,6 +77,8 @@ impl Controller {
         Rc::new(Self {
             selected: RefCell::new(HashSet::new()),
             child: RefCell::new(None),
+            files_windows: RefCell::new(Vec::new()),
+            fs_running: Cell::new(false),
             log: Arc::new(Mutex::new(Vec::new())),
             config_path: std::env::temp_dir().join(format!(
                 "evobuddy-dsh-plugins-{}.json",
@@ -102,6 +106,9 @@ impl Controller {
         if selected.is_empty() {
             self.stop();
             return Ok(());
+        }
+        if !self.selected.borrow().contains("fs") {
+            self.set_fs_running(false);
         }
 
         let project = std::env::var("EVOBUDDY_DSH_NODE_PROJECT").unwrap_or_else(|_| {
@@ -216,9 +223,28 @@ impl Controller {
     }
 
     fn stop(&self) {
+        self.fs_running.set(false);
+        self.close_files();
         if let Some(mut child) = self.child.borrow_mut().take() {
             let _ = child.kill();
             let _ = child.wait();
+        }
+    }
+
+    fn track_files_window(&self, window: &gtk::Window) {
+        self.files_windows.borrow_mut().push(window.clone());
+    }
+
+    fn close_files(&self) {
+        for window in self.files_windows.borrow_mut().drain(..) {
+            window.close();
+        }
+    }
+
+    fn set_fs_running(&self, running: bool) {
+        self.fs_running.set(running);
+        if !running {
+            self.close_files();
         }
     }
 
@@ -383,7 +409,7 @@ fn capture_window(window: &gtk::Window, path: &str) {
     }
 }
 
-fn open_files() {
+fn open_files(controller: Rc<Controller>) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("Files — dsh fs-local");
     window.set_default_size(560, 640);
@@ -441,6 +467,7 @@ fn open_files() {
     }
     view.refresh();
     window.show_all();
+    controller.track_files_window(&window);
     if let Ok(path) = std::env::var("EB_SETTINGS_FILES_SHOT") {
         let window = window.clone();
         gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
@@ -569,7 +596,8 @@ pub fn open() {
 
     {
         let files = files.clone();
-        files.connect_clicked(move |_| open_files());
+        let controller = controller.clone();
+        files.connect_clicked(move |_| open_files(controller.clone()));
     }
     if std::env::var_os("EB_SETTINGS_FILES").is_some() {
         let files = files.clone();
@@ -591,6 +619,7 @@ pub fn open() {
         let controller = controller.clone();
         let log_view = log_view.clone();
         let status_labels = status_labels.clone();
+        let files = files.clone();
         let alive = alive.clone();
         move || {
             if !alive.get() {
@@ -607,6 +636,9 @@ pub fn open() {
                         text.push('\n');
                     }
                     text.push_str(&line);
+                    if let Some(rest) = line.strip_prefix("fs: ") {
+                        controller.set_fs_running(rest == "running");
+                    }
                     for (id, label) in &status_labels {
                         if let Some(rest) = line.strip_prefix(&format!("{id}: ")) {
                             label.set_text(rest);
@@ -615,6 +647,7 @@ pub fn open() {
                 }
                 log_view.set_text(&text);
             }
+            files.set_visible(controller.fs_running.get());
             gtk::glib::ControlFlow::Continue
         }
     });
