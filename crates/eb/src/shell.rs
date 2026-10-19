@@ -318,7 +318,7 @@ pub fn build(
                 crate::bridge::ensure();
                 crate::preview_server::ensure();
                 let anchor = anchor.clone();
-                gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
                     if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
                         crate::theme_view::open_panel(crate::preview_server::url(), anchor.upcast_ref());
                     } else {

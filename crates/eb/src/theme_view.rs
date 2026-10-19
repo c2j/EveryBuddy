@@ -9,6 +9,7 @@
 use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use objc2::rc::Retained;
+use objc2::runtime::{AnyClass, Imp, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSApplication, NSBackingStoreType, NSFloatingWindowLevel, NSPanel,
@@ -31,6 +32,46 @@ extern "C" {
     fn gdk_quartz_window_get_nsview(window: *mut std::ffi::c_void) -> *mut NSView;
 }
 
+/// Make WKWebView accept the click that activates the panel. Without this,
+/// macOS spends the first click on window activation and never delivers it to
+/// the web content view.
+fn ensure_accepts_first_mouse() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        unsafe extern "C-unwind" fn accepts_first_mouse(
+            _this: *mut objc2::runtime::AnyObject,
+            _cmd: Sel,
+            _event: *mut NSEvent,
+        ) -> std::ffi::c_char {
+            if std::env::var_os("EB_PANEL_DEBUG").is_some() {
+                eprintln!("panel: acceptsFirstMouse");
+            }
+            1
+        }
+        let Some(class) = AnyClass::get(c"WKWebView") else { return };
+        let selector = Sel::register(c"acceptsFirstMouse:");
+        let imp: Imp = unsafe {
+            std::mem::transmute(
+                accepts_first_mouse
+                    as unsafe extern "C-unwind" fn(
+                        *mut objc2::runtime::AnyObject,
+                        Sel,
+                        *mut NSEvent,
+                    ) -> std::ffi::c_char,
+            )
+        };
+        unsafe {
+            let method = objc2::ffi::class_getInstanceMethod(class, selector);
+            if method.is_null() {
+                let _ = objc2::ffi::class_addMethod(class as *const _ as *mut _, selector, imp, c"c@:@".as_ptr());
+            } else {
+                let _ = objc2::ffi::method_setImplementation(method, imp);
+            }
+        }
+    });
+}
+
 pub fn open(index: &str) {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let frame = NSRect::new(NSPoint::new(80.0, 80.0), NSSize::new(760.0, 560.0));
@@ -51,6 +92,7 @@ pub fn open(index: &str) {
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(&NSString::from_str("dsh feedback"));
 
+    ensure_accepts_first_mouse();
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
     let webview: Retained<WKWebView> = unsafe {
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &config)
@@ -169,6 +211,7 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
     panel.setBecomesKeyOnlyIfNeeded(false);
     let window: Retained<NSWindow> = Retained::into_super(panel);
     unsafe { window.setReleasedWhenClosed(false) };
+    ensure_accepts_first_mouse();
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
     let webview: Retained<WKWebView> = unsafe {
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &config)
@@ -293,6 +336,7 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
     if std::env::var_os("EB_PANEL_DEBUG").is_some() {
         eprintln!("embed: toplevel={:?} anchor=({}, {}) alloc={}x{} frame={:?}", toplevel.size(), ax, ay, allocation.width(), allocation.height(), frame);
     }
+    ensure_accepts_first_mouse();
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
     let webview: Retained<WKWebView> = unsafe {
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &config)
