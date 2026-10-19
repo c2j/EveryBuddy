@@ -165,3 +165,26 @@ Screenshot: `/tmp/eb-e2e18.png`.
 
 The panel is a 420-wide native drawer anchored to the artifact body; the
 underlying artifact body is hidden while it is open.
+
+## True NSView embedding (working input)
+
+The artifact-header **◐** path now embeds WKWebView as an NSView subview of
+the GTK window and forwards input through a CGEventTap at the session tap:
+
+```text
+system click
+  → CGEventTap
+  → screen point converted by NSWindow.convertPointFromScreen
+  → NSEvent to WKWebView
+  → dsh plugin DOM
+```
+
+Real CGEvent test with Accessibility enabled:
+
+- click Like opened the real dialog
+- Submit recorded `rating: positive` in the live rutis service
+- no second native window
+
+Screenshot: `/tmp/eb-tap2-submit.png`.
+
+`EB_PANEL_OVERLAY=1` keeps the old native-window experiment as a fallback.

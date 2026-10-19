@@ -443,12 +443,13 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
             events,
             move |_proxy, kind, event| {
                 let p = event.location();
-                let local = NSPoint::new(p.x, screen_height - p.y);
+                let screen_point = NSPoint::new(p.x, screen_height - p.y);
+                let window_point = tap_window.convertPointFromScreen(screen_point);
                 let frame = tap_webview.frame();
-                if local.x < frame.origin.x
-                    || local.y < frame.origin.y
-                    || local.x > frame.origin.x + frame.size.width
-                    || local.y > frame.origin.y + frame.size.height
+                if window_point.x < frame.origin.x
+                    || window_point.y < frame.origin.y
+                    || window_point.x > frame.origin.x + frame.size.width
+                    || window_point.y > frame.origin.y + frame.size.height
                 {
                     return Some(event.clone());
                 }
@@ -462,7 +463,7 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
                 };
                 let Some(forwarded) = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
                     event_type,
-                    local,
+                    window_point,
                     NSEventModifierFlags::empty(),
                     0.0,
                     tap_window.windowNumber(),
