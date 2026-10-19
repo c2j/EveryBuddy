@@ -51,7 +51,10 @@ pub fn start() -> Result<bool, String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|error| format!("cannot start bridge: {error}"))?;
+        .map_err(|error| {
+            eprintln!("bridge: cannot start: {error}");
+            format!("cannot start bridge: {error}")
+        })?;
     *slot = Some(child);
     for _ in 0..40 {
         if healthy() {
@@ -64,6 +67,7 @@ pub fn start() -> Result<bool, String> {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+    eprintln!("bridge: did not become healthy");
     Err("bridge did not become healthy".into())
 }
 

@@ -245,7 +245,9 @@ impl Runner {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|time| time.as_millis())
             .unwrap_or(0));
-        if crate::bridge::create_session(&session_id).is_ok() {
+        if let Err(error) = crate::bridge::create_session(&session_id) {
+            eprintln!("phase1: create_session failed: {error}");
+        } else {
             if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
                 task.session_id = Some(session_id);
             }
