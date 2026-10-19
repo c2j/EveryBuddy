@@ -589,7 +589,27 @@ impl Runner {
                         _ => None,
                     })
                     .unwrap_or_default();
-                let tools: Vec<(String, String, String)> = Vec::new();
+                let tools = task
+                    .turns
+                    .iter()
+                    .rev()
+                    .find_map(|turn| match turn {
+                        crate::model::Turn::Agent { blocks, .. } => Some(
+                            blocks
+                                .iter()
+                                .filter_map(|block| match block {
+                                    crate::model::Block::Tool { primary, detail, .. } => Some((
+                                        primary.clone(),
+                                        detail.clone().unwrap_or_default(),
+                                        String::new(),
+                                    )),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
                 (task.session_id.clone(), prompt, answer, tools)
             };
             if let Some(session_id) = session_id {
