@@ -544,7 +544,7 @@ impl Runner {
                         self.store
                             .borrow_mut()
                             .apply_agent_event(active.task, event);
-                        if !done {
+                        if !done && !crate::dsh_agent::enabled() {
                             let text = self.store.borrow().tasks.get(active.task).and_then(|task| {
                                 task.turns.iter().rev().find_map(|turn| match turn {
                                     crate::model::Turn::Agent { blocks, .. } => Some(
