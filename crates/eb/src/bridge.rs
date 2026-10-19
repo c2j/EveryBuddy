@@ -92,7 +92,7 @@ pub fn status() -> &'static str {
 /// opening the feedback panel. The bridge turns the real user text and the real
 /// assistant answer into one dsh session, then the feedback surface addresses
 /// that session's assistant message.
-pub fn bind_conversation(prompt: &str, answer: &str) -> Result<(), String> {
+pub fn bind_conversation(prompt: &str, answer: &str) -> Result<String, String> {
     let body = serde_json::json!({ "prompt": prompt, "answer": answer }).to_string();
     let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
     let request = format!(
@@ -105,7 +105,13 @@ pub fn bind_conversation(prompt: &str, answer: &str) -> Result<(), String> {
     use std::io::Read;
     stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
-        Ok(())
+        let marker = "\"sessionId\":\"";
+        if let Some(start) = response.find(marker) {
+            let rest = &response[start + marker.len()..];
+            let end = rest.find('"').unwrap_or(0);
+            return Ok(rest[..end].to_string());
+        }
+        Ok(String::new())
     } else {
         Err(response)
     }

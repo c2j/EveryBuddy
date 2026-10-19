@@ -320,7 +320,13 @@ pub fn build(
                 crate::bridge::ensure();
                 if plugin_id == "ui-message-feedback" {
                     if let Some((prompt, answer)) = active_conversation(&store) {
-                        let _ = crate::bridge::bind_conversation(&prompt, &answer);
+                        if let Ok(session_id) = crate::bridge::bind_conversation(&prompt, &answer) {
+                            if let crate::model::Route::Task(index) = store.borrow().route {
+                                if let Some(task) = store.borrow_mut().tasks.get_mut(index) {
+                                    task.session_id = Some(session_id);
+                                }
+                            }
+                        }
                     }
                 }
                 crate::preview_server::ensure();

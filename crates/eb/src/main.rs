@@ -229,6 +229,7 @@ fn build_ui(application: &gtk::Application) {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),
                 }),
+                session_id: None,
                 usage: None,
             });
             app.route = model::Route::Task(0);

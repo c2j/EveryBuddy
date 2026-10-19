@@ -52,6 +52,8 @@ pub struct Task {
     pub meta: String,
     pub turns: Vec<Turn>,
     pub artifact: Option<Artifact>,
+    /// The dsh Session backing this task, once the bridge has bound it.
+    pub session_id: Option<String>,
     /// The last context-usage reading reported by the agent, if any.
     pub usage: Option<(u32, u32)>,
 }
@@ -224,6 +226,7 @@ impl App {
                 },
             ],
             artifact: None,
+            session_id: None,
             usage: None,
         });
 
