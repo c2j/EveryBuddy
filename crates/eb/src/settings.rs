@@ -7,7 +7,8 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::rc::Rc;
@@ -26,6 +27,9 @@ struct Plugin {
 }
 
 /// Host-side dsh packages known to load without a host-provided service.
+const FS_BRIDGE: &str = include_str!("../../../experiments/dsh-runtime-settings/fs-bridge.mjs");
+const FS_BRIDGE_PORT: u16 = 39471;
+
 const CATALOG: &[Plugin] = &[
     Plugin {
         id: "invariants",
@@ -109,15 +113,34 @@ impl Controller {
             ));
         }
 
-        let rows: Vec<serde_json::Value> = selected
+        let mut rows: Vec<serde_json::Value> = selected
             .iter()
             .map(|plugin| {
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "id": plugin.id,
                     "name": plugin.package,
-                })
+                });
+                if plugin.id == "fs" {
+                    let cwd = std::env::var("EVOBUDDY_DSH_WORKSPACE")
+                        .or_else(|_| std::env::current_dir().map(|path| path.display().to_string()))
+                        .unwrap_or_else(|_| ".".to_string());
+                    row["config"] = serde_json::json!({ "cwd": cwd });
+                }
+                row
             })
             .collect();
+        if self.selected.borrow().contains("fs") {
+            let bridge = std::env::temp_dir().join(format!(
+                "evobuddy-fs-bridge-{}.mjs",
+                std::process::id()
+            ));
+            std::fs::write(&bridge, FS_BRIDGE)
+                .map_err(|error| format!("cannot write fs bridge: {error}"))?;
+            rows.push(serde_json::json!({
+                "id": "fs_bridge",
+                "name": bridge.display().to_string(),
+            }));
+        }
         let config = serde_json::json!({
             "format": 1,
             "runtimes": { "node": { "project": project } },
@@ -207,6 +230,225 @@ impl Controller {
     }
 }
 
+fn http_get(path: &str) -> Result<String, String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", FS_BRIDGE_PORT))
+        .map_err(|error| format!("fs bridge is not running: {error}"))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .ok();
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|error| error.to_string())?;
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "malformed fs bridge response".to_string())?;
+    if !head.starts_with("HTTP/1.1 200") {
+        return Err(body.to_string());
+    }
+    Ok(body.to_string())
+}
+
+fn encode_path(path: &str) -> String {
+    let mut encoded = String::new();
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'-' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+#[derive(Clone)]
+struct FilesView {
+    path: Rc<RefCell<String>>,
+    path_label: gtk::Label,
+    list: gtk::Box,
+    content: gtk::TextView,
+}
+
+impl FilesView {
+    fn refresh(self: &Rc<Self>) {
+        let path = self.path.borrow().clone();
+        let encoded = encode_path(&path);
+        let body = match http_get(&format!("/list?path={encoded}")) {
+            Ok(body) => body,
+            Err(error) => {
+                self.set_message(&format!("Filesystem unavailable: {error}"));
+                return;
+            }
+        };
+        let entries: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap_or_default();
+        self.path_label.set_text(&path);
+        for child in self.list.children() {
+            self.list.remove(&child);
+        }
+        if entries.is_empty() {
+            self.list.pack_start(
+                &crate::widgets::text("This directory is empty.", "eb-files-empty"),
+                false,
+                false,
+                0,
+            );
+        }
+        for entry in entries {
+            let name = entry
+                .get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("?")
+                .to_string();
+            let is_dir = entry
+                .get("type")
+                .and_then(|value| value.as_str())
+                .map(|value| value == "directory")
+                .unwrap_or(false);
+            let button = flat_button("eb-files-row");
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            row.pack_start(
+                &crate::icons::named(if is_dir { "library" } else { "code" }, 16, "eb-files-icon"),
+                false,
+                false,
+                0,
+            );
+            row.pack_start(
+                &crate::widgets::text(&name, "eb-files-name"),
+                true,
+                true,
+                0,
+            );
+            button.add(&row);
+            let this = self.clone();
+            let entry_path = if path == "." {
+                name.clone()
+            } else {
+                format!("{path}/{name}")
+            };
+            button.connect_clicked(move |_| {
+                if is_dir {
+                    *this.path.borrow_mut() = entry_path.clone();
+                    this.refresh();
+                } else {
+                    let body = match http_get(&format!("/read?path={}", encode_path(&entry_path))) {
+                        Ok(body) => body,
+                        Err(error) => format!("Cannot read {entry_path}: {error}"),
+                    };
+                    if let Some(buffer) = this.content.buffer() {
+                        buffer.set_text(&body);
+                    }
+                }
+            });
+            self.list.pack_start(&button, false, false, 0);
+        }
+        self.list.show_all();
+    }
+
+    fn set_message(&self, message: &str) {
+        for child in self.list.children() {
+            self.list.remove(&child);
+        }
+        self.list.pack_start(
+            &crate::widgets::text(message, "eb-files-empty"),
+            false,
+            false,
+            0,
+        );
+        self.list.show_all();
+    }
+}
+
+fn capture_window(window: &gtk::Window, path: &str) {
+    window.size_allocate(&window.allocation());
+    let allocation = window.allocation();
+    let (width, height) = (allocation.width(), allocation.height());
+    let Ok(surface) = gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, width, height)
+    else {
+        return;
+    };
+    let Ok(context) = gtk::cairo::Context::new(&surface) else {
+        return;
+    };
+    let widget: gtk::Widget = window.clone().upcast();
+    let _ = widget.draw(&context);
+    if let Ok(mut file) = std::fs::File::create(path) {
+        let _ = surface.write_to_png(&mut file);
+        eprintln!("settings: wrote {path}");
+    }
+}
+
+fn open_files() {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title("Files — dsh fs-local");
+    window.set_default_size(560, 640);
+    let root = vbox(0);
+    class(&root, "eb-files");
+    window.add(&root);
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    class(&header, "eb-files-header");
+    let title = crate::widgets::text("Files", "eb-files-title");
+    header.pack_start(&title, false, false, 0);
+    let path_label = crate::widgets::text(".", "eb-files-path");
+    header.pack_start(&path_label, true, true, 0);
+    let up = flat_button("eb-files-up");
+    up.add(&crate::widgets::text("Up", "eb-files-up-label"));
+    header.pack_end(&up, false, false, 0);
+    root.pack_start(&header, false, false, 0);
+
+    let list = vbox(0);
+    let scroller = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroller.add(&list);
+    scroller.set_vexpand(true);
+    root.pack_start(&scroller, true, true, 0);
+
+    let content = gtk::TextView::new();
+    content.set_editable(false);
+    content.set_monospace(true);
+    class(&content, "eb-files-content");
+    let content_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    content_scroll.set_min_content_height(180);
+    content_scroll.add(&content);
+    root.pack_start(&content_scroll, false, false, 0);
+
+    let view = Rc::new(FilesView {
+        path: Rc::new(RefCell::new(".".to_string())),
+        path_label,
+        list,
+        content,
+    });
+    {
+        let view = view.clone();
+        up.connect_clicked(move |_| {
+            let mut path = view.path.borrow_mut();
+            if path.as_str() != "." {
+                if let Some((parent, _)) = path.rsplit_once('/') {
+                    *path = parent.to_string();
+                } else {
+                    *path = ".".to_string();
+                }
+            }
+            drop(path);
+            view.refresh();
+        });
+    }
+    view.refresh();
+    window.show_all();
+    if let Ok(path) = std::env::var("EB_SETTINGS_FILES_SHOT") {
+        let window = window.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+            capture_window(&window, &path);
+        });
+    }
+}
+
 /// Open the Settings window. The window owns the controller; closing it stops
 /// the sidecar so the experiment leaves no process behind.
 pub fn open() {
@@ -273,6 +515,10 @@ pub fn open() {
     let stop = flat_button("eb-settings-stop");
     stop.add(&text("Stop", "eb-settings-stop-label"));
     actions.pack_start(&stop, false, false, 0);
+    let files = flat_button("eb-settings-files");
+    files.add(&text("Open Files", "eb-settings-files-label"));
+    files.set_visible(false);
+    actions.pack_start(&files, false, false, 0);
     root.pack_start(&actions, false, false, 0);
 
     let log_view = text("", "eb-settings-log");
@@ -289,6 +535,7 @@ pub fn open() {
         let controller = controller.clone();
         let status_labels = status_labels.clone();
         let log_view = log_view.clone();
+        let files = files.clone();
         apply.connect_clicked(move |_| {
             match controller.apply() {
                 Ok(()) => {
@@ -296,6 +543,7 @@ pub fn open() {
                         let selected = controller.selected.borrow().contains(id);
                         label.set_text(if selected { "starting…" } else { "disabled" });
                     }
+                    files.set_visible(controller.selected.borrow().contains("fs"));
                 }
                 Err(error) => {
                     if std::env::var_os("EB_SETTINGS_DEBUG").is_some() {
@@ -309,11 +557,24 @@ pub fn open() {
     {
         let controller = controller.clone();
         let status_labels = status_labels.clone();
+        let files = files.clone();
         stop.connect_clicked(move |_| {
             controller.stop();
             for (_, label) in &status_labels {
                 label.set_text("stopped");
             }
+            files.set_visible(false);
+        });
+    }
+
+    {
+        let files = files.clone();
+        files.connect_clicked(move |_| open_files());
+    }
+    if std::env::var_os("EB_SETTINGS_FILES").is_some() {
+        let files = files.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
+            files.clicked();
         });
     }
 

@@ -1113,3 +1113,57 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   font-size: 11px;
   padding: 8px;
 }
+
+/* Files panel contributed by the dsh fs bridge. */
+.eb-files {
+  background-color: @bg_primary;
+  padding: 16px;
+}
+
+.eb-files-header {
+  margin-bottom: 10px;
+}
+
+.eb-files-title {
+  color: @eb_text_primary;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.eb-files-path {
+  color: @eb_text_tertiary;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.eb-files-row {
+  padding: 7px 8px;
+  border-bottom: 1px solid @border_strong;
+}
+
+.eb-files-name {
+  color: @eb_text_primary;
+  font-size: 13px;
+}
+
+.eb-files-empty {
+  color: @eb_text_tertiary;
+  font-size: 13px;
+  padding: 10px;
+}
+
+.eb-files-content {
+  color: @eb_text_secondary;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+}
+
+.eb-file-icon {
+  color: @eb_text_secondary;
+}
+
+.eb-settings-files-label {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}

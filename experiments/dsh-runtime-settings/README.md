@@ -66,3 +66,19 @@ Screenshot: `/tmp/eb-settings-panel.png`.
   dependency/`check` discovery.
 - No in-app services are exposed to the GTK conversation yet; this validates
   dynamic plugin rows and status, not GTK consumption of the services.
+
+## Plan B: the Files panel only exists with `fs`
+
+When **Filesystem** is selected, Apply also loads a small local `fs-bridge.mjs`
+plugin into the same Node/Cordis runtime. It exposes `/list` and `/read` on
+`127.0.0.1:39471` using the real `ctx.fs` service.
+
+The Settings panel then shows **Open Files**. The panel only appears while
+`fs` is selected; with no `fs` row there is no Files button and no panel. The
+window lists the workspace, navigates directories, and shows file text.
+
+Screenshot: `/tmp/eb-files-panel.png`.
+
+This is the Plan B behavior in a small window: no fs plugin → no file panel;
+loading fs → panel appears. Moving the same panel into EvoBuddy's right sidebar
+is the next UI step.
