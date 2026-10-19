@@ -7,6 +7,9 @@
 #![cfg(target_os = "macos")]
 
 use gtk::glib::translate::ToGlibPtr;
+use core_foundation::base::TCFType;
+use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
+use core_graphics::event::{CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType};
 use gtk::prelude::*;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, Imp, Sel};
@@ -25,6 +28,8 @@ thread_local! {
     static EMBEDDED: std::cell::RefCell<Option<Retained<WKWebView>>> = std::cell::RefCell::new(None);
     static EMBED_ANCHOR: std::cell::RefCell<Option<gtk::Widget>> = std::cell::RefCell::new(None);
     static MONITOR: std::cell::RefCell<Option<Retained<objc2::runtime::AnyObject>>> = std::cell::RefCell::new(None);
+    static TAP: std::cell::RefCell<Option<CGEventTap<'static>>> = std::cell::RefCell::new(None);
+    static TAP_SOURCE: std::cell::RefCell<Option<core_foundation::runloop::CFRunLoopSource>> = std::cell::RefCell::new(None);
 }
 
 #[link(name = "gdk-3.0")]
@@ -416,8 +421,77 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
     let monitor = unsafe {
         NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block)
     };
-    EMBEDDED.with(|slot| *slot.borrow_mut() = Some(webview));
+    EMBEDDED.with(|slot| *slot.borrow_mut() = Some(webview.clone()));
     MONITOR.with(|slot| *slot.borrow_mut() = monitor);
+    {
+        let tap_webview = webview.clone();
+        let tap_window = webview.window().unwrap();
+        let screen_height = objc2_app_kit::NSScreen::mainScreen(mtm)
+            .map(|screen| screen.frame().size.height)
+            .unwrap_or(956.0);
+        let events = vec![
+            CGEventType::LeftMouseDown,
+            CGEventType::LeftMouseUp,
+            CGEventType::LeftMouseDragged,
+            CGEventType::MouseMoved,
+            CGEventType::ScrollWheel,
+        ];
+        if let Ok(tap) = CGEventTap::new(
+            CGEventTapLocation::Session,
+            CGEventTapPlacement::HeadInsertEventTap,
+            CGEventTapOptions::Default,
+            events,
+            move |_proxy, kind, event| {
+                let p = event.location();
+                let local = NSPoint::new(p.x, screen_height - p.y);
+                let frame = tap_webview.frame();
+                if local.x < frame.origin.x
+                    || local.y < frame.origin.y
+                    || local.x > frame.origin.x + frame.size.width
+                    || local.y > frame.origin.y + frame.size.height
+                {
+                    return Some(event.clone());
+                }
+                let event_type = match kind {
+                    CGEventType::LeftMouseDown => NSEventType::LeftMouseDown,
+                    CGEventType::LeftMouseUp => NSEventType::LeftMouseUp,
+                    CGEventType::LeftMouseDragged => NSEventType::LeftMouseDragged,
+                    CGEventType::MouseMoved => NSEventType::MouseMoved,
+                    CGEventType::ScrollWheel => NSEventType::ScrollWheel,
+                    _ => return Some(event.clone()),
+                };
+                let Some(forwarded) = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                    event_type,
+                    local,
+                    NSEventModifierFlags::empty(),
+                    0.0,
+                    tap_window.windowNumber(),
+                    None,
+                    0,
+                    1,
+                    1.0,
+                ) else {
+                    return Some(event.clone());
+                };
+                match event_type {
+                    NSEventType::LeftMouseDown => tap_webview.mouseDown(&forwarded),
+                    NSEventType::LeftMouseUp => tap_webview.mouseUp(&forwarded),
+                    NSEventType::LeftMouseDragged => tap_webview.mouseDragged(&forwarded),
+                    NSEventType::MouseMoved => tap_webview.mouseMoved(&forwarded),
+                    NSEventType::ScrollWheel => tap_webview.scrollWheel(&forwarded),
+                    _ => {}
+                }
+                None
+            },
+        ) {
+            if let Ok(source) = tap.mach_port.create_runloop_source(0) {
+                CFRunLoop::get_current().add_source(&source, unsafe { kCFRunLoopCommonModes });
+                TAP_SOURCE.with(|slot| *slot.borrow_mut() = Some(source));
+            }
+            tap.enable();
+            TAP.with(|slot| *slot.borrow_mut() = Some(tap));
+        }
+    }
 
     if std::env::var_os("EB_PANEL_SHOT").is_some() {
         let shot = EMBEDDED.with(|slot| slot.borrow().clone()).unwrap();
@@ -444,6 +518,8 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
 }
 
 pub fn close_embedded() {
+    TAP.with(|slot| *slot.borrow_mut() = None);
+    TAP_SOURCE.with(|slot| *slot.borrow_mut() = None);
     EMBED_ANCHOR.with(|slot| {
         if let Some(anchor) = slot.borrow_mut().take() {
             anchor.set_opacity(1.0);

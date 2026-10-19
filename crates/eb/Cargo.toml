@@ -49,3 +49,5 @@ objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 objc2-web-kit = { version = "0.3", features = ["WKSnapshotConfiguration", "block2"] }
 block2 = "0.6"
+core-foundation = "0.9"
+core-graphics = "0.23"
