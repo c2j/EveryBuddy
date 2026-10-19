@@ -41,6 +41,7 @@ extern "C" {
 extern "C" {
     fn CGPreflightPostEventAccess() -> u8;
     fn CGRequestPostEventAccess() -> u8;
+    fn CGEventTapEnable(tap: *mut std::ffi::c_void, enable: u8);
 }
 
 fn can_forward_events() -> bool {
@@ -534,8 +535,16 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
 }
 
 pub fn close_embedded() {
-    TAP.with(|slot| *slot.borrow_mut() = None);
-    TAP_SOURCE.with(|slot| *slot.borrow_mut() = None);
+    // Disable and detach the run-loop source before dropping the tap. A source
+    // that outlives its callback box can invoke freed memory (SIGSEGV).
+    if let Some(tap) = TAP.with(|slot| slot.borrow_mut().take()) {
+        unsafe {
+            CGEventTapEnable(tap.mach_port.as_concrete_TypeRef() as *mut std::ffi::c_void, 0);
+        }
+    }
+    if let Some(source) = TAP_SOURCE.with(|slot| slot.borrow_mut().take()) {
+        CFRunLoop::get_current().remove_source(&source, unsafe { kCFRunLoopCommonModes });
+    }
     EMBED_ANCHOR.with(|slot| {
         if let Some(anchor) = slot.borrow_mut().take() {
             anchor.set_opacity(1.0);
