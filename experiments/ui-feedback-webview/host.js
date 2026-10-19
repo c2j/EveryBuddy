@@ -24690,17 +24690,34 @@ function Overlay(props) {
   );
 }
 function run() {
-  const items = /* @__PURE__ */ new Map();
+  const fixture = { sessionId: "snapshot-empty-response-retry-current", messageId: "snapshot-message-4", text: "Recovered." };
+  const storageKey = `evobuddy-feedback:${fixture.sessionId}`;
+  const loadItems = () => {
+    try {
+      return new Map(JSON.parse(localStorage.getItem(storageKey) ?? "[]"));
+    } catch {
+      return /* @__PURE__ */ new Map();
+    }
+  };
+  const items = loadItems();
+  const saveItems = () => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify([...items.entries()]));
+    } catch {
+    }
+  };
   const remote = {
     messageFeedback: {
       list: async () => ({ ok: true, value: { ok: true, value: { items: [...items.values()] } } }),
       put: async (args) => {
         const item = { messageId: args.messageId, rating: args.rating, version: (items.get(args.messageId)?.version ?? 0) + 1 };
         items.set(args.messageId, item);
+        saveItems();
         return { ok: true, value: { ok: true, value: item } };
       },
       delete: async (args) => {
         items.delete(args.messageId);
+        saveItems();
         return { ok: true, value: { ok: true } };
       }
     },
@@ -24737,7 +24754,7 @@ function run() {
       register(def, Component2) {
         const props = def.inject("session-demo");
         if (def.name === "conversation.chat.assistant-actions") {
-          props.messageId = "m1";
+          props.messageId = fixture.messageId;
           props.useFeedback = (selector) => useFeedback(props.hooks.feedback, selector);
           const open = props.openDialog;
           props.openDialog = (...args) => {

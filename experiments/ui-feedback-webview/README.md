@@ -59,3 +59,16 @@ plugin dialog state:
 The dialog's category chips, textarea and Submit button render from the plugin.
 The Modal/Toast primitives are minimal stubs; the dialog is not persisted to a
 real backend. Screenshot: `/tmp/eb-feedback-dialog8.png`.
+
+## Snapshot + persistent remote (intermediate A)
+
+The message/session are now taken from the real dsh snapshot
+`snapshots/session/empty-response-retry-current` (message id
+`snapshot-message-4`, text `Recovered.`), not a made-up session.
+
+The fake remote now persists entries in `localStorage` under
+`evobuddy-feedback:<sessionId>`, so the Like/Dislike state survives reopening
+the preview. This is still **not** a live dsh host/remote: it is a real session
+fixture plus a real persistence boundary, used to validate the bridge shape.
+
+Screenshot: `/tmp/eb-feedback-snapshot.png`.
