@@ -31,8 +31,8 @@ pub struct Wiring {
     pub close: Rc<dyn Fn()>,
     /// The "expand" button in the header.
     pub expand: Rc<dyn Fn()>,
-    /// Open the dsh component-host side panel.
-    pub feedback: Rc<dyn Fn()>,
+    /// Open one dsh component-host plugin in the side panel.
+    pub plugin: Rc<dyn Fn(&'static str)>,
 }
 
 pub struct Detail {
@@ -71,12 +71,28 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     actions.set_valign(gtk::Align::Center);
     header.pack_end(&actions, false, false, 0);
 
-    let feedback = icon_button("◐", "eb-icon", "Open dsh feedback panel");
-    feedback.connect_clicked({
-        let feedback = wiring.feedback.clone();
-        move |_| feedback()
-    });
-    actions.pack_start(&feedback, false, false, 0);
+    let plugin = gtk::MenuButton::new();
+    plugin.set_label("◐");
+    plugin.set_tooltip_text(Some("Open dsh UI plugin"));
+    class(&plugin, "eb-icon");
+    let popover = gtk::Popover::new(Some(&plugin));
+    let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    class(&menu, "eb-plugin-menu");
+    for (id, label) in crate::plugin_panel::PLUGINS {
+        let item = flat_button("eb-plugin-menu-item");
+        item.add(&text(label, "eb-plugin-menu-label"));
+        let popover = popover.clone();
+        let plugin = wiring.plugin.clone();
+        item.connect_clicked(move |_| {
+            popover.popdown();
+            plugin(id);
+        });
+        menu.pack_start(&item, false, false, 0);
+    }
+    popover.add(&menu);
+    menu.show_all();
+    plugin.set_popover(Some(&popover));
+    actions.pack_start(&plugin, false, false, 0);
 
     let expand = icon_button("⤢", "eb-icon", "Give the panel the whole window");
     expand.connect_clicked({

@@ -37,6 +37,16 @@ extern "C" {
     fn gdk_quartz_window_get_nsview(window: *mut std::ffi::c_void) -> *mut NSView;
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightPostEventAccess() -> u8;
+    fn CGRequestPostEventAccess() -> u8;
+}
+
+fn can_forward_events() -> bool {
+    unsafe { CGPreflightPostEventAccess() != 0 || CGRequestPostEventAccess() != 0 }
+}
+
 /// Make WKWebView accept the click that activates the panel. Without this,
 /// macOS spends the first click on window activation and never delivers it to
 /// the web content view.
@@ -331,6 +341,11 @@ pub fn close_panel() {
 /// location falls inside the webview and consumes them before GTK sees them.
 pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
     let Some(mtm) = MainThreadMarker::new() else { return };
+    if !can_forward_events() {
+        eprintln!("embedded panel: Accessibility/Input Monitoring permission missing; falling back to a native window");
+        open_panel(index, anchor);
+        return;
+    }
     close_embedded();
     let Some(toplevel) = anchor.toplevel().and_downcast::<gtk::Window>() else { return };
     let Some(gdk_window) = toplevel.window() else { return };

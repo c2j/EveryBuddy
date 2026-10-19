@@ -14,6 +14,10 @@ const INDEX_SUBMIT: &str = include_str!("../../../experiments/ui-feedback-webvie
 const HOST_JS: &[u8] = include_bytes!("../../../experiments/ui-feedback-webview/host.js");
 const FEEDBACK_JS: &[u8] =
     include_bytes!("../../../experiments/ui-feedback-webview/feedback-client.js");
+const THEME_INDEX: &str = include_str!("../../../experiments/ui-theme-webview/index.html");
+const THEME_JS: &[u8] = include_bytes!("../../../experiments/ui-theme-webview/host.js");
+const THEME_CLIENT: &[u8] =
+    include_bytes!("../../../experiments/ui-theme-webview/theme-client.js");
 
 static START: Once = Once::new();
 
@@ -37,9 +41,17 @@ pub fn ensure() {
                     "/index-submit.html" => (INDEX_SUBMIT.as_bytes(), "text/html; charset=utf-8"),
                     "/host.js" => (HOST_JS, "text/javascript; charset=utf-8"),
                     "/feedback-client.js" => (FEEDBACK_JS, "text/javascript; charset=utf-8"),
+                    "/theme/index.html" => (THEME_INDEX.as_bytes(), "text/html; charset=utf-8"),
+                    "/theme/host.js" => (THEME_JS, "text/javascript; charset=utf-8"),
+                    "/theme/theme-client.js" => (THEME_CLIENT, "text/javascript; charset=utf-8"),
                     _ => (b"not found", "text/plain; charset=utf-8"),
                 };
-                let status = if path.starts_with("/host.js") || path.starts_with("/feedback-client.js") || path.starts_with("/index") || path == "/" {
+                let status = if path.starts_with("/host.js")
+                    || path.starts_with("/feedback-client.js")
+                    || path.starts_with("/theme/")
+                    || path.starts_with("/index")
+                    || path == "/"
+                {
                     "200 OK"
                 } else {
                     "404 Not Found"
@@ -57,4 +69,8 @@ pub fn ensure() {
 
 pub fn url() -> &'static str {
     "http://127.0.0.1:39473/index.html"
+}
+
+pub fn theme_url() -> &'static str {
+    "http://127.0.0.1:39473/theme/index.html"
 }

@@ -296,14 +296,15 @@ pub fn build(
     note(&mut probes, "eb-chat-card", &chat_composer.card);
 
     let feedback_anchor: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
-    let open_feedback: Rc<dyn Fn()> = {
+    let open_feedback: Rc<dyn Fn(&'static str)> = {
         let anchor = feedback_anchor.clone();
         let feedback_root = feedback_root.clone();
         let feedback_outer = feedback_outer.clone();
-        Rc::new(move || {
+        Rc::new(move |plugin_id: &'static str| {
             #[cfg(target_os = "macos")]
             {
                 let Some(anchor) = anchor.borrow().clone() else { return };
+                let Some(url) = crate::plugin_panel::url(plugin_id) else { return };
                 if let Some(root) = feedback_root.borrow().clone() {
                     root.set_size_request(520, -1);
                 }
@@ -320,9 +321,9 @@ pub fn build(
                 let anchor = anchor.clone();
                 gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
                     if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
-                        crate::theme_view::open_panel(crate::preview_server::url(), anchor.upcast_ref());
+                        crate::theme_view::open_panel(url, anchor.upcast_ref());
                     } else {
-                        crate::theme_view::open_embedded(crate::preview_server::url(), anchor.upcast_ref());
+                        crate::theme_view::open_embedded(url, anchor.upcast_ref());
                     }
                 });
             }
@@ -332,7 +333,7 @@ pub fn build(
         &detail::Wiring {
             close: hide_detail.clone(),
             expand: maximise,
-            feedback: open_feedback,
+            plugin: open_feedback,
         },
         contribs,
     );

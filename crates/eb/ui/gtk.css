@@ -1189,3 +1189,17 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_secondary;
   font-size: 12px;
 }
+
+.eb-plugin-menu {
+  padding: 6px;
+}
+
+.eb-plugin-menu-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.eb-plugin-menu-label {
+  color: @eb_text_primary;
+  font-size: 13px;
+}
