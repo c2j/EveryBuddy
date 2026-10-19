@@ -189,7 +189,7 @@ fn build_ui(application: &gtk::Application) {
     let host = host::Host::mount();
 
     let store = model::store(model::App::new());
-    {
+    if !selftest::requested() {
         let tasks = state::load();
         if !tasks.is_empty() {
             let mut app = store.borrow_mut();
