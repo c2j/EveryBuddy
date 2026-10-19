@@ -41,9 +41,11 @@ configured integrations.
   - 3 expert profiles
   - connectors discovered from `~/.evobuddy/connectors/*.json`
   - scheduled queue in `~/.evobuddy/scheduled.json`
-- `Experts · Skills · Connectors` screen lists experts, skills, and connectors;
-  skills have Enable/Disable/View, experts have Use/Clear. Enabled skill text is
-  budgeted into the ACP prompt and invalid skills are skipped with a visible error.
+- `Experts · Skills · Connectors` has tabbed Experts / Skills / Connectors views,
+  search, All/Built-in/User/Enabled filters, Installed count, Add Skill, and
+  Featured/Recommended card grids. Skills have +/✓ install toggles, Details, and
+  visible parse errors; experts have Use/Clear. Enabled skill text is budgeted into
+  the ACP prompt and invalid skills are skipped.
 - Enabled skills and the active expert are prepended to the ACP prompt.
 - A 5-second scheduler claims due jobs and submits them through the normal
   `Runner::submit` path, so they receive a task, workspace, dsh session, and ACP
@@ -61,7 +63,7 @@ Connectors
   shell — agent exec via ACP
 ```
 
-![EvoBuddy catalog](/tmp/polish-catalog.png)
+![EvoBuddy skills surface](/tmp/skillui.png)
 
 Example scheduled run observed in the log:
 
