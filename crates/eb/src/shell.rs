@@ -303,7 +303,7 @@ pub fn build(
         },
         contribs,
     );
-    *feedback_anchor.borrow_mut() = Some(detail.root.clone());
+    *feedback_anchor.borrow_mut() = Some(detail.body.clone());
     note(&mut probes, "eb-detail", &detail.root);
     note(&mut probes, "eb-detail-header", &detail.header);
 

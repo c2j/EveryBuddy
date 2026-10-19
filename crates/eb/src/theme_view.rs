@@ -17,6 +17,7 @@ use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
 
 thread_local! {
     static PANEL: std::cell::RefCell<Option<Retained<NSWindow>>> = std::cell::RefCell::new(None);
+    static PANEL_ANCHOR: std::cell::RefCell<Option<gtk::Widget>> = std::cell::RefCell::new(None);
 }
 
 pub fn open(index: &str) {
@@ -37,6 +38,7 @@ pub fn open(index: &str) {
     };
     window.setTitle(&NSString::from_str("dsh ui-theme — component host"));
     unsafe { window.setReleasedWhenClosed(false) };
+    window.setHasShadow(false);
 
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
     let webview: Retained<WKWebView> = unsafe {
@@ -123,13 +125,22 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
     let screen_height = objc2_app_kit::NSScreen::mainScreen(mtm)
         .map(|screen| screen.frame().size.height)
         .unwrap_or(900.0);
-    let (window_width, window_height) = toplevel.size();
-    let width = (allocation.width() as f64).clamp(360.0, 520.0);
-    let height = (window_height as f64 - 96.0)
-        .min(allocation.height() as f64)
-        .max(420.0);
-    let x = wx as f64 + window_width as f64 - width;
-    let y = screen_height - (wy as f64 + 48.0) - height;
+    if std::env::var_os("EB_PANEL_DEBUG").is_some() {
+        eprintln!(
+            "panel: toplevel={:?} anchor={:?} at=({}, {}) alloc={}x{}",
+            toplevel.size(),
+            anchor.allocation(),
+            wx,
+            wy,
+            allocation.width(),
+            allocation.height()
+        );
+    }
+    let window_size = toplevel.size();
+    let width = allocation.width() as f64;
+    let height = (allocation.height() as f64).min(window_size.1 as f64 - ay as f64 - 8.0);
+    let x = wx as f64 + ax as f64;
+    let y = screen_height - (wy as f64 + ay as f64) - height;
     let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
     let window: Retained<NSWindow> = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -182,10 +193,17 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             unsafe { shot.takeSnapshotWithConfiguration_completionHandler(None, &block) };
         });
     }
+    anchor.set_opacity(0.0);
+    PANEL_ANCHOR.with(|slot| *slot.borrow_mut() = Some(anchor.clone().upcast()));
     PANEL.with(|panel| *panel.borrow_mut() = Some(window));
 }
 
 pub fn close_panel() {
+    PANEL_ANCHOR.with(|slot| {
+        if let Some(anchor) = slot.borrow_mut().take() {
+            anchor.set_opacity(1.0);
+        }
+    });
     PANEL.with(|panel| {
         if let Some(window) = panel.borrow_mut().take() {
             window.orderOut(None);
