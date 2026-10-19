@@ -172,6 +172,42 @@ fn serve(
                     Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
                 }
             }
+            ("POST", "/session/begin") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let prompt = input["prompt"].as_str().unwrap_or_default();
+                match probe.begin_turn(prompt) {
+                    Ok(value) => {
+                        *session_json.lock().unwrap() = probe.live_snapshot().unwrap_or_default();
+                        json_response(json!({"ok": true, "value": serde_json::from_str::<Value>(&value).unwrap_or_default()}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
+            ("POST", "/session/attempt") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                match probe.append_attempt(input["text"].as_str().unwrap_or_default()) {
+                    Ok(()) => json_response(json!({"ok": true})),
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
+            ("POST", "/session/finish") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let tools = input["tools"].as_array().cloned().unwrap_or_default();
+                let answer = input["answer"].as_str().unwrap_or_default();
+                match probe.finish_turn(answer, &serde_json::to_string(&tools).unwrap_or_else(|_| "[]".into())) {
+                    Ok(value) => {
+                        *session_json.lock().unwrap() = probe.live_snapshot().unwrap_or_default();
+                        json_response(json!({"ok": true, "value": serde_json::from_str::<Value>(&value).unwrap_or_default()}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("POST", "/session/append") => {
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);

@@ -252,6 +252,15 @@ impl Runner {
                 task.session_id = Some(session_id);
             }
             crate::state::save(&self.store);
+            let prompt = self.store.borrow().tasks.get(task).and_then(|task| {
+                task.turns.iter().rev().find_map(|turn| match turn {
+                    crate::model::Turn::User { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+            });
+            if let Some(prompt) = prompt {
+                let _ = crate::bridge::begin_turn(&prompt);
+            }
         }
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();
@@ -533,6 +542,22 @@ impl Runner {
                         self.store
                             .borrow_mut()
                             .apply_agent_event(active.task, event);
+                        if !done {
+                            let text = self.store.borrow().tasks.get(active.task).and_then(|task| {
+                                task.turns.iter().rev().find_map(|turn| match turn {
+                                    crate::model::Turn::Agent { blocks, .. } => Some(
+                                        blocks.iter().filter_map(|block| match block {
+                                            crate::model::Block::Text(text) => Some(text.clone()),
+                                            _ => None,
+                                        }).collect::<Vec<_>>().join("\n"),
+                                    ),
+                                    _ => None,
+                                })
+                            }).unwrap_or_default();
+                            if !text.is_empty() {
+                                let _ = crate::bridge::append_attempt(&text);
+                            }
+                        }
                         applied = true;
                         if done {
                             closed = true;
@@ -614,7 +639,7 @@ impl Runner {
             };
             if let Some(session_id) = session_id {
                 if !answer.is_empty() {
-                    let _ = crate::bridge::append_turn(&session_id, &prompt, &answer, &tools);
+                    let _ = crate::bridge::finish_turn(&answer, &tools);
                 }
             }
         }

@@ -247,3 +247,36 @@ pub fn session_projection() -> Vec<serde_json::Value> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return Vec::new() };
     value["items"].as_array().cloned().unwrap_or_default()
 }
+
+fn post_json(path: &str, body: serde_json::Value) -> Result<String, String> {
+    let body = body.to_string();
+    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    use std::io::Read;
+    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    Ok(response)
+}
+
+pub fn begin_turn(prompt: &str) -> Result<(), String> {
+    let response = post_json("/session/begin", serde_json::json!({ "prompt": prompt }))?;
+    if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
+}
+
+pub fn append_attempt(text: &str) -> Result<(), String> {
+    let response = post_json("/session/attempt", serde_json::json!({ "text": text }))?;
+    if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
+}
+
+pub fn finish_turn(answer: &str, tools: &[(String, String, String)]) -> Result<(), String> {
+    let tools: Vec<_> = tools.iter().map(|(name, arguments, result)| serde_json::json!({
+        "name": name, "arguments": arguments, "result": result
+    })).collect();
+    let response = post_json("/session/finish", serde_json::json!({ "answer": answer, "tools": tools }))?;
+    if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
+}
