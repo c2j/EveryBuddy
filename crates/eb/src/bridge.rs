@@ -136,3 +136,65 @@ pub fn create_session(session_id: &str) -> Result<(), String> {
         Err(response)
     }
 }
+
+/// Append one completed turn to the task's retained dsh session.
+pub fn append_turn(session_id: &str, prompt: &str, answer: &str) -> Result<(), String> {
+    let body = serde_json::json!({
+        "sessionId": session_id,
+        "prompt": prompt,
+        "answer": answer,
+    })
+    .to_string();
+    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST /session/append HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    use std::io::Read;
+    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        Ok(())
+    } else {
+        Err(response)
+    }
+}
+
+/// Read the retained session's user/assistant text in order.
+pub fn session_turns() -> Vec<(String, String)> {
+    let Ok(mut stream) = TcpStream::connect(ADDR) else { return Vec::new() };
+    let request = "GET /session HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    if stream.write_all(request.as_bytes()).is_err() {
+        return Vec::new();
+    }
+    let mut response = String::new();
+    use std::io::Read;
+    if stream.read_to_string(&mut response).is_err() {
+        return Vec::new();
+    }
+    let Some(body) = response.split("\r\n\r\n").nth(1) else { return Vec::new() };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return Vec::new() };
+    value["messages"]
+        .as_array()
+        .map(|messages| {
+            messages
+                .iter()
+                .filter_map(|message| {
+                    let role = message["role"].as_str()?;
+                    if role != "user" && role != "assistant" {
+                        return None;
+                    }
+                    let text = message["content"]
+                        .as_array()?
+                        .iter()
+                        .filter_map(|block| block["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("");
+                    Some((role.to_string(), text))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}

@@ -474,6 +474,7 @@ impl Views {
     /// Regions are rebuilt rather than diffed. That is cheap at this scale and
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
+        sync_session_projection(store);
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresh: enter {:?}", std::thread::current().id());
         }
@@ -758,6 +759,49 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
         root,
         title,
         reveal: button,
+    }
+}
+
+/// Replace the active task's text turns with the retained dsh session's
+/// projection once the session has a completed assistant message.
+fn sync_session_projection(store: &Store) {
+    let (index, session_id) = {
+        let app = store.borrow();
+        let index = match app.route {
+            Route::Task(index) => index,
+            _ => return,
+        };
+        let Some(task) = app.tasks.get(index) else { return };
+        let Some(session_id) = task.session_id.clone() else { return };
+        if task.turns.iter().any(|turn| matches!(turn, Turn::Agent { streaming: true, .. })) {
+            return;
+        }
+        (index, session_id)
+    };
+    let _ = session_id;
+    let turns = crate::bridge::session_turns();
+    if turns.is_empty() {
+        return;
+    }
+    let mut projected = Vec::new();
+    for (role, text) in turns {
+        match role.as_str() {
+            "user" => projected.push(Turn::User { text, time: "now".into() }),
+            "assistant" => projected.push(Turn::Agent {
+                name: "EvoBuddy".into(),
+                status: Some("Finished".into()),
+                blocks: vec![crate::model::Block::Text(text)],
+                streaming: false,
+            }),
+            _ => {}
+        }
+    }
+    if projected.is_empty() {
+        return;
+    }
+    let mut app = store.borrow_mut();
+    if let Some(task) = app.tasks.get_mut(index) {
+        task.turns = projected;
     }
 }
 
