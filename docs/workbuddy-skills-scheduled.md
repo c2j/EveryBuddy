@@ -34,13 +34,16 @@ configured integrations.
 ## EvoBuddy implementation
 
 - `crates/eb/src/catalog.rs`
-  - 2 built-in skills (`code-review`, `release-notes`)
+  - built-in `assets/skills/*/SKILL.md`
   - user skills under `~/.evobuddy/skills/<name>/SKILL.md`
+  - YAML frontmatter (`name`, `description`, `triggers`, `version`), body
+    preview, duplicate/empty/malformed errors shown in the UI
   - 3 expert profiles
   - connectors discovered from `~/.evobuddy/connectors/*.json`
   - scheduled queue in `~/.evobuddy/scheduled.json`
 - `Experts · Skills · Connectors` screen lists experts, skills, and connectors;
-  skills have Enable/Disable, experts have Use/Clear.
+  skills have Enable/Disable/View, experts have Use/Clear. Enabled skill text is
+  budgeted into the ACP prompt and invalid skills are skipped with a visible error.
 - Enabled skills and the active expert are prepended to the ACP prompt.
 - A 5-second scheduler claims due jobs and submits them through the normal
   `Runner::submit` path, so they receive a task, workspace, dsh session, and ACP
@@ -58,7 +61,7 @@ Connectors
   shell — agent exec via ACP
 ```
 
-![EvoBuddy catalog](/tmp/catalog.png)
+![EvoBuddy catalog](/tmp/polish-catalog.png)
 
 Example scheduled run observed in the log:
 
@@ -66,7 +69,11 @@ Example scheduled run observed in the log:
 scheduler: running 'Scheduled hello'
 ```
 
-and the task state was written with a new workspace:
+and the Scheduled queue UI shows due jobs with Run now/Delete:
+
+![Scheduled queue](/tmp/scheduled-polish2.png)
+
+The task state was written with a new workspace:
 
 ```json
 {
