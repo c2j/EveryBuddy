@@ -76,9 +76,23 @@ and the task state was written with a new workspace:
 }
 ```
 
+## Connector wiring
+
+`~/.evobuddy/connectors/*.json` is translated into ACP `mcpServers` at
+`session/new`. Both a single server object and a Claude-style
+`{"mcpServers": {...}}` wrapper are accepted; stdio uses
+`command`/`args`/`env`, remote uses `url`/`headers`.
+
+Verified with a fake ACP server:
+
+```text
+acp: session/new with 1 MCP server(s)
+```
+
 ## Limits
 
-- Connectors are listed/configured only; no MCP server is launched yet.
+- An MCP server is launched by the ACP agent, not by EvoBuddy; EvoBuddy only
+  supplies the configuration.
 - Skill enablement affects the prompt, not ACP's native skill resolution.
 - Experts are prompt profiles, not separately installed agent packages.
-- Scheduled jobs must be added to the JSON file; there is no creation dialog yet.
+- Scheduled creation is a one-minute quick-add; there is no full cron editor.
