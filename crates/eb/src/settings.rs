@@ -597,6 +597,82 @@ pub fn open() {
     }
     root.pack_start(&ui_rows, false, false, 0);
 
+    let bridge_header = vbox(2);
+    class(&bridge_header, "eb-settings-ui-header");
+    bridge_header.pack_start(
+        &text("Live dsh bridge", "eb-settings-title-small"),
+        false,
+        false,
+        0,
+    );
+    bridge_header.pack_start(
+        &text(
+            "Run rutis 0.12's real agent + messageFeedback service on 127.0.0.1:39472.",
+            "eb-settings-description",
+        ),
+        false,
+        false,
+        0,
+    );
+    root.pack_start(&bridge_header, false, false, 0);
+
+    let bridge_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    class(&bridge_row, "eb-settings-row");
+    let bridge_status = text("stopped", "eb-settings-description");
+    bridge_row.pack_start(&bridge_status, true, true, 0);
+    let bridge_button = flat_button("eb-settings-preview");
+    bridge_button.add(&text("Start bridge", "eb-settings-preview-label"));
+    bridge_row.pack_end(&bridge_button, false, false, 0);
+    root.pack_start(&bridge_row, false, false, 0);
+
+    let bridge_child: Rc<RefCell<Option<Child>>> = Rc::new(RefCell::new(None));
+    {
+        let bridge_child = bridge_child.clone();
+        let bridge_status = bridge_status.clone();
+        let bridge_button_for_click = bridge_button.clone();
+        bridge_button.connect_clicked(move |_| {
+            let mut slot = bridge_child.borrow_mut();
+            if let Some(mut child) = slot.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+                bridge_status.set_text("stopped");
+                if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
+                    label.set_text("Start bridge");
+                }
+                return;
+            }
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let binary = std::env::var("EVOBUDDY_BRIDGE_BIN")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    root.join("vendor/rutis-0.12/target/debug/evobuddy-bridge")
+                });
+            match Command::new(&binary)
+                .env("EVOBUDDY_LIVE_BRIDGE", "1")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(child) => {
+                    *slot = Some(child);
+                    bridge_status.set_text("running · http://127.0.0.1:39472");
+                    if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
+                        label.set_text("Stop bridge");
+                    }
+                }
+                Err(error) => {
+                    bridge_status.set_text(&format!("not built: {error}"));
+                }
+            }
+        });
+    }
+    if std::env::var_os("EB_BRIDGE_AUTOSTART").is_some() {
+        let bridge_button = bridge_button.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || {
+            bridge_button.clicked();
+        });
+    }
+
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     class(&actions, "eb-settings-actions");
     let apply = flat_button("eb-settings-apply");

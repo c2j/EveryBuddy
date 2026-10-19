@@ -121,3 +121,25 @@ to the live service. Screenshot: `/tmp/eb-feedback-live-rating2.png`.
 The bridge is still a test harness using a scripted LLM, not a long-running
 production daemon. The next step after A2 is moving the bridge out of the test
 binary into a managed EvoBuddy/rutis process.
+
+## Managed bridge
+
+`vendor/rutis-0.12` now has a long-running binary:
+
+```sh
+vendor/rutis-0.12/target/debug/evobuddy-bridge
+```
+
+It mounts the same agent composition and holds the live dsh session; no test
+harness and no 300-second limit.
+
+Settings → **Live dsh bridge** can start/stop it. The status line shows
+`running · http://127.0.0.1:39472`. The button spawns the built binary; build it
+first:
+
+```sh
+cd vendor/rutis-0.12
+cargo build -p rutis-dsh --bin evobuddy-bridge
+```
+
+`EB_BRIDGE_AUTOSTART=1` auto-clicks Start for harness runs.
