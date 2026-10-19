@@ -74,6 +74,7 @@ impl AgentRuntime {
         prompt: String,
         sink: AgentSink,
         permissions: Arc<dyn PermissionPrompter>,
+        workspace: Option<std::path::PathBuf>,
     ) -> Result<Box<dyn AnswerHandle>, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
         let tx = self
@@ -82,7 +83,7 @@ impl AgentRuntime {
             .ok_or_else(|| "the agent runtime is gone".to_string())?;
         tx.send(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.start_with_permissions(&prompt, sink, permissions)
+                source.start_in(&prompt, sink, permissions, workspace)
             }))
             .map_err(|_| "the agent panicked while starting".to_string());
             let _ = reply_tx.send(result);
@@ -239,6 +240,28 @@ impl Runner {
             self.refresher.request();
             return;
         };
+        // Give the task an isolated workspace before the agent starts.
+        let (workspace, title) = {
+            let app = self.store.borrow();
+            let task_ref = app.tasks.get(task);
+            (
+                task_ref.and_then(|task| task.workspace.clone()),
+                task_ref.map(|task| task.title.clone()).unwrap_or_default(),
+            )
+        };
+        let workspace = match workspace {
+            Some(path) => Some(std::path::PathBuf::from(path)),
+            None => {
+                let path = crate::workspace::create(&title);
+                if let Some(path) = &path {
+                    if let Some(task_ref) = self.store.borrow_mut().tasks.get_mut(task) {
+                        task_ref.workspace = Some(path.clone());
+                    }
+                    crate::state::save(&self.store);
+                }
+                path.map(std::path::PathBuf::from)
+            }
+        };
         // Bind a stable dsh session to this task before the first event, unless
         // an external ACP agent owns the conversation.
         let session_id = format!("task-{task}-{}", std::time::SystemTime::now()
@@ -272,7 +295,7 @@ impl Runner {
         let handle =
             match self
                 .runtime
-                .start(self.source.clone(), text, sink, self.permissions.clone())
+                .start(self.source.clone(), text, sink, self.permissions.clone(), workspace.clone())
             {
                 Ok(handle) => handle,
                 Err(message) => {

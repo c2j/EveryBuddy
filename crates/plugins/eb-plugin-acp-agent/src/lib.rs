@@ -138,6 +138,7 @@ impl AcpAgent {
         sink: AgentSink,
         cancelled: Arc<AtomicBool>,
         permissions: Arc<dyn PermissionPrompter>,
+        workspace: std::path::PathBuf,
     ) {
         // The external agent may take seconds to boot (opencode/dsh load their
         // own runtime). Acknowledge immediately so the composer switches to its
@@ -155,11 +156,14 @@ impl AcpAgent {
         });
 
         let mut slot = lock(&self.session);
+        if slot.as_ref().is_some_and(|session| session.cwd != workspace) {
+            *slot = None;
+        }
         if slot.is_none() {
             if self.config.debug {
                 eprintln!("acp: launching {}", self.config.program);
             }
-            match AcpSession::launch(&self.config, permissions.clone()) {
+            match AcpSession::launch(&self.config, permissions.clone(), &workspace) {
                 Ok(session) => {
                     let mut cancel = lock(&self.cancel);
                     cancel.stdin = Some(session.stdin.clone());
@@ -248,9 +252,32 @@ impl AnswerSource for AcpAgent {
         };
         let agent = self.clone();
         let prompt = prompt.to_string();
+        let cwd = self.config.cwd.clone();
         std::thread::Builder::new()
             .name("evobuddy-acp".to_string())
-            .spawn(move || agent.run(prompt, sink, cancelled, permissions))
+            .spawn(move || agent.run(prompt, sink, cancelled, permissions, cwd))
+            .expect("spawn ACP worker");
+        Box::new(handle)
+    }
+
+    fn start_in(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: Arc<dyn PermissionPrompter>,
+        workspace: Option<std::path::PathBuf>,
+    ) -> Box<dyn AnswerHandle> {
+        let cwd = workspace.unwrap_or_else(|| self.config.cwd.clone());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let handle = AcpHandle {
+            cancelled: cancelled.clone(),
+            cancel: self.cancel.clone(),
+        };
+        let agent = self.clone();
+        let prompt = prompt.to_string();
+        std::thread::Builder::new()
+            .name("evobuddy-acp".to_string())
+            .spawn(move || agent.run(prompt, sink, cancelled, permissions, cwd))
             .expect("spawn ACP worker");
         Box::new(handle)
     }
@@ -285,6 +312,7 @@ struct AcpSession {
     stdout: BufReader<ChildStdout>,
     next_id: u64,
     session_id: String,
+    cwd: std::path::PathBuf,
     agent_name: String,
     auto_approve: bool,
     permissions: Arc<dyn PermissionPrompter>,
@@ -295,12 +323,13 @@ impl AcpSession {
     fn launch(
         config: &AcpConfig,
         permissions: Arc<dyn PermissionPrompter>,
+        cwd: &std::path::Path,
     ) -> Result<Self, String> {
         let mut command = Command::new(&config.program);
         command
             .args(&config.args)
             .envs(config.env.iter().map(|(key, value)| (key, value)))
-            .current_dir(&config.cwd)
+            .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(if config.debug {
@@ -331,6 +360,7 @@ impl AcpSession {
             stdout,
             next_id: 1,
             session_id: String::new(),
+            cwd: cwd.to_path_buf(),
             agent_name: config.name.clone(),
             auto_approve: config.auto_approve,
             permissions,
@@ -338,7 +368,7 @@ impl AcpSession {
         };
 
         if config.debug {
-            eprintln!("acp: initialize");
+            eprintln!("acp: initialize cwd={}", cwd.display());
         }
         let init = session.request(
             "initialize",
@@ -372,7 +402,7 @@ impl AcpSession {
             session.agent_name = name.to_string();
         }
 
-        let cwd = config.cwd.to_string_lossy();
+        let cwd = cwd.to_string_lossy();
         let new_session =
             session.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
         let session_id = new_session

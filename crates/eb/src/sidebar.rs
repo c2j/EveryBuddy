@@ -44,6 +44,7 @@ pub struct TaskRow {
     pub meta: String,
     pub active: bool,
     pub index: usize,
+    pub workspace: Option<String>,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -267,9 +268,30 @@ pub fn fill_content(
     );
     content.pack_start(&tasks, false, false, 0);
 
-    let none = vbox(0);
-    none.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
-    let (workspaces, workspaces_body) = section("Workspaces (0)", 4, none, collapsed[1], 1, section_toggle);
+    let workspace_rows: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row.workspace.as_deref())
+        .collect();
+    let workspaces_list = vbox(2);
+    if workspace_rows.is_empty() {
+        workspaces_list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
+    } else {
+        for path in &workspace_rows {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| (*path).to_string());
+            workspaces_list.pack_start(&text(&name, "eb-task-title"), false, false, 0);
+        }
+    }
+    let (workspaces, workspaces_body) = section(
+        &format!("Workspaces ({})", workspace_rows.len()),
+        4,
+        workspaces_list,
+        collapsed[1],
+        1,
+        section_toggle,
+    );
     content.pack_start(&workspaces, false, false, 0);
 
     // `show_all` shows every body, folded or not, so the fold has to be applied

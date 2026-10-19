@@ -227,6 +227,18 @@ impl AnswerHandle for NoopHandle {
 pub trait AnswerSource: Send + Sync + 'static {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle>;
 
+    /// Start with the task's isolated workspace, when the host has one.
+    fn start_in(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: std::sync::Arc<dyn PermissionPrompter>,
+        workspace: Option<std::path::PathBuf>,
+    ) -> Box<dyn AnswerHandle> {
+        let _ = (permissions, workspace);
+        self.start(prompt, sink)
+    }
+
     /// Start with a host-provided permission prompt. Sources that never ask for
     /// permission can keep implementing only [`AnswerSource::start`].
     fn start_with_permissions(

@@ -48,6 +48,7 @@ mod shell;
 mod sidebar;
 mod spec;
 mod state;
+mod workspace;
 mod welcome;
 mod widgets;
 
@@ -196,12 +197,13 @@ fn build_ui(application: &gtk::Application) {
             let mut app = store.borrow_mut();
             app.tasks = tasks
                 .into_iter()
-                .map(|(title, session_id)| model::Task {
+                .map(|(title, session_id, workspace)| model::Task {
                     title,
                     meta: String::new(),
                     turns: Vec::new(),
                     artifact: None,
                     session_id,
+                    workspace,
                     usage: None,
                 })
                 .collect();
@@ -268,6 +270,7 @@ fn build_ui(application: &gtk::Application) {
                     code: "print('hello')\n".into(),
                 }),
                 session_id: None,
+                workspace: None,
                 usage: None,
             });
             app.route = model::Route::Task(0);

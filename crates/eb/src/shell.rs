@@ -517,6 +517,7 @@ impl Views {
                 meta: task.meta.clone(),
                 active: matches!(app.route, Route::Task(active) if active == index),
                 index,
+                workspace: task.workspace.clone(),
             })
             .collect();
         sidebar::fill_content(
