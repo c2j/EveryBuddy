@@ -238,6 +238,16 @@ fn build_ui(application: &gtk::Application) {
         views.refresh(&store);
     }
 
+    if let Ok(plugin) = std::env::var("EB_PLUGIN") {
+        store.borrow_mut().detail_visible = true;
+        views.refresh(&store);
+        if let Some(url) = plugin_panel::url(&plugin) {
+            preview_server::ensure();
+            #[cfg(target_os = "macos")]
+            theme_view::open_embedded(url, views.detail.body.upcast_ref());
+        }
+    }
+
     if std::env::var_os("EB_PANEL").is_some() {
         store.borrow_mut().detail_visible = true;
         views.refresh(&store);

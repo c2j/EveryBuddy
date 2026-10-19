@@ -73,7 +73,6 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
 
     let plugin = gtk::MenuButton::new();
     plugin.set_label("◐");
-    plugin.set_tooltip_text(Some("Open dsh UI plugin"));
     class(&plugin, "eb-icon");
     let popover = gtk::Popover::new(Some(&plugin));
     let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
