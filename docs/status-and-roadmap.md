@@ -148,7 +148,7 @@ M2.2 会动消息块、工具卡与结果面板。现有 CI 只能证明"产物�
 
 ### 远期/挂起
 
-- **dsh 兼容**(prototype 路线 A):Node+Cordis 宿主、dsh 插件原样装载、Rust 兑现 fs/search 服务——原型已通 read 工具全链路;扩展 write/edit、agent-loop/session 注册表是后续工作。UI 侧在 M2.0a 定 agent 边界时决定 in-process 还是 sidecar,避免异步协议返工。
+- **dsh 兼容**:rutis 0.12 上游已验证两条真实路径——`rutis-bridge` 的 Cordis mount(已发布 dsh host 插件原样挂到 Rust,4 个 baseline 测试通过)与 `rutis-dsh`(完整 dsh Web UI 在 rutis 管理的 Node 中启动)。本仓库 vendored rutis 仍是 0.11;native GTK 不渲染 dsh client UI。证据见 [rutis-dsh-capability.md](rutis-dsh-capability.md)。
 - **Windows 自包含**(缺口 23/24):需真机;`.cmd` 启动器做路径改写 + Win7/8.1 可行性定论。当前 zip 文档如实标注"未验证"。
 - **macOS 公证 / .dmg**:需要 Apple Developer ID;`hdiutil` 一步之遥。
 - **缺口 7**:UI 字族在 token 层定义并整体替换重测(影响全部文本宽度,动一次全量回归)。
