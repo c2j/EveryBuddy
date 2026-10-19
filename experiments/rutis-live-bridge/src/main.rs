@@ -74,7 +74,12 @@ fn finish(reason: FinishReasonUnified) -> StreamPart {
 
 async fn mount(scripted: Arc<Scripted>) -> Ctx {
     let ctx = Ctx::root().unwrap();
-    rutis_dsh::provide_agent_aimux(&ctx, scripted).unwrap();
+    let service: Arc<dyn LlmService> = if std::env::var_os("EVOBUDDY_SCRIPTED").is_some() {
+        scripted
+    } else {
+        Arc::new(aimux_llm::AimuxLlm::from_env())
+    };
+    rutis_dsh::provide_agent_aimux(&ctx, service).unwrap();
     let view = ctx.plugin(agent::Plugin::new(agent::Config {
         invariants: Default::default(),
         typert: Default::default(),
@@ -87,8 +92,12 @@ async fn mount(scripted: Arc<Scripted>) -> Ctx {
         agent_loop: Default::default(),
         adapter: agent::AdapterConfig {
             providers: [(
-                "evobuddy".to_string(),
-                agent::Route { provider: None, api_key_env: None, display_name: None },
+                std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into()),
+                agent::Route {
+                    provider: Some(std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into())),
+                    api_key_env: Some("AIHUBMIX_API_KEY".into()),
+                    display_name: None,
+                },
             )]
             .into_iter()
             .collect(),
@@ -164,7 +173,11 @@ fn serve(
                 let _ = request.as_reader().read_to_string(&mut body);
                 let input: Value = serde_json::from_str(&body).unwrap_or_default();
                 let id = input["sessionId"].as_str().unwrap_or("evobuddy-task");
-                match handle.block_on(probe.create_empty_session(id)) {
+                match handle.block_on(probe.create_empty_session(
+                    id,
+                    Some(std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into()).as_str()),
+                    Some(std::env::var("AIMUX_MODEL").unwrap_or_else(|_| "deepseek-v4.1-flash".into()).as_str()),
+                )) {
                     Ok(session) => {
                         *session_json.lock().unwrap() = session.clone();
                         json_response(json!({"ok": true, "session": serde_json::from_str::<Value>(&session).unwrap_or_default()}))
@@ -318,10 +331,17 @@ async fn main() {
     let ctx = mount(scripted.clone()).await;
     let probe = ctx.get::<agent::AgentProbe>().unwrap();
     let feedback = ctx.get::<agent::MessageFeedbackService>().unwrap();
+    let provider = std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into());
+    let model = std::env::var("AIMUX_MODEL").unwrap_or_else(|_| "deepseek-v4.1-flash".into());
+    let session_id = format!("evobuddy-live-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).map(|t| t.as_millis()).unwrap_or(0));
     let session = probe
-        .run_persistent("evobuddy", "fake", "What is the code name?")
+        .create_empty_session(&session_id, Some(&provider), Some(&model))
         .await
-        .unwrap();
+        .unwrap_or_else(|error| {
+            eprintln!("evobuddy-bridge: cannot create session: {error}");
+            std::process::exit(1)
+        });
     eprintln!("evobuddy-bridge: {session}");
     eprintln!("evobuddy-bridge: listening on http://127.0.0.1:{PORT}");
     let server = Server::http(("127.0.0.1", PORT)).expect("bind feedback bridge");

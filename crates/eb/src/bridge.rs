@@ -33,6 +33,28 @@ fn binary() -> PathBuf {
         })
 }
 
+fn dsh_credentials() -> Vec<(String, String)> {
+    let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
+    let path = std::path::PathBuf::from(home).join(".dsh/.credentials.yaml");
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let mut values = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        for (key, env) in [
+            ("AIHUBMIX_API_KEY:", "AIHUBMIX_API_KEY"),
+            ("ZAI_CODING_CN_API_KEY:", "ZAI_API_KEY"),
+        ] {
+            if let Some(value) = line.strip_prefix(key) {
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                if !value.is_empty() {
+                    values.push((env.to_string(), value.to_string()));
+                }
+            }
+        }
+    }
+    values
+}
+
 /// Start the bridge if it is not already healthy. Returns whether a process
 /// was spawned by this call.
 pub fn start() -> Result<bool, String> {
@@ -45,16 +67,21 @@ pub fn start() -> Result<bool, String> {
             return Ok(false);
         }
     }
-    let child = Command::new(binary())
+    let mut command = Command::new(binary());
+    command
         .env("EVOBUDDY_LIVE_BRIDGE", "1")
+        .env("AIMUX_PROVIDER", std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into()))
+        .env("AIMUX_MODEL", std::env::var("AIMUX_MODEL").unwrap_or_else(|_| "deepseek-v4.1-flash".into()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            eprintln!("bridge: cannot start: {error}");
-            format!("cannot start bridge: {error}")
-        })?;
+        .stderr(Stdio::null());
+    for (key, value) in dsh_credentials() {
+        command.env(key, value);
+    }
+    let child = command.spawn().map_err(|error| {
+        eprintln!("bridge: cannot start: {error}");
+        format!("cannot start bridge: {error}")
+    })?;
     *slot = Some(child);
     for _ in 0..40 {
         if healthy() {
