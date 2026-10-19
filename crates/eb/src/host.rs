@@ -40,13 +40,13 @@ impl Host {
         // One answer source, selected at mount time. An ACP command means a
         // real external agent; otherwise the built-in demo keeps the UI
         // runnable with no configuration.
-        let answer: Arc<dyn EbPlugin> = if std::env::var("EB_AGENT").as_deref() == Ok("dsh") {
-            Arc::new(crate::dsh_agent::DshAgent)
+        let answer: Arc<dyn EbPlugin> = if let Some(agent) = eb_plugin_acp_agent::AcpAgent::from_env() {
+            Arc::new(agent)
+        } else if std::env::var("EB_AGENT").as_deref() == Ok("demo") || crate::selftest::requested() {
+            Arc::new(eb_plugin_demo_agent::DemoAgent::new())
         } else {
-            match eb_plugin_acp_agent::AcpAgent::from_env() {
-                Some(agent) => Arc::new(agent),
-                None => Arc::new(eb_plugin_demo_agent::DemoAgent::new()),
-            }
+            crate::dsh_agent::mark_enabled();
+            Arc::new(crate::dsh_agent::DshAgent)
         };
         let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),

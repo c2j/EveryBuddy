@@ -258,7 +258,7 @@ impl Runner {
                     _ => None,
                 })
             });
-            if std::env::var("EB_AGENT").as_deref() != Ok("dsh") {
+            if !crate::dsh_agent::enabled() {
                 if let Some(prompt) = prompt {
                     let _ = crate::bridge::begin_turn(&prompt);
                 }
@@ -639,7 +639,7 @@ impl Runner {
                     .unwrap_or_default();
                 (task.session_id.clone(), prompt, answer, tools)
             };
-            if std::env::var("EB_AGENT").as_deref() != Ok("dsh") {
+            if !crate::dsh_agent::enabled() {
                 if let Some(_session_id) = session_id {
                     if !answer.is_empty() {
                         let _ = crate::bridge::finish_turn(&answer, &tools);

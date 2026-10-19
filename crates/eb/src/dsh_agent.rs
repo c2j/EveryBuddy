@@ -7,6 +7,16 @@ use eb_api::{AgentEvent, AgentSink, AnswerHandle, AnswerSource, EbPlugin, NoopHa
 
 pub struct DshAgent;
 
+static ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn enabled() -> bool {
+    ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn mark_enabled() {
+    ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 impl EbPlugin for DshAgent {
     fn id(&self) -> &'static str {
         "dsh-agent"
