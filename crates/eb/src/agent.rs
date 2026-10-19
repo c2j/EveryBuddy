@@ -239,6 +239,17 @@ impl Runner {
             self.refresher.request();
             return;
         };
+        // Bind a stable dsh session to this task before the first event.
+        crate::bridge::ensure();
+        let session_id = format!("task-{task}-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_millis())
+            .unwrap_or(0));
+        if crate::bridge::create_session(&session_id).is_ok() {
+            if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
+                task.session_id = Some(session_id);
+            }
+        }
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();
 

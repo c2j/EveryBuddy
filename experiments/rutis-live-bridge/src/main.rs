@@ -146,6 +146,19 @@ fn serve(
                 serde_json::from_str(&session_json.lock().unwrap())
                     .unwrap_or_else(|_| json!({"sessionId": null, "messages": []})),
             ),
+            ("POST", "/session/create") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let id = input["sessionId"].as_str().unwrap_or("evobuddy-task");
+                match handle.block_on(probe.create_empty_session(id)) {
+                    Ok(session) => {
+                        *session_json.lock().unwrap() = session.clone();
+                        json_response(json!({"ok": true, "session": serde_json::from_str::<Value>(&session).unwrap_or_default()}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("POST", "/session/append") => {
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);

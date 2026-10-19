@@ -116,3 +116,23 @@ pub fn bind_conversation(prompt: &str, answer: &str) -> Result<String, String> {
         Err(response)
     }
 }
+
+/// Create the empty dsh session that will back one EvoBuddy task.
+pub fn create_session(session_id: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "sessionId": session_id }).to_string();
+    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST /session/create HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    use std::io::Read;
+    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        Ok(())
+    } else {
+        Err(response)
+    }
+}
