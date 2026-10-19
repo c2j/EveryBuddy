@@ -11,9 +11,10 @@ use gtk::prelude::*;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSApplication, NSBackingStoreType, NSFloatingWindowLevel, NSPanel,
+    NSView, NSWindow, NSWindowStyleMask,
 };
-use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
+use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags, NSEventType};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
 
@@ -152,9 +153,9 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
     let x = wx as f64 + ax as f64;
     let y = screen_height - (wy as f64 + ay as f64) - height;
     let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
-    let window: Retained<NSWindow> = unsafe {
-        NSWindow::initWithContentRect_styleMask_backing_defer(
-            NSWindow::alloc(mtm),
+    let panel: Retained<NSPanel> = unsafe {
+        NSPanel::initWithContentRect_styleMask_backing_defer(
+            NSPanel::alloc(mtm),
             frame,
             NSWindowStyleMask::Titled
                 | NSWindowStyleMask::Closable
@@ -164,6 +165,9 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             false,
         )
     };
+    panel.setFloatingPanel(true);
+    panel.setBecomesKeyOnlyIfNeeded(false);
+    let window: Retained<NSWindow> = Retained::into_super(panel);
     unsafe { window.setReleasedWhenClosed(false) };
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
     let webview: Retained<WKWebView> = unsafe {
@@ -174,6 +178,9 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     window.setContentView(Some(&webview));
+    window.setLevel(NSFloatingWindowLevel);
+    window.orderFrontRegardless();
+    NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
     window.makeKeyAndOrderFront(None);
     window.makeFirstResponder(Some(&*webview));
     if index.starts_with("http://") || index.starts_with("https://") {
@@ -208,6 +215,38 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
     }
     anchor.set_opacity(0.0);
     PANEL_ANCHOR.with(|slot| *slot.borrow_mut() = Some(anchor.clone().upcast()));
+    if std::env::var_os("EB_PANEL_AUTOCLICK").is_some() {
+        let shot = webview.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+            let Some(event_window) = shot.window() else { return };
+            if std::env::var_os("EB_PANEL_DEBUG").is_some() {
+                eprintln!(
+                    "panel autclick: key={} main={} visible={} can_key={} level={:?}",
+                    event_window.isKeyWindow(),
+                    event_window.isMainWindow(),
+                    event_window.isVisible(),
+                    event_window.canBecomeKeyWindow(),
+                    event_window.level(),
+                );
+            }
+            let frame = shot.frame();
+            let point = NSPoint::new(frame.size.width / 2.0, frame.size.height / 2.0);
+            for event_type in [NSEventType::LeftMouseDown, NSEventType::LeftMouseUp] {
+                let Some(event) = NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                    event_type,
+                    point,
+                    NSEventModifierFlags::empty(),
+                    0.0,
+                    event_window.windowNumber(),
+                    None,
+                    0,
+                    1,
+                    1.0,
+                ) else { continue };
+                unsafe { NSApplication::sharedApplication(mtm).sendEvent(&event) };
+            }
+        });
+    }
     PANEL.with(|panel| *panel.borrow_mut() = Some(window));
 }
 

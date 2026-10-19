@@ -11,8 +11,10 @@ p { color:#666;font-size:13px;margin:0 0 18px; }
 .actions button { border:1px solid #ddd;background:#fff;border-radius:8px;padding:6px 10px;font:inherit; }
 </style></head>
 <body><div id="page"><h1>dsh message-feedback — component host proof</h1><p>Real plugin bundle; live rutis-dsh bridge when available, otherwise snapshot fallback.</p>
+<pre id="clicklog" style="color:#b00;font-size:12px"></pre>
 <div class="msg"><div class="msg-head" id="message-who">assistant · snapshot-empty-response-retry-current</div><span id="message-text">Real dsh snapshot: empty-response-retry-current<br><strong>Recovered.</strong></span><div id="backend" style="margin-top:6px;color:#999;font-size:11px"></div></div>
 <div id="root" style="margin-top:12px"></div><div id="overlay"></div><div id="status" style="margin-top:12px;color:#777;font-size:12px">no action yet</div></div>
-<script>window.onerror=function(m){var e=document.getElementById('status');if(e)e.textContent='ERR '+m;};</script><script src="host.js"></script><script src="feedback-client.js"></script><script>window.__dshRun()</script>
+<script>window.onerror=function(m){var e=document.getElementById('status');if(e)e.textContent='ERR '+m;};</script>
+<script>document.addEventListener('click',function(e){var l=document.getElementById('clicklog');if(l)l.textContent='click: '+(e.target&&(e.target.textContent||e.target.tagName));});</script><script src="host.js"></script><script src="feedback-client.js"></script><script>window.__dshRun()</script>
 <script>setTimeout(function(){var buttons=Array.prototype.slice.call(document.querySelectorAll('button'));var like=buttons.find(function(b){return b.textContent.includes('Like');});if(like)like.click();},1500);</script>
 </body></html>
