@@ -181,6 +181,35 @@ pub fn skills() -> Vec<Skill> {
     out
 }
 
+/// Create a user skill from the Add Skill dialog. Returns the new SKILL.md path.
+pub fn create_skill(name: &str, description: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name is required".into());
+    }
+    let slug: String = name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let slug = if slug.is_empty() { "skill".into() } else { slug };
+    let dir = skills_root().join(&slug);
+    if dir.exists() {
+        return Err(format!("skill '{slug}' already exists"));
+    }
+    std::fs::create_dir_all(&dir).map_err(|error| format!("cannot create skill dir: {error}"))?;
+    let file = dir.join("SKILL.md");
+    let body = format!(
+        "---\nname: {slug}\ndescription: {}\ntriggers: []\n---\nWhen this skill is active, follow these instructions.\n",
+        description.trim().replace('\n', " ")
+    );
+    std::fs::write(&file, body).map_err(|error| format!("cannot write SKILL.md: {error}"))?;
+    Ok(file.to_string_lossy().to_string())
+}
+
 pub fn toggle(name: &str) {
     let mut enabled = enabled_names();
     if let Some(index) = enabled.iter().position(|item| item == name) {

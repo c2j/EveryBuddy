@@ -151,6 +151,12 @@ pub struct App {
     pub permission: usize,
     /// Whether each sidebar section is folded: 0 = Tasks, 1 = Workspaces.
     pub collapsed: [bool; 2],
+    /// Catalog tab: 0 = Experts, 1 = Skills, 2 = Connectors.
+    pub catalog_tab: usize,
+    /// Catalog text filter applied on Enter.
+    pub catalog_query: String,
+    /// Catalog category: 0 = all, 1 = built-in, 2 = user, 3 = enabled.
+    pub catalog_filter: usize,
 }
 
 impl App {
@@ -167,6 +173,9 @@ impl App {
             workspace: 0,
             permission: 0,
             collapsed: [false, false],
+            catalog_tab: 1,
+            catalog_query: String::new(),
+            catalog_filter: 0,
         }
     }
 

@@ -1240,3 +1240,67 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: #b42318;
   font-size: 12px;
 }
+
+.eb-catalog-tab,
+.eb-catalog-tab-active {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: @eb_text_secondary;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 4px;
+}
+.eb-catalog-tab-active {
+  color: @eb_text_primary;
+  border-bottom-color: @eb_text_primary;
+}
+.eb-catalog-count {
+  color: @eb_text_secondary;
+  font-size: 12px;
+  margin-left: 8px;
+}
+.eb-add-skill {
+  background: @eb_text_primary;
+  color: #ffffff;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 600;
+}
+.eb-chip,
+.eb-chip-active {
+  background: transparent;
+  border: 1px solid @border_strong;
+  border-radius: 14px;
+  color: @eb_text_secondary;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.eb-chip-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  border-color: @eb_text_secondary;
+}
+.eb-skill-icon {
+  background: @bg_secondary;
+  border-radius: 8px;
+  color: @eb_text_primary;
+  font-size: 16px;
+  min-width: 30px;
+  min-height: 30px;
+}
+.eb-skill-add {
+  background: @bg_secondary;
+  border: 1px solid @border_strong;
+  border-radius: 12px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  font-size: 15px;
+}
+.eb-skill-stats {
+  color: @eb_text_tertiary;
+  font-size: 11px;
+}
