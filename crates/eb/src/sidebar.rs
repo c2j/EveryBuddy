@@ -24,6 +24,8 @@ pub struct Wiring {
     pub collapse: std::rc::Rc<dyn Fn()>,
     /// A row of the task-filter menu was chosen.
     pub filter: std::rc::Rc<dyn Fn(usize)>,
+    /// A row of the account menu was chosen (0 = Settings).
+    pub account: std::rc::Rc<dyn Fn(usize)>,
 }
 
 pub struct Sidebar {
@@ -70,7 +72,7 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
     scroller.add(&content);
     root.pack_start(&scroller, true, true, 0);
 
-    let footer = footer(contribs);
+    let footer = footer(contribs, &wiring.account);
     root.pack_start(&footer, false, false, 0);
 
     Sidebar {
@@ -179,7 +181,7 @@ pub fn nav_row(value: &str, label: &str, badge: &str) -> gtk::Button {
 
 /// 279x56.5, padding `8px 12px 8px 8px`: the user row (223x40) plus a 32x32
 /// mini-program button.
-fn footer(contribs: &Contribs) -> gtk::Box {
+fn footer(contribs: &Contribs, account: &std::rc::Rc<dyn Fn(usize)>) -> gtk::Box {
     let footer = hbox(0);
     class(&footer, "eb-sidebar-footer");
 
@@ -189,7 +191,7 @@ fn footer(contribs: &Contribs) -> gtk::Box {
         contribs.menu("account"),
         std::rc::Rc::new(std::cell::Cell::new(0)),
         gtk::PositionType::Top,
-        std::rc::Rc::new(|_| {}),
+        account.clone(),
     );
 
     let row = hbox(10);

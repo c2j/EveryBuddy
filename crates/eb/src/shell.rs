@@ -230,6 +230,11 @@ pub fn build(
             nav: nav.clone(),
             collapse: collapse.clone(),
             filter,
+            account: std::rc::Rc::new(|index| {
+                if index == 0 {
+                    crate::settings::open();
+                }
+            }),
         },
         contribs,
     );

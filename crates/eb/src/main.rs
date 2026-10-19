@@ -37,6 +37,7 @@ mod markdown;
 mod icons;
 mod model;
 mod selftest;
+mod settings;
 mod shell;
 mod sidebar;
 mod spec;
@@ -298,5 +299,9 @@ fn build_ui(application: &gtk::Application) {
     // returns, every later agent/UI update silently finds no view to repaint.
     // Keep the app-lifetime model alive explicitly; the process exit is the
     // natural drop point.
+    if std::env::var_os("EB_SETTINGS").is_some() {
+        settings::open();
+    }
+
     std::mem::forget(views);
 }

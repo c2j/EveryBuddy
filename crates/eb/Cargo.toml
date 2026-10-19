@@ -24,6 +24,7 @@ tokio = { version = "1", default-features = false, features = ["rt", "sync", "ti
 # window to a PNG so the layout can be checked visually. The `png` feature is
 # off by default in cairo-rs, but the crate itself is already in the gtk tree.
 cairo-rs = { version = "0.22", features = ["png"] }
+serde_json = "1"
 
 # The plugin surface and the built-in plugins. The host must never reach into a
 # plugin crate; plugins must never reach back here — that direction is what the

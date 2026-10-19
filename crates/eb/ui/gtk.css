@@ -1030,3 +1030,86 @@ button.eb-menu-item.eb-menu-item-active {
 button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   font-weight: 600;
 }
+
+/* Experimental Settings → Plugins (runtime dsh host plugins). */
+.eb-settings {
+  background-color: @bg_primary;
+  padding: 24px 28px;
+}
+
+.eb-settings-header {
+  margin-bottom: 16px;
+}
+
+.eb-settings-title {
+  color: @eb_text_primary;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.eb-settings-subtitle {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+.eb-settings-rows {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 4px 12px;
+}
+
+.eb-settings-row {
+  padding: 10px 0;
+  border-bottom: 1px solid @border_strong;
+}
+
+.eb-settings-name {
+  color: @eb_text_primary;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.eb-settings-description {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
+.eb-settings-status {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+
+.eb-settings-actions {
+  margin-top: 12px;
+  margin-bottom: 10px;
+}
+
+.eb-settings-apply,
+.eb-settings-stop {
+  padding: 7px 14px;
+  border-radius: 8px;
+}
+
+.eb-settings-apply {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+}
+
+.eb-settings-apply-label {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.eb-settings-stop-label {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+.eb-settings-log {
+  color: @eb_text_secondary;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+}
