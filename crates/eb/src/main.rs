@@ -46,6 +46,7 @@ mod theme_view;
 mod shell;
 mod sidebar;
 mod spec;
+mod state;
 mod welcome;
 mod widgets;
 
@@ -188,6 +189,25 @@ fn build_ui(application: &gtk::Application) {
     let host = host::Host::mount();
 
     let store = model::store(model::App::new());
+    {
+        let tasks = state::load();
+        if !tasks.is_empty() {
+            let mut app = store.borrow_mut();
+            app.tasks = tasks
+                .into_iter()
+                .map(|(title, session_id)| model::Task {
+                    title,
+                    meta: String::new(),
+                    turns: Vec::new(),
+                    artifact: None,
+                    session_id,
+                    usage: None,
+                })
+                .collect();
+            app.route = model::Route::Task(0);
+            app.nav = None;
+        }
+    }
     let (views, probes) = shell::build(
         application,
         &store,
@@ -204,6 +224,23 @@ fn build_ui(application: &gtk::Application) {
     }
 
     shell::finish(&views, &store);
+    let restored_session = {
+        store
+            .borrow()
+            .tasks
+            .iter()
+            .find_map(|task| task.session_id.clone())
+    };
+    if let Some(session_id) = restored_session {
+        bridge::ensure();
+        match bridge::resume_session(&session_id) {
+            Ok(()) => {
+                eprintln!("phase1: resumed {session_id}");
+                views.refresh(&store);
+            }
+            Err(error) => eprintln!("phase1: resume failed: {error}"),
+        }
+    }
 
     if std::env::var_os("EB_ARTIFACT").is_some() {
         {

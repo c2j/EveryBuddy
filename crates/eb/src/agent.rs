@@ -251,6 +251,7 @@ impl Runner {
             if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
                 task.session_id = Some(session_id);
             }
+            crate::state::save(&self.store);
         }
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();

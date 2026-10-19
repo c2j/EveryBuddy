@@ -146,6 +146,19 @@ fn serve(
                 serde_json::from_str(&session_json.lock().unwrap())
                     .unwrap_or_else(|_| json!({"sessionId": null, "messages": []})),
             ),
+            ("POST", "/session/resume") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let id = input["sessionId"].as_str().unwrap_or_default();
+                match handle.block_on(probe.resume_session(id)) {
+                    Ok(session) => {
+                        *session_json.lock().unwrap() = session;
+                        json_response(json!({"ok": true}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("POST", "/session/create") => {
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);

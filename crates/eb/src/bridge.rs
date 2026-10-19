@@ -202,3 +202,23 @@ pub fn session_turns() -> Vec<(String, String)> {
         })
         .unwrap_or_default()
 }
+
+/// Resume a persisted task session after an app restart.
+pub fn resume_session(session_id: &str) -> Result<(), String> {
+    let body = serde_json::json!({ "sessionId": session_id }).to_string();
+    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
+    let request = format!(
+        "POST /session/resume HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    use std::io::Read;
+    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        Ok(())
+    } else {
+        Err(response)
+    }
+}
