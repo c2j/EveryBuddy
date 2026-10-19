@@ -583,7 +583,13 @@ pub fn open() {
                 .join("../..")
                 .join(index);
             open.connect_clicked(move |_| {
-                crate::theme_view::open(&path.display().to_string());
+                if id == "ui-message-feedback" {
+                    crate::bridge::ensure();
+                    crate::preview_server::ensure();
+                    crate::theme_view::open(crate::preview_server::url());
+                } else {
+                    crate::theme_view::open(&path.display().to_string());
+                }
             });
         }
         row.pack_end(&open, false, false, 0);
@@ -625,45 +631,34 @@ pub fn open() {
     bridge_row.pack_end(&bridge_button, false, false, 0);
     root.pack_start(&bridge_row, false, false, 0);
 
-    let bridge_child: Rc<RefCell<Option<Child>>> = Rc::new(RefCell::new(None));
     {
-        let bridge_child = bridge_child.clone();
         let bridge_status = bridge_status.clone();
         let bridge_button_for_click = bridge_button.clone();
         bridge_button.connect_clicked(move |_| {
-            let mut slot = bridge_child.borrow_mut();
-            if let Some(mut child) = slot.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            if crate::bridge::healthy() {
+                crate::bridge::stop();
                 bridge_status.set_text("stopped");
                 if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
                     label.set_text("Start bridge");
                 }
-                return;
-            }
-            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let binary = std::env::var("EVOBUDDY_BRIDGE_BIN")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| {
-                    root.join("experiments/rutis-live-bridge/target/debug/evobuddy-rutis-bridge")
-                });
-            match Command::new(&binary)
-                .env("EVOBUDDY_LIVE_BRIDGE", "1")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            {
-                Ok(child) => {
-                    *slot = Some(child);
-                    bridge_status.set_text("running · http://127.0.0.1:39472");
-                    if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
-                        label.set_text("Stop bridge");
+            } else {
+                match crate::bridge::start() {
+                    Ok(_) => {
+                        bridge_status.set_text(crate::bridge::status());
+                        if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
+                            label.set_text("Stop bridge");
+                        }
                     }
-                }
-                Err(error) => {
-                    bridge_status.set_text(&format!("not built: {error}"));
+                    Err(error) => bridge_status.set_text(&error),
                 }
             }
+        });
+    }
+    {
+        let bridge_status = bridge_status.clone();
+        gtk::glib::timeout_add_seconds_local(1, move || {
+            bridge_status.set_text(crate::bridge::status());
+            gtk::glib::ControlFlow::Continue
         });
     }
     if std::env::var_os("EB_BRIDGE_AUTOSTART").is_some() {

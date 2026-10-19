@@ -31,6 +31,8 @@ pub struct Wiring {
     pub close: Rc<dyn Fn()>,
     /// The "expand" button in the header.
     pub expand: Rc<dyn Fn()>,
+    /// Open the dsh component-host side panel.
+    pub feedback: Rc<dyn Fn()>,
 }
 
 pub struct Detail {
@@ -68,6 +70,13 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     let actions = hbox(4);
     actions.set_valign(gtk::Align::Center);
     header.pack_end(&actions, false, false, 0);
+
+    let feedback = icon_button("◐", "eb-icon", "Open dsh feedback panel");
+    feedback.connect_clicked({
+        let feedback = wiring.feedback.clone();
+        move |_| feedback()
+    });
+    actions.pack_start(&feedback, false, false, 0);
 
     let expand = icon_button("⤢", "eb-icon", "Give the panel the whole window");
     expand.connect_clicked({

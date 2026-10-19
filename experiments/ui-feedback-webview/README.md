@@ -130,3 +130,24 @@ Kept in EvoBuddy:
 - `experiments/rutis-live-bridge/` (scripted LLM, HTTP server, session choice)
 - EvoBuddy-specific `/tmp/evobuddy-rutis-sessions` root
 - the WebKit component host and its fake/native services
+
+## Right-side panel
+
+The artifact panel header has a **◐ dsh feedback panel** button. It opens the
+component host as a borderless native panel anchored over the artifact pane,
+so WebKit input works. Closing the artifact panel closes the panel. The panel
+uses the embedded localhost preview server (`127.0.0.1:39473`), not `file://`,
+and ensures the live bridge is healthy before opening.
+
+Harness:
+
+```sh
+EB_PANEL=1 EB_PANEL_SHOT=/tmp/eb-panel3.png cargo run
+```
+
+Screenshot: `/tmp/eb-panel3.png`.
+
+The bridge process is now owned by `crates/eb/src/bridge.rs`: Settings
+Start/Stop, preview/panel Ensure, and app shutdown all use the same process.
+`bridge::start()` waits for `/session` on 39472 before returning, so a panel
+opened immediately after startup does not fall back to the snapshot fixture.

@@ -29,6 +29,8 @@
 //! `gap`; colours live in CSS because they are what the token pipeline produces.
 
 mod agent;
+mod bridge;
+mod preview_server;
 mod composer;
 mod conversation;
 mod detail;
@@ -80,7 +82,10 @@ fn main() {
     let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
     application.connect_startup(|_| load_css());
     application.connect_activate(build_ui);
+    application.connect_shutdown(|_| bridge::stop());
+    preview_server::ensure();
     application.run();
+    bridge::stop();
 }
 
 /// Point GTK at its input-method module cache, so IME input works.
@@ -198,6 +203,20 @@ fn build_ui(application: &gtk::Application) {
     }
 
     shell::finish(&views, &store);
+
+    if std::env::var_os("EB_PANEL").is_some() {
+        store.borrow_mut().detail_visible = true;
+        views.refresh(&store);
+        #[cfg(target_os = "macos")]
+        {
+            crate::bridge::ensure();
+            crate::preview_server::ensure();
+            crate::theme_view::open_panel(
+                crate::preview_server::url(),
+                views.detail.root.upcast_ref(),
+            );
+        }
+    }
 
     if std::env::var_os("EB_DEMO").is_some()
         && std::env::var_os("EB_DEMO_BLOCKS").is_none()

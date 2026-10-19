@@ -175,7 +175,15 @@ pub fn build(
     let maximise = act0(store, &refresher, |app| {
         app.detail_maximised = !app.detail_maximised
     });
-    let hide_detail = act0(store, &refresher, |app| app.detail_visible = false);
+    let hide_detail_base = act0(store, &refresher, |app| app.detail_visible = false);
+    let hide_detail: Rc<dyn Fn()> = {
+        let base = hide_detail_base.clone();
+        Rc::new(move || {
+            #[cfg(target_os = "macos")]
+            crate::theme_view::close_panel();
+            base();
+        })
+    };
     let filter = act1(store, &refresher, |_app, _: usize| {});
     let section = act1(store, &refresher, |app, index: usize| {
         if let Some(slot) = app.collapsed.get_mut(index) {
@@ -274,13 +282,28 @@ pub fn build(
     note(&mut probes, "eb-input-area", &chat_composer.root);
     note(&mut probes, "eb-chat-card", &chat_composer.card);
 
+    let feedback_anchor: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
+    let open_feedback: Rc<dyn Fn()> = {
+        let anchor = feedback_anchor.clone();
+        Rc::new(move || {
+            #[cfg(target_os = "macos")]
+            {
+                let Some(anchor) = anchor.borrow().clone() else { return };
+                crate::bridge::ensure();
+                crate::preview_server::ensure();
+                crate::theme_view::open_panel(crate::preview_server::url(), anchor.upcast_ref());
+            }
+        })
+    };
     let detail = detail::build(
         &detail::Wiring {
             close: hide_detail.clone(),
             expand: maximise,
+            feedback: open_feedback,
         },
         contribs,
     );
+    *feedback_anchor.borrow_mut() = Some(detail.root.clone());
     note(&mut probes, "eb-detail", &detail.root);
     note(&mut probes, "eb-detail-header", &detail.header);
 
