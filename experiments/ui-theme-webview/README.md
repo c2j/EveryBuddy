@@ -66,3 +66,19 @@ selected cube and the WebView theme.
 
 `index-dark.html` is a deterministic harness that clicks Dark after mount.
 Screenshot: `/tmp/eb-theme-dark4.png`.
+
+## Native window input fix
+
+The first GTK-hosted WKWebView rendered but did not receive mouse clicks. The
+proof now owns a native `NSWindow` whose `contentView` is the WKWebView. This
+is the smallest reliable input path on macOS. The screenshot harness proves the
+click path with the visible log line:
+
+```text
+click: ◐Dark
+```
+
+Screenshot: `/tmp/eb-theme-native.png`.
+
+This is still a separate native window, not the right-sidebar panel. Moving the
+same contentView into a correctly-hosted GTK panel is the next integration step.
