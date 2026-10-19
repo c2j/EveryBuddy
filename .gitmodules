@@ -1,0 +1,3 @@
+[submodule "vendor/rutis-0.12"]
+	path = vendor/rutis-0.12
+	url = https://github.com/arcships/rutis.git
