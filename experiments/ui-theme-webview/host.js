@@ -24578,7 +24578,7 @@ function t(key) {
   return labels[key] ?? key;
 }
 function makeScope() {
-  const value = void 0;
+  const value = { preference: "system", fontSize: 14, codeFontSize: 11, terminalFontSize: 13, textFontFamily: "", codeFontFamily: "", terminalFontFamily: "" };
   const listeners = /* @__PURE__ */ new Set();
   return {
     subscribe(cb) {
@@ -24602,6 +24602,7 @@ function makeScope() {
 }
 function run() {
   try {
+    const handlers = {};
     const ctx = {
       effect(fn) {
         return fn();
@@ -24613,9 +24614,19 @@ function run() {
       } },
       provide() {
       },
-      on() {
+      on(name, cb) {
+        (handlers[name] ??= []).push(cb);
       },
-      emit() {
+      emit(name, ...args) {
+        (handlers[name] ?? []).forEach((cb) => cb(...args));
+        if (name === "theme/change") {
+          const snapshot = args[0];
+          const dark = snapshot?.active?.colorScheme === "dark";
+          document.body.toggleAttribute("data-ds-dark-theme", dark);
+          for (const [token, value] of Object.entries(snapshot?.active?.tokens ?? {})) {
+            document.documentElement.style.setProperty(token, String(value));
+          }
+        }
       },
       shortcuts: { register() {
       } },

@@ -29,7 +29,7 @@ const labels: Record<string, string> = {
 }
 function t(key: string) { return labels[key] ?? key }
 function makeScope() {
-  const value: any = undefined
+  const value: any = { preference: 'system', fontSize: 14, codeFontSize: 11, terminalFontSize: 13, textFontFamily: '', codeFontFamily: '', terminalFontFamily: '' }
   const listeners = new Set<() => void>()
   return {
     subscribe(cb: () => void) { listeners.add(cb); return () => listeners.delete(cb) },
@@ -41,13 +41,24 @@ function makeScope() {
 
 function run() {
   try {
+  const handlers: Record<string, Function[]> = {}
   const ctx: any = {
     effect(fn: () => any) { return fn() },
     inject(_names: string[], cb: (scope: any) => void) { cb({ shortcuts: { runtime: 'web' }, locale: { bind: () => (key: string) => key } }) },
     locale: { register() {} },
     provide() {},
-    on() {},
-    emit() {},
+    on(name: string, cb: Function) { (handlers[name] ??= []).push(cb) },
+    emit(name: string, ...args: any[]) {
+      (handlers[name] ?? []).forEach((cb) => cb(...args))
+      if (name === 'theme/change') {
+        const snapshot = args[0]
+        const dark = snapshot?.active?.colorScheme === 'dark'
+        document.body.toggleAttribute('data-ds-dark-theme', dark)
+        for (const [token, value] of Object.entries(snapshot?.active?.tokens ?? {})) {
+          document.documentElement.style.setProperty(token, String(value))
+        }
+      }
+    },
     shortcuts: { register() {} },
     configForms: { get() { return makeScope() } },
     slots: {

@@ -49,3 +49,20 @@ stub services in this proof.
 It validates the key route-1 claim: the UI plugin is a React/DOM component and
 can be hosted in WebKit without porting or wasm. It also shows that the hard
 part is the **host service surface**, not the plugin renderer.
+
+## Click behaviour (fixed)
+
+The first proof had two host-side stubs that made the buttons look inert:
+
+- the fake `configForms` scope started as `undefined`, so `setTheme()` threw
+  while writing `preference` and never reached `publish()`;
+- the fake context had no event bus, so `theme/change` never reached the slot
+  store that renders the selected cube.
+
+The host now starts with a complete settings section and implements
+`ctx.on`/`ctx.emit`. The host also applies `snapshot.active.tokens` to the page
+and toggles `data-ds-dark-theme`, so selecting **Dark** changes both the
+selected cube and the WebView theme.
+
+`index-dark.html` is a deterministic harness that clicks Dark after mount.
+Screenshot: `/tmp/eb-theme-dark4.png`.

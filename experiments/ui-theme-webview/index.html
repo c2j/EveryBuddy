@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>dsh ui-theme host</title>
 <style>
-  body { margin: 0; font-family: -apple-system, sans-serif; background: #fff; color: #111; }
+  body { margin: 0; font-family: -apple-system, sans-serif; background: var(--dsw-alias-bg-base, #fff); color: var(--dsw-alias-label-primary, #111); }
   #page { max-width: 760px; margin: 24px auto; padding: 0 24px; }
   h1 { font-size: 18px; margin: 0 0 18px; }
   .plugin-row { border-top: 1px solid #ddd; padding: 12px 0; }
@@ -19,5 +19,14 @@ window.addEventListener('unhandledrejection', function(event) { document.title =
 <script src="host.js"></script>
 <script src="theme-client.js"></script>
 <script>window.__dshRun()</script>
+<script>
+if (location.search.includes('auto-dark')) {
+  setTimeout(function () {
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
+    var dark = buttons.find(function (button) { return button.textContent.trim() === 'Dark'; });
+    if (dark) dark.click();
+  }, 1500);
+}
+</script>
 </body>
 </html>
