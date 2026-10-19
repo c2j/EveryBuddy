@@ -14,8 +14,13 @@
 <script>
 window.onerror = function(message) { document.title = 'ERR ' + message; var e=document.getElementById('error'); if(e)e.textContent=String(message); };
 window.addEventListener('unhandledrejection', function(event) { document.title = 'REJ ' + String(event.reason); });
+document.addEventListener('click', function(event) {
+  var el = event.target;
+  var log = document.getElementById('clicklog');
+  if (log) log.textContent = 'click: ' + (el && (el.textContent || el.tagName));
+});
 </script>
-<div id="page"><h1>dsh ui-theme — component host proof</h1><div id="root"></div><pre id="error" style="color:#b00;white-space:pre-wrap"></pre></div>
+<div id="page"><h1>dsh ui-theme — component host proof</h1><div id="root"></div><pre id="error" style="color:#b00;white-space:pre-wrap"></pre><pre id="clicklog" style="color:#888;font-size:12px"></pre></div>
 <script src="host.js"></script>
 <script src="theme-client.js"></script>
 <script>window.__dshRun()</script>

@@ -22,6 +22,7 @@ pub fn open(index: &str) {
     let host = gtk::Box::new(gtk::Orientation::Vertical, 0);
     window.add(&host);
     window.show_all();
+    window.present();
     host.realize();
     let Some(gdk_window) = host.window() else { return };
     let native: *mut gtk::gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
@@ -38,6 +39,12 @@ pub fn open(index: &str) {
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     parent.addSubview(&webview);
+    if let Some(ns_window) = parent.window() {
+        ns_window.makeKeyAndOrderFront(None);
+        unsafe {
+            ns_window.makeFirstResponder(Some(&*webview));
+        }
+    }
 
     let url = NSURL::fileURLWithPath(&NSString::from_str(index));
     let root = NSURL::fileURLWithPath(&NSString::from_str(
