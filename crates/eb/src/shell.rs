@@ -908,6 +908,31 @@ fn clear_children(container: &gtk::Box) {
 }
 
 fn fill_catalog(container: &gtk::Box, refresher: &Refresher) {
+    let expert_header = gtk::Label::new(Some("Experts"));
+    expert_header.set_xalign(0.0);
+    class(&expert_header, "eb-task-title");
+    container.pack_start(&expert_header, false, false, 0);
+    let active_expert = crate::catalog::active_expert();
+    for (name, description) in crate::catalog::experts() {
+        let row = hbox(8);
+        let label = gtk::Label::new(Some(&format!("{name} — {description}")));
+        label.set_xalign(0.0);
+        label.set_hexpand(true);
+        row.pack_start(&label, true, true, 0);
+        let selected = active_expert == Some(name);
+        let button = gtk::Button::with_label(if selected { "Clear" } else { "Use" });
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            if selected {
+                crate::catalog::set_expert(None);
+            } else {
+                crate::catalog::set_expert(Some(name));
+            }
+            refresher.request();
+        });
+        row.pack_end(&button, false, false, 0);
+        container.pack_start(&row, false, false, 0);
+    }
     let skills = crate::catalog::skills();
     let active = skills.iter().filter(|skill| skill.enabled).count();
     let header = gtk::Label::new(Some(&format!(

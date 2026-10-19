@@ -38,6 +38,33 @@ fn state_path() -> PathBuf {
     home().join(".evobuddy/skills.json")
 }
 
+const EXPERTS: &[(&str, &str)] = &[
+    ("Code reviewer", "Prioritise correctness, regressions, and missing tests."),
+    ("Researcher", "Gather evidence first, distinguish observation from inference."),
+    ("Writer", "Produce concise, structured prose with explicit assumptions."),
+];
+
+pub fn experts() -> Vec<(&'static str, &'static str)> {
+    EXPERTS.to_vec()
+}
+
+pub fn active_expert() -> Option<&'static str> {
+    let name = std::fs::read_to_string(home().join(".evobuddy/expert")).ok()?;
+    EXPERTS.iter().find(|(expert, _)| *expert == name.trim()).map(|(expert, _)| *expert)
+}
+
+pub fn set_expert(name: Option<&str>) {
+    let path = home().join(".evobuddy/expert");
+    match name {
+        Some(name) => {
+            let _ = std::fs::write(path, name);
+        }
+        None => {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 fn enabled_names() -> Vec<String> {
     std::fs::read_to_string(state_path())
         .ok()
@@ -107,10 +134,18 @@ pub fn toggle(name: &str) {
 /// Prefix a user prompt with the enabled skill instructions.
 pub fn prompt_for(user: &str) -> String {
     let active: Vec<_> = skills().into_iter().filter(|skill| skill.enabled).collect();
-    if active.is_empty() {
-        return user.to_string();
+    let mut prompt = String::new();
+    if let Some(expert) = active_expert() {
+        if let Some((_, body)) = EXPERTS.iter().find(|(name, _)| *name == expert) {
+            prompt.push_str(&format!("Act as the {expert} expert. {body}\n\n"));
+        }
     }
-    let mut prompt = String::from("Use the following active EvoBuddy skills when relevant:\n");
+    if active.is_empty() {
+        prompt.push_str("User request:\n");
+        prompt.push_str(user);
+        return prompt;
+    }
+    prompt.push_str("Use the following active EvoBuddy skills when relevant:\n");
     for skill in active {
         prompt.push_str(&format!("\n## {}\n{}\n", skill.name, skill.body));
     }
