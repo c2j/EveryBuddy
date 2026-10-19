@@ -175,12 +175,25 @@ pub fn build(
     let maximise = act0(store, &refresher, |app| {
         app.detail_maximised = !app.detail_maximised
     });
+    let feedback_root: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
+    let feedback_outer: Rc<RefCell<Option<gtk::Paned>>> = Rc::new(RefCell::new(None));
     let hide_detail_base = act0(store, &refresher, |app| app.detail_visible = false);
     let hide_detail: Rc<dyn Fn()> = {
         let base = hide_detail_base.clone();
+        let feedback_root = feedback_root.clone();
+        let feedback_outer = feedback_outer.clone();
         Rc::new(move || {
             #[cfg(target_os = "macos")]
-            crate::theme_view::close_panel();
+            {
+                crate::theme_view::close_panel();
+                crate::theme_view::close_embedded();
+            }
+            if let Some(root) = feedback_root.borrow().clone() {
+                root.set_size_request(-1, -1);
+            }
+            if let Some(outer) = feedback_outer.borrow().clone() {
+                outer.set_position(spec::WINDOW_WIDTH);
+            }
             base();
         })
     };
@@ -285,13 +298,33 @@ pub fn build(
     let feedback_anchor: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
     let open_feedback: Rc<dyn Fn()> = {
         let anchor = feedback_anchor.clone();
+        let feedback_root = feedback_root.clone();
+        let feedback_outer = feedback_outer.clone();
         Rc::new(move || {
             #[cfg(target_os = "macos")]
             {
                 let Some(anchor) = anchor.borrow().clone() else { return };
+                if let Some(root) = feedback_root.borrow().clone() {
+                    root.set_size_request(520, -1);
+                }
+                if let Some(outer) = feedback_outer.borrow().clone() {
+                    if let Some(window) = anchor.toplevel().and_downcast::<gtk::Window>() {
+                        outer.set_position(window.size().0 - 520);
+                    }
+                }
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
                 crate::bridge::ensure();
                 crate::preview_server::ensure();
-                crate::theme_view::open_panel(crate::preview_server::url(), anchor.upcast_ref());
+                let anchor = anchor.clone();
+                gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(50), move || {
+                    if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
+                        crate::theme_view::open_panel(crate::preview_server::url(), anchor.upcast_ref());
+                    } else {
+                        crate::theme_view::open_embedded(crate::preview_server::url(), anchor.upcast_ref());
+                    }
+                });
             }
         })
     };
@@ -304,6 +337,7 @@ pub fn build(
         contribs,
     );
     *feedback_anchor.borrow_mut() = Some(detail.body.clone());
+    *feedback_root.borrow_mut() = Some(detail.root.clone());
     note(&mut probes, "eb-detail", &detail.root);
     note(&mut probes, "eb-detail-header", &detail.header);
 
@@ -328,6 +362,7 @@ pub fn build(
 
     let outer = gtk::Paned::new(gtk::Orientation::Horizontal);
     outer.set_position(spec::WINDOW_WIDTH);
+    *feedback_outer.borrow_mut() = Some(outer.clone());
     class(&outer, "eb-split");
     outer.pack1(&inner, true, false);
     outer.pack2(&detail.root, false, false);

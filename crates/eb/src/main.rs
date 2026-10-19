@@ -209,12 +209,24 @@ fn build_ui(application: &gtk::Application) {
         views.refresh(&store);
         #[cfg(target_os = "macos")]
         {
+            views.detail.root.set_size_request(520, -1);
+            views.outer.set_position(views.window.size().0 - 520);
+            while gtk::events_pending() {
+                gtk::main_iteration_do(false);
+            }
             crate::bridge::ensure();
             crate::preview_server::ensure();
-            crate::theme_view::open_panel(
-                crate::preview_server::url(),
-                views.detail.root.upcast_ref(),
-            );
+            if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
+                crate::theme_view::open_panel(
+                    crate::preview_server::url(),
+                    views.detail.root.upcast_ref(),
+                );
+            } else {
+                crate::theme_view::open_embedded(
+                    crate::preview_server::url(),
+                    views.detail.body.upcast_ref(),
+                );
+            }
         }
     }
 
