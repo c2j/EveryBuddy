@@ -216,13 +216,13 @@ fn build_ui(application: &gtk::Application) {
             }
             crate::bridge::ensure();
             crate::preview_server::ensure();
-            if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
-                crate::theme_view::open_panel(
+            if std::env::var_os("EB_EMBED_PANEL").is_some() {
+                crate::theme_view::open_embedded(
                     crate::preview_server::url(),
-                    views.detail.root.upcast_ref(),
+                    views.detail.body.upcast_ref(),
                 );
             } else {
-                crate::theme_view::open_embedded(
+                crate::theme_view::open_panel(
                     crate::preview_server::url(),
                     views.detail.body.upcast_ref(),
                 );
