@@ -6,12 +6,42 @@
 //! drains their events on the main loop. Plugin code never touches a widget.
 
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rutis::{BoxFuture, Ctx, CordisError, Effect};
 
 use eb_api::contrib::Contribs;
 use eb_api::{AnswerSource, EbPlugin, Ui};
 use crate::agent::AgentRuntime;
+
+static ACP_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn acp_enabled() -> bool {
+    ACP_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Use the local opencode ACP server when it is installed and no explicit
+/// agent choice was made.
+fn default_opencode() -> Option<eb_plugin_acp_agent::AcpAgent> {
+    let home = std::env::var("HOME").ok()?;
+    let program = std::path::PathBuf::from(home).join(".opencode/bin/opencode");
+    if !program.is_file() {
+        return None;
+    }
+    let auto_approve = std::env::var("EVOBUDDY_ACP_AUTO_APPROVE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    Some(eb_plugin_acp_agent::AcpAgent::new(eb_plugin_acp_agent::AcpConfig {
+        program: program.to_string_lossy().to_string(),
+        args: vec!["acp".into()],
+        cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        auto_approve,
+        name: "opencode".into(),
+        debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
+        env: Vec::new(),
+        auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
+    }))
+}
 
 /// The mounted plugin system.
 pub struct Host {
@@ -40,9 +70,19 @@ impl Host {
         // One answer source, selected at mount time. An ACP command means a
         // real external agent; otherwise the built-in demo keeps the UI
         // runnable with no configuration.
-        let answer: Arc<dyn EbPlugin> = if let Some(agent) = eb_plugin_acp_agent::AcpAgent::from_env() {
+        let explicit_agent = std::env::var("EB_AGENT").ok();
+        let external = if explicit_agent.as_deref() == Some("demo")
+            || explicit_agent.as_deref() == Some("dsh")
+            || crate::selftest::requested()
+        {
+            None
+        } else {
+            eb_plugin_acp_agent::AcpAgent::from_env().or_else(default_opencode)
+        };
+        let answer: Arc<dyn EbPlugin> = if let Some(agent) = external {
+            ACP_ACTIVE.store(true, Ordering::SeqCst);
             Arc::new(agent)
-        } else if std::env::var("EB_AGENT").as_deref() == Ok("demo") || crate::selftest::requested() {
+        } else if explicit_agent.as_deref() == Some("demo") || crate::selftest::requested() {
             Arc::new(eb_plugin_demo_agent::DemoAgent::new())
         } else {
             crate::dsh_agent::mark_enabled();
