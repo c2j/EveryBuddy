@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dsh ui-theme host</title>
+<style>
+  body { margin: 0; font-family: -apple-system, sans-serif; background: #fff; color: #111; }
+  #page { max-width: 760px; margin: 24px auto; padding: 0 24px; }
+  h1 { font-size: 18px; margin: 0 0 18px; }
+  .plugin-row { border-top: 1px solid #ddd; padding: 12px 0; }
+</style>
+</head>
+<body>
+<script>
+window.onerror = function(message) { document.title = 'ERR ' + message; var e=document.getElementById('error'); if(e)e.textContent=String(message); };
+window.addEventListener('unhandledrejection', function(event) { document.title = 'REJ ' + String(event.reason); });
+</script>
+<div id="page"><h1>dsh ui-theme — component host proof</h1><div id="root"></div><pre id="error" style="color:#b00;white-space:pre-wrap"></pre></div>
+<script src="host.js"></script>
+<script src="theme-client.js"></script>
+<script>window.__dshRun()</script>
+</body>
+</html>

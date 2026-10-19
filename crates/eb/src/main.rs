@@ -38,6 +38,8 @@ mod icons;
 mod model;
 mod selftest;
 mod settings;
+#[cfg(target_os = "macos")]
+mod theme_view;
 mod shell;
 mod sidebar;
 mod spec;
@@ -301,6 +303,10 @@ fn build_ui(application: &gtk::Application) {
     // natural drop point.
     if std::env::var_os("EB_SETTINGS").is_some() {
         settings::open();
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(index) = std::env::var("EB_THEME_HOST") {
+        theme_view::open(&index);
     }
 
     std::mem::forget(views);
