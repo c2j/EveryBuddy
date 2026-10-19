@@ -101,6 +101,7 @@ pub struct Views {
     pub unbuilt_title: gtk::Label,
     unbuilt_note: gtk::Label,
     unbuilt_info: gtk::Box,
+    unbuilt_body: gtk::Box,
     pub welcome_composer: Rc<Composer>,
     pub chat_composer: Rc<Composer>,
     /// Every "show sidebar" button: one per route's topbar, since only the
@@ -124,6 +125,7 @@ struct Unbuilt {
     title: gtk::Label,
     note: gtk::Label,
     info: gtk::Box,
+    body: gtk::Box,
     reveal: gtk::Button,
 }
 
@@ -396,6 +398,7 @@ pub fn build(
         unbuilt_title: unbuilt.title,
         unbuilt_note: unbuilt.note,
         unbuilt_info: unbuilt.info,
+        unbuilt_body: unbuilt.body,
         welcome_composer,
         chat_composer,
         reveals,
@@ -605,6 +608,20 @@ impl Views {
                 clear_children(&self.unbuilt_info);
                 let specialized = *name == "Experts · Skills · Connectors" || *name == "Scheduled";
                 self.unbuilt_note.set_visible(!specialized);
+                self.unbuilt_title.set_visible(!specialized);
+                self.unbuilt_body.set_valign(if specialized {
+                    gtk::Align::Start
+                } else {
+                    gtk::Align::Center
+                });
+                self.unbuilt_body.set_halign(if specialized {
+                    gtk::Align::Fill
+                } else {
+                    gtk::Align::Center
+                });
+                self.unbuilt_body.set_margin_start(if specialized { 24 } else { 0 });
+                self.unbuilt_body.set_margin_end(if specialized { 24 } else { 0 });
+                self.unbuilt_body.set_margin_top(if specialized { 16 } else { 0 });
                 if *name == "Experts · Skills · Connectors" {
                     fill_catalog(&self.unbuilt_info, &self.refresher, store);
                 } else if *name == "Scheduled" {
@@ -776,6 +793,7 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
 
     let info = vbox(4);
     info.set_halign(gtk::Align::Fill);
+    info.set_hexpand(true);
     body.pack_start(&info, false, false, 0);
 
     root.pack_start(&body, true, true, 0);
@@ -785,6 +803,7 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
         title,
         note,
         info,
+        body,
         reveal: button,
     }
 }
@@ -908,7 +927,7 @@ fn clear_children(container: &gtk::Box) {
 }
 
 fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
-    container.set_size_request(1000, -1);
+    container.set_hexpand(true);
     let (tab, query, filter) = {
         let app = store.borrow();
         (app.catalog_tab, app.catalog_query.clone(), app.catalog_filter)
