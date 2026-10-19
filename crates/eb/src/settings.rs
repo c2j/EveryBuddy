@@ -555,7 +555,7 @@ pub fn open() {
 
     let ui_rows = vbox(2);
     class(&ui_rows, "eb-settings-rows");
-    for (_id, title, description, index) in [
+    for (id, title, description, index) in [
         (
             "ui-theme",
             "Theme",
@@ -580,13 +580,19 @@ pub fn open() {
         #[cfg(target_os = "macos")]
         {
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../..")
+                .join("../..")
                 .join(index);
             open.connect_clicked(move |_| {
                 crate::theme_view::open(&path.display().to_string());
             });
         }
         row.pack_end(&open, false, false, 0);
+        if std::env::var("EB_SETTINGS_UI_PREVIEW").ok().as_deref() == Some(id) {
+            let open = open.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || {
+                open.clicked();
+            });
+        }
         ui_rows.pack_start(&row, false, false, 0);
     }
     root.pack_start(&ui_rows, false, false, 0);
