@@ -23,6 +23,10 @@ const BUILTIN: &[(&str, &str)] = &[
         "release-notes",
         include_str!("../assets/skills/release-notes/SKILL.md"),
     ),
+    (
+        "test-plan",
+        include_str!("../assets/skills/test-plan/SKILL.md"),
+    ),
 ];
 
 const EXPERTS: &[(&str, &str)] = &[

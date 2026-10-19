@@ -1101,6 +1101,10 @@ fn skill_grid(skills: &[crate::catalog::Skill], store: &Store, refresher: &Refre
 fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refresher) -> gtk::Box {
     let card = vbox(4);
     class(&card, "eb-skill-card");
+    let badge = gtk::Label::new(Some(if skill.source == "builtin" { "BUILT-IN" } else { "USER" }));
+    badge.set_xalign(0.0);
+    class(&badge, "eb-skill-badge");
+    card.pack_start(&badge, false, false, 0);
     let head = hbox(8);
     let icon = gtk::Label::new(Some(if skill.source == "builtin" { "◆" } else { "✦" }));
     class(&icon, "eb-skill-icon");

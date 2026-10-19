@@ -1304,3 +1304,13 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_tertiary;
   font-size: 11px;
 }
+.eb-skill-badge {
+  background: @bg_hover_light;
+  border-radius: 4px;
+  color: @eb_text_tertiary;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  margin-bottom: 3px;
+}
