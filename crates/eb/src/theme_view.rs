@@ -11,7 +11,8 @@ use gtk::prelude::*;
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSView, NSWindow, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBackingStoreType, NSFloatingWindowLevel, NSView, NSWindow,
+    NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_app_kit::{NSEvent, NSEventMask, NSEventType};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
@@ -48,6 +49,9 @@ pub fn open(index: &str) {
     };
     window.setTitle(&NSString::from_str("dsh ui-theme — component host"));
     unsafe { window.setReleasedWhenClosed(false) };
+    window.setTitle(&NSString::from_str("dsh feedback"));
+    window.setTitleVisibility(objc2_app_kit::NSWindowTitleVisibility::Hidden);
+    window.setTitlebarAppearsTransparent(true);
     window.setHasShadow(false);
 
     let config = unsafe { WKWebViewConfiguration::new(mtm) };
@@ -156,7 +160,10 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
             frame,
-            NSWindowStyleMask::Borderless,
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::Resizable
+                | NSWindowStyleMask::FullSizeContentView,
             NSBackingStoreType::Buffered,
             false,
         )
@@ -171,6 +178,18 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     window.setContentView(Some(&webview));
+    window.setLevel(NSFloatingWindowLevel);
+    if let Some(gdk_window) = toplevel.window() {
+        let native: *mut gtk::gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
+        let nsview = unsafe { gdk_quartz_window_get_nsview(native as *mut std::ffi::c_void) };
+        if !nsview.is_null() {
+            let parent = unsafe { &*nsview };
+            if let Some(parent_window) = parent.window() {
+                unsafe { parent_window.addChildWindow_ordered(&window, NSWindowOrderingMode::Above) };
+            }
+        }
+    }
+    window.orderFrontRegardless();
     window.makeKeyAndOrderFront(None);
     window.makeFirstResponder(Some(&*webview));
     if index.starts_with("http://") || index.starts_with("https://") {
