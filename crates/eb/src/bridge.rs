@@ -96,7 +96,7 @@ pub fn bind_conversation(prompt: &str, answer: &str) -> Result<(), String> {
     let body = serde_json::json!({ "prompt": prompt, "answer": answer }).to_string();
     let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
     let request = format!(
-        "POST /session HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST /session/append HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     );

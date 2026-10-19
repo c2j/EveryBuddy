@@ -146,6 +146,20 @@ fn serve(
                 serde_json::from_str(&session_json.lock().unwrap())
                     .unwrap_or_else(|_| json!({"sessionId": null, "messages": []})),
             ),
+            ("POST", "/session/append") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let prompt = input["prompt"].as_str().unwrap_or("EvoBuddy conversation");
+                let answer = input["answer"].as_str().unwrap_or("No answer was produced.");
+                match probe.append_turn(prompt, answer) {
+                    Ok(appended) => {
+                        *session_json.lock().unwrap() = probe.live_snapshot().unwrap_or_default();
+                        json_response(json!({"ok": true, "appended": serde_json::from_str::<Value>(&appended).unwrap_or_default()}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("POST", "/session") => {
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);
