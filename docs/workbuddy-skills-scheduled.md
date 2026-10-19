@@ -63,7 +63,7 @@ Connectors
   shell — agent exec via ACP
 ```
 
-![EvoBuddy skills surface](/tmp/skillui3.png)
+![EvoBuddy skills surface](/tmp/skillui4.png)
 
 Example scheduled run observed in the log:
 
