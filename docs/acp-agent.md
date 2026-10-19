@@ -18,6 +18,14 @@ EVOBUDDY_ACP_ARGS="acp" \
 EVOBUDDY_ACP_CWD="$PWD" \
 cargo run
 
+# Grok Build（本机已安装时）
+EVOBUDDY_ACP_AGENT=grok cargo run
+# 等价显式配置：
+EVOBUDDY_ACP_COMMAND="$HOME/.grok/bin/grok" \
+EVOBUDDY_ACP_ARGS="agent stdio" \
+EVOBUDDY_ACP_CWD="$PWD" \
+cargo run
+
 # dsh：从 deepseek-harness checkout 启动 ACP profile
 EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" \
 EVOBUDDY_ACP_ARGS="dsh --profile acp" \
@@ -29,14 +37,20 @@ cargo run
 `DEEPSEEK_API_KEY` 只作为示例：真实值放在本地环境，不要写进仓库或截图。
 dsh 的 ACP profile 会把会话持久化到 `~/.dsh`；在普通桌面用户下可写。
 
-其他 ACP agent（例如 grok build）只要是“启动后 stdin/stdout 说 ACP v1”的
-进程，都可以用 `EVOBUDDY_ACP_COMMAND` + `EVOBUDDY_ACP_ARGS` 接进来；不需要
-改 Rust 代码。
+Grok Build 的 ACP 入口是 `grok agent stdio`。安装后可直接：
+
+```sh
+EVOBUDDY_ACP_AGENT=grok cargo run
+```
+
+也可以用 `EVOBUDDY_ACP_COMMAND` + `EVOBUDDY_ACP_ARGS` 接其他 ACP agent；
+不需要改 Rust 代码。
 
 ## 环境变量
 
 | 变量 | 必填 | 含义 |
 |---|---|---|
+| `EVOBUDDY_ACP_AGENT` | 否 | 本机自动探测的选择：`opencode`（默认）或 `grok` |
 | `EVOBUDDY_ACP_COMMAND` | 是 | ACP agent 可执行文件；设置后即启用本插件 |
 | `EVOBUDDY_ACP_ARGS` | 否 | 参数，空白分隔或 JSON 字符串数组，如 `["dsh","--profile","acp"]` |
 | `EVOBUDDY_ACP_CWD` | 否 | 会话工作区，必须是绝对路径；默认启动进程的 cwd |

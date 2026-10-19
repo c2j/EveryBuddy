@@ -20,11 +20,7 @@ pub fn acp_enabled() -> bool {
     ACP_ACTIVE.load(Ordering::SeqCst)
 }
 
-/// Use the local opencode ACP server when it is installed and no explicit
-/// agent choice was made.
-fn default_opencode() -> Option<eb_plugin_acp_agent::AcpAgent> {
-    let home = std::env::var("HOME").ok()?;
-    let program = std::path::PathBuf::from(home).join(".opencode/bin/opencode");
+fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option<eb_plugin_acp_agent::AcpAgent> {
     if !program.is_file() {
         return None;
     }
@@ -33,14 +29,28 @@ fn default_opencode() -> Option<eb_plugin_acp_agent::AcpAgent> {
         .unwrap_or(false);
     Some(eb_plugin_acp_agent::AcpAgent::new(eb_plugin_acp_agent::AcpConfig {
         program: program.to_string_lossy().to_string(),
-        args: vec!["acp".into()],
+        args: args.iter().map(|arg| (*arg).to_string()).collect(),
         cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         auto_approve,
-        name: "opencode".into(),
+        name: name.into(),
         debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
         env: Vec::new(),
         auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
     }))
+}
+
+/// Locally installed ACP agents. Explicit `EVOBUDDY_ACP_AGENT` wins; otherwise
+/// opencode remains the default and Grok Build is the fallback.
+fn default_acp_agent() -> Option<eb_plugin_acp_agent::AcpAgent> {
+    let home = std::env::var("HOME").ok()?;
+    let home = std::path::PathBuf::from(home);
+    let opencode = || acp_command(home.join(".opencode/bin/opencode"), &["acp"], "opencode");
+    let grok = || acp_command(home.join(".grok/bin/grok"), &["agent", "stdio"], "Grok build");
+    match std::env::var("EVOBUDDY_ACP_AGENT").as_deref() {
+        Ok("grok") => grok(),
+        Ok("opencode") => opencode(),
+        _ => opencode().or_else(grok),
+    }
 }
 
 /// The mounted plugin system.
@@ -77,7 +87,7 @@ impl Host {
         {
             None
         } else {
-            eb_plugin_acp_agent::AcpAgent::from_env().or_else(default_opencode)
+            eb_plugin_acp_agent::AcpAgent::from_env().or_else(default_acp_agent)
         };
         let answer: Arc<dyn EbPlugin> = if let Some(agent) = external {
             ACP_ACTIVE.store(true, Ordering::SeqCst);
