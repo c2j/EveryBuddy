@@ -645,7 +645,7 @@ pub fn open() {
             let binary = std::env::var("EVOBUDDY_BRIDGE_BIN")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| {
-                    root.join("vendor/rutis-0.12/target/debug/evobuddy-bridge")
+                    root.join("experiments/rutis-live-bridge/target/debug/evobuddy-rutis-bridge")
                 });
             match Command::new(&binary)
                 .env("EVOBUDDY_LIVE_BRIDGE", "1")

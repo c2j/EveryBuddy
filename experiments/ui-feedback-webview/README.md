@@ -75,28 +75,29 @@ Screenshot: `/tmp/eb-feedback-snapshot.png`.
 
 ## Live A2 bridge
 
-The real A2 path is now wired end to end:
+The real A2 path is wired end to end:
 
 ```text
-rutis-dsh agent turn (scripted aimux)
+rutis-dsh generic agent composition (scripted aimux)
   → live dsh Session + assistant Message
   → real dsh messageFeedback service
-  → HTTP :39472
+  → EvoBuddy bridge crate (Rust HTTP :39472)
   → WebKit component host
 ```
 
-The component host no longer needs localStorage for this path. It loads
-`/session` and uses `/feedback`, `/feedback/put`, `/feedback/delete`; when the
-bridge is absent it falls back to the snapshot/localStorage fixture.
+The component host loads `/session` and uses `/feedback`, `/feedback/put`,
+`/feedback/delete`; when the bridge is absent it falls back to the
+snapshot/localStorage fixture.
 
-Start the bridge:
+The bridge lives in EvoBuddy, not in the rutis submodule:
 
 ```sh
-cd vendor/rutis-0.12
-EVOBUDDY_LIVE_BRIDGE=1 cargo test -p rutis-dsh --test feedback_bridge -- --nocapture
+cd experiments/rutis-live-bridge
+cargo build
+./target/debug/evobuddy-rutis-bridge
 ```
 
-The test holds the bridge for 300 seconds after seeding one real feedback item.
+It prints a live session and listens on `http://127.0.0.1:39472`.
 
 Serve the component host over HTTP (a file:// page cannot reliably call the
 bridge):
@@ -109,37 +110,23 @@ python3 -m http.server 39473 --bind 127.0.0.1
 Then:
 
 ```sh
-EB_THEME_HOST="http://127.0.0.1:39473/index.html" \
-EB_THEME_SHOT=/tmp/eb-feedback-live-rating2.png \
-cargo run
+EB_THEME_HOST="http://127.0.0.1:39473/index.html" EB_THEME_SHOT=/tmp/eb-feedback-live-rating2.png cargo run
 ```
 
-Observed: session `evobuddy-live-…`, assistant `The code is RESULT:m2.`,
-rating `positive` loaded from the real service, and Submit wrote the item back
-to the live service. Screenshot: `/tmp/eb-feedback-live-rating2.png`.
+Settings → **Live dsh bridge** starts the same binary and shows
+`running · http://127.0.0.1:39472`.
 
-The bridge is still a test harness using a scripted LLM, not a long-running
-production daemon. The next step after A2 is moving the bridge out of the test
-binary into a managed EvoBuddy/rutis process.
+## Boundary
 
-## Managed bridge
+Kept in the rutis submodule (generic, candidate upstream issue/PR):
 
-`vendor/rutis-0.12` now has a long-running binary:
+- `AgentProbe.runPersistent/liveSnapshot/disposePersistent`
+- `session-persistence-jsonl` and `message-feedback` in the generic agent
+  composition
+- the test helper config for those services
 
-```sh
-vendor/rutis-0.12/target/debug/evobuddy-bridge
-```
+Kept in EvoBuddy:
 
-It mounts the same agent composition and holds the live dsh session; no test
-harness and no 300-second limit.
-
-Settings → **Live dsh bridge** can start/stop it. The status line shows
-`running · http://127.0.0.1:39472`. The button spawns the built binary; build it
-first:
-
-```sh
-cd vendor/rutis-0.12
-cargo build -p rutis-dsh --bin evobuddy-bridge
-```
-
-`EB_BRIDGE_AUTOSTART=1` auto-clicks Start for harness runs.
+- `experiments/rutis-live-bridge/` (scripted LLM, HTTP server, session choice)
+- EvoBuddy-specific `/tmp/evobuddy-rutis-sessions` root
+- the WebKit component host and its fake/native services
