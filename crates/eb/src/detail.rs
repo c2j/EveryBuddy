@@ -71,27 +71,19 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     actions.set_valign(gtk::Align::Center);
     header.pack_end(&actions, false, false, 0);
 
-    let plugin = gtk::MenuButton::new();
-    plugin.set_label("◐");
-    class(&plugin, "eb-icon");
-    let popover = gtk::Popover::new(Some(&plugin));
-    let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    class(&menu, "eb-plugin-menu");
-    for (id, label) in crate::plugin_panel::PLUGINS {
-        let item = flat_button("eb-plugin-menu-item");
-        item.add(&text(label, "eb-plugin-menu-label"));
-        let popover = popover.clone();
+    let theme_plugin = icon_button("◐", "eb-icon", "Open theme UI plugin");
+    theme_plugin.connect_clicked({
         let plugin = wiring.plugin.clone();
-        item.connect_clicked(move |_| {
-            popover.popdown();
-            plugin(id);
-        });
-        menu.pack_start(&item, false, false, 0);
-    }
-    popover.add(&menu);
-    menu.show_all();
-    plugin.set_popover(Some(&popover));
-    actions.pack_start(&plugin, false, false, 0);
+        move |_| plugin("ui-theme")
+    });
+    actions.pack_start(&theme_plugin, false, false, 0);
+
+    let feedback_plugin = icon_button("✦", "eb-icon", "Open feedback UI plugin");
+    feedback_plugin.connect_clicked({
+        let plugin = wiring.plugin.clone();
+        move |_| plugin("ui-message-feedback")
+    });
+    actions.pack_start(&feedback_plugin, false, false, 0);
 
     let expand = icon_button("⤢", "eb-icon", "Give the panel the whole window");
     expand.connect_clicked({
