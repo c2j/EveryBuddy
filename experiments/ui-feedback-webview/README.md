@@ -151,3 +151,17 @@ The bridge process is now owned by `crates/eb/src/bridge.rs`: Settings
 Start/Stop, preview/panel Ensure, and app shutdown all use the same process.
 `bridge::start()` waits for `/session` on 39472 before returning, so a panel
 opened immediately after startup does not fall back to the snapshot fixture.
+
+## First-click validation
+
+With Accessibility granted, the panel was tested with a real CGEvent click:
+
+- first click on Like opened the real feedback dialog
+- Submit wrote the item to the live rutis messageFeedback service
+- the bridge returned `rating: positive`
+
+Harness: `EB_PANEL=1 cargo run`, then click Like in the 420-wide panel.
+Screenshot: `/tmp/eb-e2e18.png`.
+
+The panel is a 420-wide native drawer anchored to the artifact body; the
+underlying artifact body is hidden while it is open.

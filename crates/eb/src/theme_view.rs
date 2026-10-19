@@ -190,9 +190,10 @@ pub fn open_panel(index: &str, anchor: &gtk::Widget) {
         );
     }
     let window_size = toplevel.size();
-    let width = allocation.width() as f64;
+    let (window_width, _) = toplevel.size();
+    let width = (allocation.width() as f64).max(420.0).min(window_width as f64);
     let height = (allocation.height() as f64).min(window_size.1 as f64 - ay as f64 - 8.0);
-    let x = wx as f64 + ax as f64;
+    let x = wx as f64 + window_width as f64 - width;
     let y = screen_height - (wy as f64 + ay as f64) - height;
     let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
     let panel: Retained<NSPanel> = unsafe {
