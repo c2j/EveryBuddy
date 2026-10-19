@@ -599,45 +599,16 @@ impl Runner {
                         _ => None,
                     })
                     .unwrap_or_default();
-                let answer = task
+                let mut answer = String::new();
+                let mut tools: Vec<(String, String, String)> = Vec::new();
+                if let Some(crate::model::Turn::Agent { blocks, .. }) = task
                     .turns
                     .iter()
                     .rev()
-                    .find_map(|turn| match turn {
-                        crate::model::Turn::Agent { blocks, .. } => Some(
-                            blocks
-                                .iter()
-                                .filter_map(|block| match block {
-                                    crate::model::Block::Text(text) => Some(text.clone()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                        ),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                let tools = task
-                    .turns
-                    .iter()
-                    .rev()
-                    .find_map(|turn| match turn {
-                        crate::model::Turn::Agent { blocks, .. } => Some(
-                            blocks
-                                .iter()
-                                .filter_map(|block| match block {
-                                    crate::model::Block::Tool { primary, detail, .. } => Some((
-                                        primary.clone(),
-                                        detail.clone().unwrap_or_default(),
-                                        String::new(),
-                                    )),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>(),
-                        ),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
+                    .find(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
+                {
+                    collect_blocks(blocks, &mut answer, &mut tools);
+                }
                 (task.session_id.clone(), prompt, answer, tools)
             };
             if !crate::dsh_agent::enabled() {
@@ -678,6 +649,55 @@ impl Drop for Runner {
     fn drop(&mut self) {
         if let Some(active) = self.active.get_mut().take() {
             active.handle.cancel();
+        }
+    }
+}
+
+/// Flatten ACP/agent blocks into the text and tool rows stored in dsh.
+fn collect_blocks(
+    blocks: &[crate::model::Block],
+    answer: &mut String,
+    tools: &mut Vec<(String, String, String)>,
+) {
+    for block in blocks {
+        match block {
+            crate::model::Block::Text(text) => {
+                if !answer.is_empty() && !text.is_empty() {
+                    answer.push('\n');
+                }
+                answer.push_str(text);
+            }
+            crate::model::Block::Tool { primary, detail, .. } => {
+                tools.push((
+                    primary.clone(),
+                    detail.clone().unwrap_or_default(),
+                    String::new(),
+                ));
+            }
+            crate::model::Block::Exec { command, output, exit_code } => {
+                tools.push((
+                    "exec".into(),
+                    serde_json::json!({ "command": command }).to_string(),
+                    serde_json::json!({ "output": output, "exitCode": exit_code }).to_string(),
+                ));
+            }
+            crate::model::Block::Diff { path, added, removed, lines } => {
+                let lines: Vec<_> = lines
+                    .iter()
+                    .map(|line| match line {
+                        crate::model::DiffLine::Add(text) => serde_json::json!({ "kind": "add", "text": text }),
+                        crate::model::DiffLine::Remove(text) => serde_json::json!({ "kind": "remove", "text": text }),
+                        crate::model::DiffLine::Context(text) => serde_json::json!({ "kind": "context", "text": text }),
+                    })
+                    .collect();
+                tools.push((
+                    "diff".into(),
+                    serde_json::json!({ "path": path, "added": added, "removed": removed }).to_string(),
+                    serde_json::json!({ "lines": lines }).to_string(),
+                ));
+            }
+            crate::model::Block::Group { blocks, .. } => collect_blocks(blocks, answer, tools),
+            _ => {}
         }
     }
 }

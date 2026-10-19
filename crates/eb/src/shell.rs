@@ -801,12 +801,48 @@ fn sync_session_projection(store: &Store) {
             }
             Some("tool") => {
                 let name = item["name"].as_str().unwrap_or("Tool").to_string();
-                let result = item["result"].as_str().unwrap_or("").to_string();
-                blocks.push(crate::model::Block::Tool {
-                    status: "Used".into(),
-                    primary: name,
-                    detail: (!result.is_empty()).then_some(result),
-                });
+                let arguments = item["arguments"].as_str().unwrap_or("");
+                let result = item["result"].as_str().unwrap_or("");
+                if name == "exec" {
+                    let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
+                    let out: serde_json::Value = serde_json::from_str(result).unwrap_or_default();
+                    blocks.push(crate::model::Block::Exec {
+                        command: args["command"].as_str().unwrap_or("").to_string(),
+                        output: out["output"].as_str().unwrap_or("").to_string(),
+                        exit_code: out["exitCode"].as_i64().map(|code| code as i32),
+                    });
+                } else if name == "diff" {
+                    let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
+                    let out: serde_json::Value = serde_json::from_str(result).unwrap_or_default();
+                    let lines = out["lines"]
+                        .as_array()
+                        .map(|lines| {
+                            lines
+                                .iter()
+                                .filter_map(|line| {
+                                    let text = line["text"].as_str()?.to_string();
+                                    Some(match line["kind"].as_str()? {
+                                        "add" => crate::model::DiffLine::Add(text),
+                                        "remove" => crate::model::DiffLine::Remove(text),
+                                        _ => crate::model::DiffLine::Context(text),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    blocks.push(crate::model::Block::Diff {
+                        path: args["path"].as_str().unwrap_or("").to_string(),
+                        added: args["added"].as_u64().unwrap_or(0) as u32,
+                        removed: args["removed"].as_u64().unwrap_or(0) as u32,
+                        lines,
+                    });
+                } else {
+                    blocks.push(crate::model::Block::Tool {
+                        status: "Used".into(),
+                        primary: name,
+                        detail: (!result.is_empty()).then_some(result.to_string()),
+                    });
+                }
             }
             _ => {}
         }
