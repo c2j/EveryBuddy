@@ -755,9 +755,6 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
 /// Replace the active task's text turns with the retained dsh session's
 /// projection once the session has a completed assistant message.
 fn sync_session_projection(store: &Store) {
-    if crate::host::acp_enabled() {
-        return;
-    }
     let (index, session_id) = {
         let app = store.borrow();
         let index = match app.route {

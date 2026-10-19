@@ -245,16 +245,14 @@ impl Runner {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|time| time.as_millis())
             .unwrap_or(0));
-        if !crate::host::acp_enabled() {
-            crate::bridge::ensure();
-            if let Err(error) = crate::bridge::create_session(&session_id) {
-                eprintln!("phase1: create_session failed: {error}");
-            } else {
-                if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
-                    task.session_id = Some(session_id);
-                }
-                crate::state::save(&self.store);
+        crate::bridge::ensure();
+        if let Err(error) = crate::bridge::create_session(&session_id) {
+            eprintln!("phase1: create_session failed: {error}");
+        } else {
+            if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
+                task.session_id = Some(session_id);
             }
+            crate::state::save(&self.store);
         }
         let prompt = self.store.borrow().tasks.get(task).and_then(|task| {
                 task.turns.iter().rev().find_map(|turn| match turn {
@@ -262,7 +260,7 @@ impl Runner {
                     _ => None,
                 })
             });
-        if !crate::dsh_agent::enabled() && !crate::host::acp_enabled() {
+        if !crate::dsh_agent::enabled() {
             if let Some(prompt) = prompt {
                 let _ = crate::bridge::begin_turn(&prompt);
             }
@@ -547,7 +545,7 @@ impl Runner {
                         self.store
                             .borrow_mut()
                             .apply_agent_event(active.task, event);
-                        if !done && !crate::dsh_agent::enabled() && !crate::host::acp_enabled() {
+                        if !done && !crate::dsh_agent::enabled() {
                             let text = self.store.borrow().tasks.get(active.task).and_then(|task| {
                                 task.turns.iter().rev().find_map(|turn| match turn {
                                     crate::model::Turn::Agent { blocks, .. } => Some(
@@ -642,7 +640,7 @@ impl Runner {
                     .unwrap_or_default();
                 (task.session_id.clone(), prompt, answer, tools)
             };
-            if !crate::dsh_agent::enabled() && !crate::host::acp_enabled() {
+            if !crate::dsh_agent::enabled() {
                 if let Some(_session_id) = session_id {
                     if !answer.is_empty() {
                         let _ = crate::bridge::finish_turn(&answer, &tools);
