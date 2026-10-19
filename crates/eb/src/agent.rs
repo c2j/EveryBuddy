@@ -258,8 +258,10 @@ impl Runner {
                     _ => None,
                 })
             });
-            if let Some(prompt) = prompt {
-                let _ = crate::bridge::begin_turn(&prompt);
+            if std::env::var("EB_AGENT").as_deref() != Ok("dsh") {
+                if let Some(prompt) = prompt {
+                    let _ = crate::bridge::begin_turn(&prompt);
+                }
             }
         }
         // Paint the user's turn before waiting for any agent handshake.
@@ -637,9 +639,11 @@ impl Runner {
                     .unwrap_or_default();
                 (task.session_id.clone(), prompt, answer, tools)
             };
-            if let Some(session_id) = session_id {
-                if !answer.is_empty() {
-                    let _ = crate::bridge::finish_turn(&answer, &tools);
+            if std::env::var("EB_AGENT").as_deref() != Ok("dsh") {
+                if let Some(_session_id) = session_id {
+                    if !answer.is_empty() {
+                        let _ = crate::bridge::finish_turn(&answer, &tools);
+                    }
                 }
             }
         }

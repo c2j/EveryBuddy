@@ -280,3 +280,26 @@ pub fn finish_turn(answer: &str, tools: &[(String, String, String)]) -> Result<(
     let response = post_json("/session/finish", serde_json::json!({ "answer": answer, "tools": tools }))?;
     if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
 }
+
+pub fn run_agent(prompt: &str) -> Result<Vec<(String, String)>, String> {
+    let response = post_json("/agent/turn", serde_json::json!({ "prompt": prompt }))?;
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or(&response);
+    let value: serde_json::Value = serde_json::from_str(body).map_err(|error| error.to_string())?;
+    if value["ok"] != true {
+        return Err(value["error"].as_str().unwrap_or("dsh agent turn failed").to_string());
+    }
+    Ok(value["messages"]
+        .as_array()
+        .map(|messages| {
+            messages
+                .iter()
+                .filter_map(|message| {
+                    let role = message["role"].as_str()?.to_string();
+                    let text = message["content"].as_array()?.iter()
+                        .filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join("");
+                    Some((role, text))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}

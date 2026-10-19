@@ -244,6 +244,20 @@ fn serve(
                     Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
                 }
             }
+            ("POST", "/agent/turn") => {
+                let mut body = String::new();
+                let _ = request.as_reader().read_to_string(&mut body);
+                let input: Value = serde_json::from_str(&body).unwrap_or_default();
+                let prompt = input["prompt"].as_str().unwrap_or_default();
+                match handle.block_on(probe.run_turn(prompt)) {
+                    Ok(value) => {
+                        *session_json.lock().unwrap() = probe.live_snapshot().unwrap_or_default();
+                        let value: Value = serde_json::from_str(&value).unwrap_or_default();
+                        json_response(json!({"ok": true, "sessionId": value["sessionId"], "messages": value["messages"]}))
+                    }
+                    Err(error) => json_response(json!({"ok": false, "error": error.to_string()})),
+                }
+            }
             ("GET", "/projection") => {
                 json_response(serde_json::from_str(&probe.live_projection().unwrap_or_else(|_| "{\"items\": []}".into())).unwrap_or_else(|_| json!({"items": []})))
             }

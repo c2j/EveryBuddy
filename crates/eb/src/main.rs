@@ -35,6 +35,7 @@ mod preview_server;
 mod composer;
 mod conversation;
 mod detail;
+mod dsh_agent;
 mod host;
 mod markdown;
 mod icons;
