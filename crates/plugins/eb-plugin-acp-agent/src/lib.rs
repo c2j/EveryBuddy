@@ -306,6 +306,79 @@ impl AnswerHandle for AcpHandle {
     }
 }
 
+/// Convert EvoBuddy connector files into ACP `mcpServers` entries.
+///
+/// Each `~/.evobuddy/connectors/*.json` may be either one server object or a
+/// Claude-style `{ "mcpServers": { "name": { ... } } }` wrapper. Stdio servers
+/// use `command`/`args`/`env`; remote servers use `url`/`headers`.
+fn read_mcp_servers(root: &std::path::Path) -> Vec<Value> {
+    let mut servers = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else { return servers };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+        let default_name = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_else(|| "connector".into());
+        if let Some(group) = value.get("mcpServers").and_then(Value::as_object) {
+            for (name, config) in group {
+                if let Some(server) = mcp_server(name, config) {
+                    servers.push(server);
+                }
+            }
+        } else {
+            let name = value.get("name").and_then(Value::as_str).unwrap_or(&default_name);
+            if let Some(server) = mcp_server(name, &value) {
+                servers.push(server);
+            }
+        }
+    }
+    servers
+}
+
+fn mcp_server(name: &str, config: &Value) -> Option<Value> {
+    if let Some(command) = config.get("command").and_then(Value::as_str) {
+        if command.trim().is_empty() {
+            return None;
+        }
+        let mut server = json!({
+            "name": name,
+            "command": command,
+            "args": config.get("args").cloned().unwrap_or_else(|| json!([])),
+        });
+        if let Some(env) = config.get("env").filter(|value| value.is_object()) {
+            server["env"] = env.clone();
+        }
+        return Some(server);
+    }
+    if let Some(url) = config.get("url").and_then(Value::as_str) {
+        if url.trim().is_empty() {
+            return None;
+        }
+        let mut server = json!({ "name": name, "url": url });
+        if let Some(headers) = config.get("headers").filter(|value| value.is_object()) {
+            server["headers"] = headers.clone();
+        }
+        return Some(server);
+    }
+    None
+}
+
+fn mcp_servers() -> Vec<Value> {
+    let root = std::env::var("EB_CONNECTORS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+            std::path::Path::new(&home).join(".evobuddy/connectors")
+        });
+    read_mcp_servers(&root)
+}
+
 struct AcpSession {
     child: Child,
     stdin: Arc<Mutex<ChildStdin>>,
@@ -403,8 +476,12 @@ impl AcpSession {
         }
 
         let cwd = cwd.to_string_lossy();
+        let servers = mcp_servers();
+        if config.debug {
+            eprintln!("acp: session/new with {} MCP server(s)", servers.len());
+        }
         let new_session =
-            session.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))?;
+            session.request("session/new", json!({ "cwd": cwd, "mcpServers": servers }))?;
         let session_id = new_session
             .get("sessionId")
             .and_then(Value::as_str)
@@ -1121,4 +1198,28 @@ mod integration_tests {
             Some(AgentEvent::Failed { ref message }) if message == "Cancelled"
         ));
     }
+    #[test]
+    fn connector_files_become_acp_mcp_servers() {
+        let dir = std::env::temp_dir().join(format!("eb-connectors-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("stdio.json"),
+            r#"{"name":"files","command":"npx","args":["-y","mcp-files"],"env":{"TOKEN":"x"}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("remote.json"),
+            r#"{"mcpServers":{"search":{"url":"https://example.test/mcp"}}}"#,
+        )
+        .unwrap();
+        let servers = read_mcp_servers(&dir);
+        assert!(servers.iter().any(|server| server["name"] == "files"
+            && server["command"] == "npx"
+            && server["env"]["TOKEN"] == "x"));
+        assert!(servers.iter().any(|server| server["name"] == "search"
+            && server["url"] == "https://example.test/mcp"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }

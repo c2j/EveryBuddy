@@ -163,11 +163,20 @@ pub fn connectors() -> Vec<(String, String)> {
             if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                 continue;
             }
-            let name = path
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+            let stem = path
                 .file_stem()
                 .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default();
-            out.push((name, "configured".into()));
+                .unwrap_or_else(|| "connector".into());
+            if let Some(group) = value["mcpServers"].as_object() {
+                for (name, config) in group {
+                    out.push((name.clone(), transport(config)));
+                }
+            } else {
+                let name = value["name"].as_str().unwrap_or(&stem).to_string();
+                out.push((name, transport(&value)));
+            }
         }
     }
     if out.is_empty() {
@@ -175,6 +184,16 @@ pub fn connectors() -> Vec<(String, String)> {
         out.push(("shell".into(), "agent exec via ACP".into()));
     }
     out
+}
+
+fn transport(config: &serde_json::Value) -> String {
+    if config["command"].as_str().is_some() {
+        "stdio".into()
+    } else if config["url"].as_str().is_some() {
+        "http".into()
+    } else {
+        "configured".into()
+    }
 }
 
 fn scheduled_path() -> PathBuf {
@@ -232,3 +251,26 @@ pub fn take_due() -> Vec<(String, String)> {
     due
 }
 
+
+/// Add a one-off scheduled prompt. Kept intentionally small; the Scheduled
+/// screen is the UI for this queue.
+pub fn add_scheduled(title: &str, prompt: &str, delay_secs: u64) {
+    let mut values = scheduled_values();
+    let due = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0)
+        + delay_secs;
+    values.push(serde_json::json!({
+        "title": title,
+        "prompt": prompt,
+        "due_at": due,
+    }));
+    if let Some(parent) = scheduled_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(
+        scheduled_path(),
+        serde_json::to_string_pretty(&values).unwrap_or_default(),
+    );
+}

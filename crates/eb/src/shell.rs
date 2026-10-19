@@ -608,7 +608,7 @@ impl Views {
                 if *name == "Experts · Skills · Connectors" {
                     fill_catalog(&self.unbuilt_info, &self.refresher);
                 } else if *name == "Scheduled" {
-                    fill_scheduled(&self.unbuilt_info);
+                    fill_scheduled(&self.unbuilt_info, &self.refresher);
                 }
                 self.unbuilt_info.show_all();
                 shown = "unbuilt";
@@ -970,7 +970,21 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher) {
     }
 }
 
-fn fill_scheduled(container: &gtk::Box) {
+fn fill_scheduled(container: &gtk::Box, refresher: &Refresher) {
+    let entry = gtk::Entry::new();
+    entry.set_placeholder_text(Some("Prompt to run in one minute"));
+    container.pack_start(&entry, false, false, 0);
+    let add = gtk::Button::with_label("Schedule +1m");
+    let refresher_for_add = refresher.clone();
+    let entry_for_add = entry.clone();
+    add.connect_clicked(move |_| {
+        let prompt = entry_for_add.text().to_string();
+        if !prompt.trim().is_empty() {
+            crate::catalog::add_scheduled(&prompt, &prompt, 60);
+            refresher_for_add.request();
+        }
+    });
+    container.pack_start(&add, false, false, 0);
     let jobs = crate::catalog::scheduled();
     if jobs.is_empty() {
         let label = gtk::Label::new(Some(
