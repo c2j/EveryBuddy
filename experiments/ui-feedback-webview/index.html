@@ -12,6 +12,6 @@ p { color:#666;font-size:13px;margin:0 0 18px; }
 </style></head>
 <body><div id="page"><h1>dsh message-feedback — component host proof</h1><p>Real plugin bundle, fake session/message/remote. Click Like or Dislike.</p>
 <div class="msg"><div class="msg-head">assistant · session-demo</div>This is a fake assistant message.</div>
-<div id="root" style="margin-top:12px"></div><div id="status" style="margin-top:12px;color:#777;font-size:12px">no action yet</div></div>
-<script src="host.js"></script><script src="feedback-client.js"></script><script>window.__dshRun()</script>
+<div id="root" style="margin-top:12px"></div><div id="overlay"></div><div id="status" style="margin-top:12px;color:#777;font-size:12px">no action yet</div></div>
+<script>window.onerror=function(m){var e=document.getElementById('status');if(e)e.textContent='ERR '+m;};</script><script src="host.js"></script><script src="feedback-client.js"></script><script>window.__dshRun()</script>
 </body></html>

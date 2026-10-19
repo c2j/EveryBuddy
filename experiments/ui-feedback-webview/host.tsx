@@ -11,6 +11,13 @@ const labels: Record<string, string> = {
   'action.like': 'Like', 'action.likeActive': 'Liked',
   'action.dislike': 'Dislike', 'action.dislikeActive': 'Disliked',
   'error.generic': 'Could not save feedback', 'error.load': 'Could not load feedback',
+  'dialog.title': 'Send feedback', 'close': 'Close', 'dialog.hint': 'Tell us more (optional)',
+  'dialog.detail': 'Details', 'dialog.categories': 'What is this about?', 'submit': 'Submit',
+  'submitting': 'Submitting…', 'toast.recorded': 'Feedback recorded',
+  'category.task-result': 'Task result', 'category.instruction-following': 'Instruction following',
+  'category.product-interaction': 'Product interaction', 'category.service-stability': 'Service stability',
+  'category.resource-cost': 'Resource cost', 'category.security-privacy-permission': 'Security / privacy',
+  'category.other': 'Other',
 }
 function t(key: string) { return labels[key] ?? key }
 function makeStore() {
@@ -26,17 +33,34 @@ function makeStore() {
 function useFeedback(feedback: any, selector: (view: any) => any) {
   return React.useSyncExternalStore(feedback.subscribe, () => selector(feedback.getSnapshot()), () => selector(feedback.getSnapshot()))
 }
+class Boundary extends React.Component<any, any> {
+  state = { error: null as any }
+  static getDerivedStateFromError(error: any) { return { error } }
+  render() {
+    if (this.state.error) return React.createElement('pre', { style: { color: '#b00', whiteSpace: 'pre-wrap' } }, String(this.state.error))
+    return this.props.children
+  }
+}
 function Actions(props: any) {
   const feedback = props.hooks.feedback
   const view = useFeedback(feedback, (v: any) => v.items.get(props.messageId))
   return React.createElement(React.Fragment, null,
-    React.createElement('button', { onClick: () => props.openDialog('positive') }, '♥ Like'),
-    React.createElement('button', { onClick: () => props.openDialog('negative') }, '♡ Dislike'),
+    React.createElement('button', { onClick: () => props.openDialog(props.messageId, 'positive') }, '♥ Like'),
+    React.createElement('button', { onClick: () => props.openDialog(props.messageId, 'negative') }, '♡ Dislike'),
     React.createElement('span', { style: { marginLeft: 8, color: view?.rating ? '#0a7' : '#777' } }, view?.rating ?? 'no rating'),
   )
 }
+function Overlay(props: any) {
+  const state = React.useSyncExternalStore(props.hooks.dialog.subscribe, () => props.hooks.dialog.getSnapshot(), () => props.hooks.dialog.getSnapshot())
+  return React.createElement('div', { style: { marginTop: 20 } },
+    React.createElement('div', { style: { color: '#777', fontSize: 12 } }, `overlay target: ${state.target ? JSON.stringify(state.target) : 'closed'}`),
+    React.createElement(props.Component, {
+      useDialog: (selector: any) => selector(state),
+      edit: props.edit, submit: props.submit, dismiss: props.dismiss,
+      dismissFailure: props.dismissFailure, dismissToast: props.dismissToast, t: props.t,
+    }))
+}
 function run() {
-  const status = document.getElementById('status')!
   const items = new Map<string, any>()
   const remote = {
     messageFeedback: {
@@ -59,24 +83,39 @@ function run() {
     emit(name: string, ...args: any[]) { (handlers[name] ?? []).forEach((cb) => cb(...args)) },
     shortcuts: { runtime: 'web' }, configForms: { get: makeStore }, remote,
     slots: {
-      inject(_name: string, cb: () => void) { cb() },
+      inject(name: string, cb: () => void) { (window as any).__slots = ((window as any).__slots ?? []).concat(name); cb() },
       register(def: any, Component: any) {
-        if (def.name !== 'conversation.chat.assistant-actions') return
         const props = def.inject('session-demo')
-        props.messageId = 'm1'
-        props.useFeedback = (selector: any) => useFeedback(props.hooks.feedback, selector)
-        props.openDialog = (rating: string) => { status.textContent = `dialog opened: ${rating}` }
-        props.t = t
-        const host = document.createElement('div')
-        host.className = 'actions'
-        document.getElementById('root')!.appendChild(host)
-        createRoot(host).render(React.createElement(Actions, props))
+        if (def.name === 'conversation.chat.assistant-actions') {
+          props.messageId = 'm1'
+          props.useFeedback = (selector: any) => useFeedback(props.hooks.feedback, selector)
+          const open = props.openDialog
+          props.openDialog = (...args: any[]) => {
+            const status = document.getElementById('status')
+            if (status) status.textContent = `openDialog(${args.join(', ')})`
+            return open(...args)
+          }
+          props.t = t
+          const host = document.createElement('div')
+          host.className = 'actions'
+          document.getElementById('root')!.appendChild(host)
+          createRoot(host).render(React.createElement(Actions, props))
+        } else if (def.name === 'conversation.input.overlay') {
+          props.Component = Component
+          props.t = t
+          const host = document.getElementById('overlay')!
+          host.textContent = 'overlay slot registered'
+          createRoot(host).render(React.createElement(Boundary, null, React.createElement(Overlay, props)))
+        }
       },
     },
   }
+  ;(window as any).__slots = []
   for (const entry of pending) {
     const mod = entry.factory((name: string) => { if (name in modules) return modules[name]; throw new Error(`unknown ${name}`) })
     mod.apply(ctx)
   }
+  const slots = document.getElementById('slots')
+  if (slots) slots.textContent = 'slots injected: ' + ((window as any).__slots ?? []).join(' | ')
 }
 ;(window as any).__dshRun = run

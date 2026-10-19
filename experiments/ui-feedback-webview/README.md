@@ -45,3 +45,17 @@ This proves the plugin can run and react without a full dsh client boot, but it
 also shows what a product host must provide: a real session/message context and
 real remotes. The Like button currently opens the plugin's dialog path; the
 dialog itself is intentionally not part of this proof.
+
+## Dialog overlay (second slice)
+
+The host now registers the second slot, `conversation.input.overlay`, and passes
+the plugin's own `FeedbackDialog` component. Clicking Like opens the real
+plugin dialog state:
+
+```json
+{"kind":"message","messageId":"m1","rating":"positive"}
+```
+
+The dialog's category chips, textarea and Submit button render from the plugin.
+The Modal/Toast primitives are minimal stubs; the dialog is not persisted to a
+real backend. Screenshot: `/tmp/eb-feedback-dialog8.png`.
