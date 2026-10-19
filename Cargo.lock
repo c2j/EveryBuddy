@@ -140,6 +140,7 @@ dependencies = [
  "libc",
  "pango",
  "rutis",
+ "serde_json",
  "tokio",
 ]
 
