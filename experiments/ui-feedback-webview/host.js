@@ -1103,7 +1103,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
-        function useEffect(create, deps) {
+        function useEffect2(create, deps) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useEffect(create, deps);
         }
@@ -1886,7 +1886,7 @@ var require_react_development = __commonJS({
         exports.useContext = useContext;
         exports.useDebugValue = useDebugValue;
         exports.useDeferredValue = useDeferredValue;
-        exports.useEffect = useEffect;
+        exports.useEffect = useEffect2;
         exports.useId = useId;
         exports.useImperativeHandle = useImperativeHandle;
         exports.useInsertionEffect = useInsertionEffect;
@@ -24664,6 +24664,9 @@ var Boundary = class extends React3.Component {
 function Actions(props) {
   const feedback = props.hooks.feedback;
   const view = useFeedback(feedback, (v) => v.items.get(props.messageId));
+  React3.useEffect(() => {
+    props.ensure?.();
+  }, [props.ensure]);
   return React3.createElement(
     React3.Fragment,
     null,
@@ -24689,9 +24692,26 @@ function Overlay(props) {
     })
   );
 }
-function run() {
+async function run() {
+  const LIVE = "http://127.0.0.1:39472";
+  let live = null;
+  try {
+    const response = await fetch(`${LIVE}/session`);
+    if (response.ok) live = await response.json();
+  } catch {
+  }
   const fixture = { sessionId: "snapshot-empty-response-retry-current", messageId: "snapshot-message-4", text: "Recovered." };
-  const storageKey = `evobuddy-feedback:${fixture.sessionId}`;
+  const session = live?.sessionId ? live : fixture;
+  const assistant = live?.messages?.filter((m) => m.role === "assistant").at(-1);
+  const messageId = assistant?.id ?? fixture.messageId;
+  const text = assistant?.content?.map((b) => b.text ?? "").join("") ?? fixture.text;
+  const message = document.getElementById("message-text");
+  if (message) message.textContent = text;
+  const who = document.getElementById("message-who");
+  if (who) who.textContent = `assistant \xB7 ${session.sessionId}`;
+  const backend = document.getElementById("backend");
+  if (backend) backend.textContent = live ? "live rutis-dsh bridge :39472" : "snapshot + localStorage fallback";
+  const storageKey = `evobuddy-feedback:${session.sessionId}`;
   const loadItems = () => {
     try {
       return new Map(JSON.parse(localStorage.getItem(storageKey) ?? "[]"));
@@ -24708,14 +24728,36 @@ function run() {
   };
   const remote = {
     messageFeedback: {
-      list: async () => ({ ok: true, value: { ok: true, value: { items: [...items.values()] } } }),
+      list: async () => {
+        if (live) {
+          const response = await fetch(`${LIVE}/feedback?sessionId=${encodeURIComponent(session.sessionId)}`);
+          return { ok: true, value: await response.json() };
+        }
+        return { ok: true, value: { ok: true, value: { items: [...items.values()] } } };
+      },
       put: async (args) => {
+        if (live) {
+          const response = await fetch(`${LIVE}/feedback/put`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ...args, ifVersion: args.ifVersion ?? null })
+          });
+          return { ok: true, value: await response.json() };
+        }
         const item = { messageId: args.messageId, rating: args.rating, version: (items.get(args.messageId)?.version ?? 0) + 1 };
         items.set(args.messageId, item);
         saveItems();
         return { ok: true, value: { ok: true, value: item } };
       },
       delete: async (args) => {
+        if (live) {
+          const response = await fetch(`${LIVE}/feedback/delete`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messageId: args.messageId, ifVersion: args.ifVersion })
+          });
+          return { ok: true, value: await response.json() };
+        }
         items.delete(args.messageId);
         saveItems();
         return { ok: true, value: { ok: true } };
@@ -24752,9 +24794,9 @@ function run() {
         cb();
       },
       register(def, Component2) {
-        const props = def.inject("session-demo");
+        const props = def.inject(session.sessionId);
         if (def.name === "conversation.chat.assistant-actions") {
-          props.messageId = fixture.messageId;
+          props.messageId = messageId;
           props.useFeedback = (selector) => useFeedback(props.hooks.feedback, selector);
           const open = props.openDialog;
           props.openDialog = (...args) => {

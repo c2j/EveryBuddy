@@ -72,3 +72,52 @@ the preview. This is still **not** a live dsh host/remote: it is a real session
 fixture plus a real persistence boundary, used to validate the bridge shape.
 
 Screenshot: `/tmp/eb-feedback-snapshot.png`.
+
+## Live A2 bridge
+
+The real A2 path is now wired end to end:
+
+```text
+rutis-dsh agent turn (scripted aimux)
+  → live dsh Session + assistant Message
+  → real dsh messageFeedback service
+  → HTTP :39472
+  → WebKit component host
+```
+
+The component host no longer needs localStorage for this path. It loads
+`/session` and uses `/feedback`, `/feedback/put`, `/feedback/delete`; when the
+bridge is absent it falls back to the snapshot/localStorage fixture.
+
+Start the bridge:
+
+```sh
+cd vendor/rutis-0.12
+EVOBUDDY_LIVE_BRIDGE=1 cargo test -p rutis-dsh --test feedback_bridge -- --nocapture
+```
+
+The test holds the bridge for 300 seconds after seeding one real feedback item.
+
+Serve the component host over HTTP (a file:// page cannot reliably call the
+bridge):
+
+```sh
+cd experiments/ui-feedback-webview
+python3 -m http.server 39473 --bind 127.0.0.1
+```
+
+Then:
+
+```sh
+EB_THEME_HOST="http://127.0.0.1:39473/index.html" \
+EB_THEME_SHOT=/tmp/eb-feedback-live-rating2.png \
+cargo run
+```
+
+Observed: session `evobuddy-live-…`, assistant `The code is RESULT:m2.`,
+rating `positive` loaded from the real service, and Submit wrote the item back
+to the live service. Screenshot: `/tmp/eb-feedback-live-rating2.png`.
+
+The bridge is still a test harness using a scripted LLM, not a long-running
+production daemon. The next step after A2 is moving the bridge out of the test
+binary into a managed EvoBuddy/rutis process.

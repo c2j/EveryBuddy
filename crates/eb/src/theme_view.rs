@@ -11,7 +11,7 @@ use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSBackingStoreType, NSWindow, NSWindowStyleMask,
 };
-use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
 
 pub fn open(index: &str) {
@@ -47,16 +47,22 @@ pub fn open(index: &str) {
     window.makeFirstResponder(Some(&*webview));
     webview.setFrame(window.contentView().map(|view| view.bounds()).unwrap_or(frame));
 
-    let url = NSURL::fileURLWithPath(&NSString::from_str(index));
-    let root = NSURL::fileURLWithPath(&NSString::from_str(
-        std::path::Path::new(index)
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .to_str()
-            .unwrap_or("."),
-    ));
-    unsafe {
-        webview.loadFileURL_allowingReadAccessToURL(&url, &root);
+    if index.starts_with("http://") || index.starts_with("https://") {
+        let url = NSURL::URLWithString(&NSString::from_str(index)).expect("valid preview URL");
+        let request = NSURLRequest::requestWithURL(&url);
+        unsafe { webview.loadRequest(&request) };
+    } else {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(index));
+        let root = NSURL::fileURLWithPath(&NSString::from_str(
+            std::path::Path::new(index)
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_str()
+                .unwrap_or("."),
+        ));
+        unsafe {
+            webview.loadFileURL_allowingReadAccessToURL(&url, &root);
+        }
     }
 
     if let Ok(path) = std::env::var("EB_THEME_SHOT") {
