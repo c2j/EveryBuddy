@@ -1167,3 +1167,25 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_secondary;
   font-size: 13px;
 }
+
+.eb-settings-ui-header {
+  margin-top: 18px;
+  margin-bottom: 8px;
+}
+
+.eb-settings-title-small {
+  color: @eb_text_primary;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.eb-settings-preview {
+  padding: 5px 10px;
+  border: 1px solid @border_strong;
+  border-radius: 7px;
+}
+
+.eb-settings-preview-label {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}

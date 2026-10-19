@@ -534,6 +534,63 @@ pub fn open() {
     }
     root.pack_start(&rows, false, false, 0);
 
+    let ui_header = vbox(2);
+    class(&ui_header, "eb-settings-ui-header");
+    ui_header.pack_start(
+        &text("UI plugin previews", "eb-settings-title-small"),
+        false,
+        false,
+        0,
+    );
+    ui_header.pack_start(
+        &text(
+            "Client bundles rendered in a WebKit component host. These are previews, not in-app panes yet.",
+            "eb-settings-description",
+        ),
+        false,
+        false,
+        0,
+    );
+    root.pack_start(&ui_header, false, false, 0);
+
+    let ui_rows = vbox(2);
+    class(&ui_rows, "eb-settings-rows");
+    for (_id, title, description, index) in [
+        (
+            "ui-theme",
+            "Theme",
+            "Real ui-theme bundle: Appearance and text size",
+            "experiments/ui-theme-webview/index.html",
+        ),
+        (
+            "ui-message-feedback",
+            "Message feedback",
+            "Real ui-message-feedback bundle: Like/Dislike and dialog",
+            "experiments/ui-feedback-webview/index.html",
+        ),
+    ] {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        class(&row, "eb-settings-row");
+        let copy = vbox(2);
+        copy.pack_start(&text(title, "eb-settings-name"), false, false, 0);
+        copy.pack_start(&text(description, "eb-settings-description"), false, false, 0);
+        row.pack_start(&copy, true, true, 0);
+        let open = flat_button("eb-settings-preview");
+        open.add(&text("Open preview", "eb-settings-preview-label"));
+        #[cfg(target_os = "macos")]
+        {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../..")
+                .join(index);
+            open.connect_clicked(move |_| {
+                crate::theme_view::open(&path.display().to_string());
+            });
+        }
+        row.pack_end(&open, false, false, 0);
+        ui_rows.pack_start(&row, false, false, 0);
+    }
+    root.pack_start(&ui_rows, false, false, 0);
+
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     class(&actions, "eb-settings-actions");
     let apply = flat_button("eb-settings-apply");
