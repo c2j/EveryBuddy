@@ -374,6 +374,16 @@ pub fn open_embedded(index: &str, anchor: &gtk::Widget) {
     let shot_for_monitor = shot.clone();
     let block = RcBlock::new(move |event: NonNull<NSEvent>| {
         let event = unsafe { event.as_ref() };
+        if std::env::var_os("EB_PANEL_DEBUG").is_some() {
+            eprintln!(
+                "embed monitor: {:?} at {:?} window={:?} bounds={:?} web={:?}",
+                event.r#type(),
+                event.locationInWindow(),
+                event.window(mtm).map(|w| w.frame()),
+                event.window(mtm).and_then(|w| w.contentView()).map(|v| v.bounds()),
+                shot_for_monitor.frame(),
+            );
+        }
         let Some(event_window) = event.window(mtm) else {
             return NonNull::from(event).as_ptr();
         };
