@@ -908,17 +908,33 @@ fn clear_children(container: &gtk::Box) {
 }
 
 fn fill_catalog(container: &gtk::Box, refresher: &Refresher) {
+    let intro = gtk::Label::new(Some(
+        "Agent profiles, reusable skills, and MCP connectors. Skills are instructions prepended to the next ACP turn.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_line_wrap(true);
+    class(&intro, "eb-catalog-intro");
+    container.pack_start(&intro, false, false, 0);
+
     let expert_header = gtk::Label::new(Some("Experts"));
     expert_header.set_xalign(0.0);
-    class(&expert_header, "eb-task-title");
+    class(&expert_header, "eb-catalog-section");
     container.pack_start(&expert_header, false, false, 0);
     let active_expert = crate::catalog::active_expert();
     for (name, description) in crate::catalog::experts() {
-        let row = hbox(8);
-        let label = gtk::Label::new(Some(&format!("{name} — {description}")));
-        label.set_xalign(0.0);
-        label.set_hexpand(true);
-        row.pack_start(&label, true, true, 0);
+        let card = hbox(10);
+        class(&card, "eb-skill-card");
+        let text = vbox(2);
+        let title = gtk::Label::new(Some(name));
+        title.set_xalign(0.0);
+        class(&title, "eb-skill-title");
+        text.pack_start(&title, false, false, 0);
+        let body = gtk::Label::new(Some(description));
+        body.set_xalign(0.0);
+        body.set_line_wrap(true);
+        class(&body, "eb-skill-meta");
+        text.pack_start(&body, false, false, 0);
+        card.pack_start(&text, true, true, 0);
         let selected = active_expert == Some(name);
         let button = gtk::Button::with_label(if selected { "Clear" } else { "Use" });
         let refresher = refresher.clone();
@@ -930,47 +946,111 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher) {
             }
             refresher.request();
         });
-        row.pack_end(&button, false, false, 0);
-        container.pack_start(&row, false, false, 0);
+        card.pack_end(&button, false, false, 0);
+        container.pack_start(&card, false, false, 0);
     }
+
     let skills = crate::catalog::skills();
     let active = skills.iter().filter(|skill| skill.enabled).count();
-    let header = gtk::Label::new(Some(&format!(
-        "Skills  ·  {active}/{} active",
-        skills.len()
-    )));
-    header.set_xalign(0.0);
-    class(&header, "eb-task-title");
-    container.pack_start(&header, false, false, 0);
+    let skill_header = gtk::Label::new(Some(&format!("Skills · {active}/{} active", skills.len())));
+    skill_header.set_xalign(0.0);
+    class(&skill_header, "eb-catalog-section");
+    container.pack_start(&skill_header, false, false, 0);
+    if skills.is_empty() {
+        let empty = gtk::Label::new(Some(
+            "No skills found. Add ~/.evobuddy/skills/<name>/SKILL.md to create one.",
+        ));
+        empty.set_xalign(0.0);
+        class(&empty, "eb-skill-meta");
+        container.pack_start(&empty, false, false, 0);
+    }
     for skill in skills {
-        let row = hbox(8);
-        let label = gtk::Label::new(Some(&format!("{} — {}", skill.name, skill.description)));
-        label.set_xalign(0.0);
-        label.set_line_wrap(true);
-        label.set_hexpand(true);
-        row.pack_start(&label, true, true, 0);
+        let card = vbox(3);
+        class(&card, "eb-skill-card");
+        let head = hbox(8);
+        let title = gtk::Label::new(Some(&skill.name));
+        title.set_xalign(0.0);
+        class(&title, "eb-skill-title");
+        head.pack_start(&title, false, false, 0);
+        let source = gtk::Label::new(Some(&skill.source));
+        source.set_xalign(0.0);
+        class(&source, "eb-skill-source");
+        head.pack_start(&source, false, false, 0);
         let button = gtk::Button::with_label(if skill.enabled { "Disable" } else { "Enable" });
         let name = skill.name.clone();
-        let refresher = refresher.clone();
+        let refresher_for_toggle = refresher.clone();
         button.connect_clicked(move |_| {
             crate::catalog::toggle(&name);
-            refresher.request();
+            refresher_for_toggle.request();
         });
-        row.pack_end(&button, false, false, 0);
-        container.pack_start(&row, false, false, 0);
+        head.pack_end(&button, false, false, 0);
+        let view = gtk::Button::with_label("View");
+        let body = skill.body.clone();
+        let title_text = skill.name.clone();
+        view.connect_clicked(move |_| {
+            let window = gtk::Window::new(gtk::WindowType::Toplevel);
+            window.set_title(&title_text);
+            window.set_default_size(620, 480);
+            let view = gtk::TextView::new();
+            view.set_editable(false);
+            view.set_wrap_mode(gtk::WrapMode::Word);
+            if let Some(buffer) = view.buffer() { buffer.set_text(&body); }
+            let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+            scroll.add(&view);
+            window.add(&scroll);
+            window.show_all();
+        });
+        head.pack_end(&view, false, false, 0);
+        card.pack_start(&head, false, false, 0);
+        if !skill.description.is_empty() {
+            let description = gtk::Label::new(Some(&skill.description));
+            description.set_xalign(0.0);
+            description.set_line_wrap(true);
+            class(&description, "eb-skill-meta");
+            card.pack_start(&description, false, false, 0);
+        }
+        if !skill.triggers.is_empty() {
+            let triggers = gtk::Label::new(Some(&format!("Triggers: {}", skill.triggers.join(", "))));
+            triggers.set_xalign(0.0);
+            class(&triggers, "eb-skill-meta");
+            card.pack_start(&triggers, false, false, 0);
+        }
+        if let Some(error) = &skill.error {
+            let error = gtk::Label::new(Some(error));
+            error.set_xalign(0.0);
+            class(&error, "eb-skill-error");
+            card.pack_start(&error, false, false, 0);
+        }
+        container.pack_start(&card, false, false, 0);
     }
+
     let connector_header = gtk::Label::new(Some("Connectors"));
     connector_header.set_xalign(0.0);
-    class(&connector_header, "eb-task-title");
+    class(&connector_header, "eb-catalog-section");
     container.pack_start(&connector_header, false, false, 0);
     for (name, state) in crate::catalog::connectors() {
-        let label = gtk::Label::new(Some(&format!("{name} — {state}")));
+        let card = hbox(8);
+        class(&card, "eb-skill-card");
+        let label = gtk::Label::new(Some(&name));
         label.set_xalign(0.0);
-        container.pack_start(&label, false, false, 0);
+        class(&label, "eb-skill-title");
+        card.pack_start(&label, true, true, 0);
+        let state = gtk::Label::new(Some(&state));
+        class(&state, "eb-skill-source");
+        card.pack_end(&state, false, false, 0);
+        container.pack_start(&card, false, false, 0);
     }
 }
 
 fn fill_scheduled(container: &gtk::Box, refresher: &Refresher) {
+    let intro = gtk::Label::new(Some(
+        "Scheduled prompts run through the normal task, workspace, session, and ACP path.",
+    ));
+    intro.set_xalign(0.0);
+    intro.set_line_wrap(true);
+    class(&intro, "eb-catalog-intro");
+    container.pack_start(&intro, false, false, 0);
+
     let entry = gtk::Entry::new();
     entry.set_placeholder_text(Some("Prompt to run in one minute"));
     container.pack_start(&entry, false, false, 0);
@@ -981,25 +1061,67 @@ fn fill_scheduled(container: &gtk::Box, refresher: &Refresher) {
         let prompt = entry_for_add.text().to_string();
         if !prompt.trim().is_empty() {
             crate::catalog::add_scheduled(&prompt, &prompt, 60);
+            entry_for_add.set_text("");
             refresher_for_add.request();
         }
     });
     container.pack_start(&add, false, false, 0);
+
     let jobs = crate::catalog::scheduled();
+    let header = gtk::Label::new(Some(&format!("Queue · {} job(s)", jobs.len())));
+    header.set_xalign(0.0);
+    class(&header, "eb-catalog-section");
+    container.pack_start(&header, false, false, 0);
     if jobs.is_empty() {
-        let label = gtk::Label::new(Some(
-            "No scheduled tasks. Add entries to ~/.evobuddy/scheduled.json as \
-             [{\"title\":\"…\",\"prompt\":\"…\",\"due_at\":\"ISO-8601\"}].",
-        ));
-        label.set_line_wrap(true);
-        label.set_xalign(0.0);
-        container.pack_start(&label, false, false, 0);
+        let empty = gtk::Label::new(Some("Nothing scheduled."));
+        empty.set_xalign(0.0);
+        class(&empty, "eb-skill-meta");
+        container.pack_start(&empty, false, false, 0);
         return;
     }
-    for (title, prompt, due) in jobs {
-        let label = gtk::Label::new(Some(&format!("{title} — {due}\n{prompt}")));
-        label.set_xalign(0.0);
-        label.set_line_wrap(true);
-        container.pack_start(&label, false, false, 0);
+    for (index, (title, prompt, due)) in jobs.into_iter().enumerate() {
+        let card = vbox(3);
+        class(&card, "eb-skill-card");
+        let head = hbox(8);
+        let name = gtk::Label::new(Some(&title));
+        name.set_xalign(0.0);
+        class(&name, "eb-skill-title");
+        head.pack_start(&name, false, false, 0);
+        let when = gtk::Label::new(Some(&due_label(&due)));
+        class(&when, "eb-skill-source");
+        head.pack_start(&when, false, false, 0);
+        let run = gtk::Button::with_label("Run now");
+        let refresher_run = refresher.clone();
+        run.connect_clicked(move |_| {
+            crate::catalog::run_scheduled(index);
+            refresher_run.request();
+        });
+        head.pack_end(&run, false, false, 0);
+        let delete = gtk::Button::with_label("Delete");
+        let refresher_delete = refresher.clone();
+        delete.connect_clicked(move |_| {
+            crate::catalog::remove_scheduled(index);
+            refresher_delete.request();
+        });
+        head.pack_end(&delete, false, false, 0);
+        card.pack_start(&head, false, false, 0);
+        let body = gtk::Label::new(Some(&prompt));
+        body.set_xalign(0.0);
+        body.set_line_wrap(true);
+        class(&body, "eb-skill-meta");
+        card.pack_start(&body, false, false, 0);
+        container.pack_start(&card, false, false, 0);
+    }
+}
+
+fn due_label(due: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0);
+    match due.parse::<u64>() {
+        Ok(at) if at <= now => "due now".into(),
+        Ok(at) => format!("in {}s", at - now),
+        Err(_) => due.to_string(),
     }
 }

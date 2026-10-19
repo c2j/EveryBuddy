@@ -1203,3 +1203,40 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_primary;
   font-size: 13px;
 }
+
+/* Catalog: experts, skills, connectors */
+.eb-catalog-intro {
+  color: @eb_text_secondary;
+  font-size: 13px;
+  margin: 0 0 14px 0;
+}
+.eb-catalog-section {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 14px 0 6px 0;
+}
+.eb-skill-card {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 3px 0;
+}
+.eb-skill-title {
+  font-weight: 600;
+  color: @eb_text_primary;
+}
+.eb-skill-meta {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+.eb-skill-source {
+  color: @eb_text_tertiary;
+  font-size: 11px;
+  margin-left: 6px;
+}
+.eb-skill-error {
+  color: #b42318;
+  font-size: 12px;
+}
