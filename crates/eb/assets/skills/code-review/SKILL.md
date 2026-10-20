@@ -2,6 +2,7 @@
 name: code-review
 description: Review a change for correctness, regressions, and missing tests.
 version: 1
+examples: ["Review the current changes", "Find the regression this diff introduces"]
 triggers: [review, diff, bug, regression]
 ---
 When reviewing code:

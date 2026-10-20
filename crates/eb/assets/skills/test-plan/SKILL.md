@@ -2,6 +2,7 @@
 name: test-plan
 description: Turn a change into a focused, runnable test plan.
 version: 1
+examples: ["Create a test plan for this diff", "Which tests are missing?"]
 triggers: [test, coverage, regression]
 ---
 When producing a test plan:

@@ -4,14 +4,35 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct Skill {
+    pub id: String,
     pub name: String,
     pub description: String,
+    pub version: String,
     pub triggers: Vec<String>,
+    pub examples: Vec<String>,
     pub body: String,
     pub source: String,
     pub path: String,
     pub enabled: bool,
     pub error: Option<String>,
+}
+
+fn skill_id(name: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in name.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("skill_{hash:016x}")
+}
+
+fn parse_list(value: &str) -> Vec<String> {
+    value
+        .trim_matches(['[', ']'])
+        .split(',')
+        .map(|item| item.trim().trim_matches('"').trim_matches('\'').to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
 }
 
 const BUILTIN: &[(&str, &str)] = &[
@@ -104,7 +125,9 @@ pub fn set_expert(name: Option<&str>) {
 fn parse_skill(raw: &str, fallback_name: &str, source: &str, path: &str) -> Skill {
     let mut name = fallback_name.to_string();
     let mut description = String::new();
+    let mut version = "1.0.0".to_string();
     let mut triggers = Vec::new();
+    let mut examples = Vec::new();
     let mut error = None;
     let mut body = raw.trim().to_string();
     if let Some(rest) = raw.strip_prefix("---") {
@@ -118,14 +141,15 @@ fn parse_skill(raw: &str, fallback_name: &str, source: &str, path: &str) -> Skil
                 match key.trim() {
                     "name" if !value.is_empty() => name = value.to_string(),
                     "description" => description = value.to_string(),
-                    "triggers" => {
-                        triggers = value
-                            .trim_matches(['[', ']'])
-                            .split(',')
-                            .map(|item| item.trim().trim_matches('"').trim_matches('\'').to_string())
-                            .filter(|item| !item.is_empty())
-                            .collect();
+                    "version" => {
+                        version = if value.contains('.') {
+                            value.to_string()
+                        } else {
+                            format!("{value}.0.0")
+                        };
                     }
+                    "triggers" => triggers = parse_list(value),
+                    "examples" => examples = parse_list(value),
                     _ => {}
                 }
             }
@@ -145,9 +169,12 @@ fn parse_skill(raw: &str, fallback_name: &str, source: &str, path: &str) -> Skil
         error = Some("skill body is empty".into());
     }
     Skill {
+        id: skill_id(&name),
         name,
         description,
+        version,
         triggers,
+        examples,
         body,
         source: source.into(),
         path: path.into(),
@@ -180,9 +207,12 @@ pub fn skills() -> Vec<Skill> {
                 Ok(raw) => raw,
                 Err(error) => {
                     out.push(Skill {
+                        id: skill_id(&fallback),
                         name: fallback,
                         description: String::new(),
+                        version: "unknown".into(),
                         triggers: Vec::new(),
+                        examples: Vec::new(),
                         body: String::new(),
                         source: "user".into(),
                         path,

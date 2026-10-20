@@ -2,6 +2,7 @@
 name: release-notes
 description: Turn merged changes into concise user-facing release notes.
 version: 1
+examples: ["Write release notes for this change", "Summarize the breaking changes"]
 triggers: [release, changelog, notes]
 ---
 When writing release notes:

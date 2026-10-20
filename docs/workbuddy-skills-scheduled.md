@@ -65,6 +65,12 @@ Connectors
 
 ![EvoBuddy skills surface](/tmp/skillui4.png)
 
+Clicking `Details` opens a market-style detail sheet with version, usage/install
+placeholders, example prompts (Copy), skill ID, Install toggle, and full
+instructions.
+
+![Skill detail](/tmp/skill-detail-final.png)
+
 Example scheduled run observed in the log:
 
 ```text

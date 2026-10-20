@@ -1306,9 +1306,12 @@ fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refreshe
     }
     let view = gtk::Button::with_label("Details");
     view.set_halign(gtk::Align::Start);
-    let body = skill.body.clone();
-    let title_text = skill.name.clone();
-    view.connect_clicked(move |_| open_skill_view(&title_text, &body));
+    let skill_for_view = skill.clone();
+    let store_for_view = store.clone();
+    let refresher_for_view = refresher.clone();
+    view.connect_clicked(move |_| {
+        open_skill_detail(skill_for_view.clone(), &store_for_view, &refresher_for_view)
+    });
     card.pack_start(&view, false, false, 0);
     card
 }
@@ -1424,6 +1427,131 @@ fn open_skill_view(title: &str, body: &str) {
     let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
     scroll.add(&view);
     window.add(&scroll);
+    window.show_all();
+}
+
+fn open_skill_detail(skill: crate::catalog::Skill, store: &Store, refresher: &Refresher) {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title(&skill.name);
+    window.set_default_size(720, 640);
+    window.set_modal(true);
+    window.set_decorated(false);
+    window.set_position(gtk::WindowPosition::Center);
+    window.set_keep_above(true);
+    let root = vbox(10);
+    root.set_margin_top(20);
+    root.set_margin_bottom(20);
+    root.set_margin_start(24);
+    root.set_margin_end(24);
+
+    let header = hbox(14);
+    let icon = gtk::Label::new(Some("◆"));
+    class(&icon, "eb-skill-detail-icon");
+    header.pack_start(&icon, false, false, 0);
+    let title_box = vbox(6);
+    let title = gtk::Label::new(Some(&skill.name));
+    title.set_xalign(0.0);
+    class(&title, "eb-skill-detail-title");
+    title_box.pack_start(&title, false, false, 0);
+    let install = gtk::Button::with_label(if skill.enabled { "Installed" } else { "Install" });
+    install.set_halign(gtk::Align::Start);
+    let store_for_install = store.clone();
+    let refresher_for_install = refresher.clone();
+    let name = skill.name.clone();
+    let install_for_click = install.clone();
+    let was_enabled = skill.enabled;
+    install.connect_clicked(move |_| {
+        crate::catalog::toggle(&name);
+        install_for_click.set_label(if was_enabled { "Install" } else { "Installed" });
+        store_for_install.borrow_mut().catalog_tab = 1;
+        refresher_for_install.request();
+    });
+    title_box.pack_start(&install, false, false, 0);
+    header.pack_start(&title_box, true, true, 0);
+    let close = gtk::Button::with_label("×");
+    class(&close, "eb-skill-detail-close");
+    let window_for_close = window.clone();
+    close.connect_clicked(move |_| window_for_close.close());
+    header.pack_end(&close, false, false, 0);
+    root.pack_start(&header, false, false, 0);
+
+    let description = gtk::Label::new(Some(&skill.description));
+    description.set_xalign(0.0);
+    description.set_line_wrap(true);
+    class(&description, "eb-skill-detail-description");
+    root.pack_start(&description, false, false, 0);
+    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+
+    let stats = hbox(12);
+    for (value, label) in [
+        (skill.version.clone(), "Version"),
+        ("No data".to_string(), "Usage"),
+        ("No data".to_string(), "Installs"),
+    ] {
+        let column = vbox(2);
+        column.set_hexpand(true);
+        let value = gtk::Label::new(Some(&value));
+        class(&value, "eb-skill-detail-stat");
+        column.pack_start(&value, false, false, 0);
+        let label = gtk::Label::new(Some(label));
+        class(&label, "eb-skill-stats");
+        column.pack_start(&label, false, false, 0);
+        stats.pack_start(&column, true, true, 0);
+    }
+    root.pack_start(&stats, false, false, 0);
+    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+
+    let try_header = gtk::Label::new(Some("Try it like this"));
+    try_header.set_xalign(0.0);
+    class(&try_header, "eb-catalog-section");
+    root.pack_start(&try_header, false, false, 0);
+    let examples = if skill.examples.is_empty() {
+        vec![
+            format!("Use {} on the current task", skill.name),
+            format!("Review this change with {}", skill.name),
+        ]
+    } else {
+        skill.examples.clone()
+    };
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    class(&status, "eb-skill-stats");
+    for example in examples {
+        let row = hbox(8);
+        let label = gtk::Label::new(Some(&example));
+        label.set_xalign(0.0);
+        label.set_hexpand(true);
+        label.set_line_wrap(true);
+        row.pack_start(&label, true, true, 0);
+        let copy = gtk::Button::with_label("Copy");
+        let example_for_copy = example.clone();
+        let status_for_copy = status.clone();
+        copy.connect_clicked(move |_| {
+            let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+            clipboard.set_text(&example_for_copy);
+            clipboard.store();
+            status_for_copy.set_text("Copied to clipboard");
+        });
+        row.pack_end(&copy, false, false, 0);
+        root.pack_start(&row, false, false, 0);
+    }
+    root.pack_start(&status, false, false, 0);
+
+    let more = gtk::Label::new(Some("More"));
+    more.set_xalign(0.0);
+    class(&more, "eb-catalog-section");
+    root.pack_start(&more, false, false, 0);
+    let id = gtk::Label::new(Some(&format!("ID: {}", skill.id)));
+    id.set_xalign(0.0);
+    class(&id, "eb-skill-meta");
+    root.pack_start(&id, false, false, 0);
+    let instructions = gtk::Button::with_label("View instructions");
+    let body = skill.body.clone();
+    let title_text = skill.name.clone();
+    instructions.connect_clicked(move |_| open_skill_view(&title_text, &body));
+    root.pack_start(&instructions, false, false, 0);
+
+    window.add(&root);
     window.show_all();
 }
 
