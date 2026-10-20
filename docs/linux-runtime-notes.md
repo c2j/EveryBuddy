@@ -66,3 +66,11 @@ GTK_IM_MODULE=xim XMODIFIERS=@im=fcitx LC_ALL=zh_CN.UTF-8 ./evobuddy-0.4.3-linux
 
 If that still does not work, check that the fcitx XIM server is running and that
 the locale is installed (`locale -a` contains `zh_CN.utf8`).
+
+
+## Small desktop / Kylin 1366x768
+
+The measured welcome column is 1440x868. Kylin desktops are often 1366x768;
+the window now caps itself to the monitor workarea and the welcome column
+scrolls vertically instead of hanging below the screen. The sidebar stays 280px
+and the conversation layout still fills the available width.

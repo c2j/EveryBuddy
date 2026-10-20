@@ -117,7 +117,14 @@ pub fn build(composer: &Rc<Composer>, wiring: &Wiring, contribs: &Contribs) -> W
         mascot.set_margin_end(40);
         stage.add_overlay(&mascot);
     }
-    root.pack_start(&stage, true, true, 0);
+    // On a 1366x768 Kylin desktop the measured 1440x868 column is taller than
+    // the workarea. Keep the column intact, but let it scroll vertically
+    // instead of forcing the whole window past the bottom of the screen.
+    let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_overlay_scrolling(true);
+    scroll.add(&stage);
+    root.pack_start(&scroll, true, true, 0);
 
     let notice = gtk::Label::new(Some(spec::NOTICE));
     class(&notice, "eb-notice");

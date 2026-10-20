@@ -142,7 +142,7 @@ pub fn build(
 
     let window = gtk::ApplicationWindow::new(application);
     window.set_title(spec::APP_NAME);
-    window.set_default_size(spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT);
+    fit_to_workarea(&window);
     window.set_size_request(640, 480);
     class(&window, "eb-window");
 
@@ -438,6 +438,29 @@ pub fn build(
     };
 
     (views, probes)
+}
+
+/// Keep the 1440x868 design size when the desktop has room, but never open
+/// larger than the monitor workarea. Kylin desktops are often 1366x768; a
+/// 1440x868 window there hangs off the screen and clips the composer.
+fn fit_to_workarea(window: &gtk::ApplicationWindow) {
+    let area = gtk::gdk::Display::default()
+        .and_then(|display| display.primary_monitor().or_else(|| display.monitor(0)))
+        .map(|monitor| monitor.workarea());
+    let (width, height) = match area {
+        Some(area) if area.width() >= spec::WINDOW_WIDTH
+            && area.height() >= spec::WINDOW_HEIGHT =>
+        {
+            (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT)
+        }
+        Some(area) => (
+            (area.width() - 16).clamp(640, spec::WINDOW_WIDTH),
+            (area.height() - 56).clamp(480, spec::WINDOW_HEIGHT),
+        ),
+        None => (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT),
+    };
+    window.set_default_size(width, height);
+    window.set_position(gtk::WindowPosition::Center);
 }
 
 /// Finish wiring a view tree: install the repaint and paint the first frame.

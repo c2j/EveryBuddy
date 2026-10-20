@@ -143,14 +143,14 @@ dependencies = [
 
 [[package]]
 name = "eb-api"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "rutis",
 ]
 
 [[package]]
 name = "eb-plugin-acp-agent"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "eb-api",
  "serde_json",
@@ -158,28 +158,28 @@ dependencies = [
 
 [[package]]
 name = "eb-plugin-composer"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "eb-api",
 ]
 
 [[package]]
 name = "eb-plugin-demo-agent"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "eb-api",
 ]
 
 [[package]]
 name = "eb-plugin-nav"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "eb-api",
 ]
 
 [[package]]
 name = "eb-plugin-notices"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "eb-api",
 ]
@@ -192,7 +192,7 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "evobuddy"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "block2",
  "cairo-rs",
