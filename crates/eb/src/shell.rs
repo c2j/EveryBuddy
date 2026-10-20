@@ -154,7 +154,19 @@ pub fn build(
         let route = routes.get(index).copied().unwrap_or("");
         app.select_nav(index, route);
     });
-    let open_task = act1(store, &refresher, |app, index: usize| app.open_task(index));
+    let open_task = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move |index: usize| {
+            let mut app = store.borrow_mut();
+            app.open_task(index);
+            app.model = crate::router::menu_index(
+                app.tasks.get(index).and_then(|task| task.agent_route.as_deref()),
+            );
+            drop(app);
+            refresher.request();
+        }) as Rc<dyn Fn(usize)>
+    };
     let scene = act1(store, &refresher, |app, scene: Scene| app.set_scene(scene));
     let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime, window.clone());
     let submit = {
@@ -166,19 +178,32 @@ pub fn build(
             agent.submit(text)
         })
     };
-    let pick = act2(store, &refresher, |app, picker: Picker, index: usize| {
-        match picker {
-            Picker::Model => {
-                crate::models::select(index);
-                app.model = index;
+    let pick = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move |picker: Picker, index: usize| {
+            let mut app = store.borrow_mut();
+            match picker {
+                Picker::Model => {
+                    app.model = index;
+                    let route = crate::router::route_for_menu(index).map(str::to_string);
+                    if let Route::Task(task_index) = app.route {
+                        if let Some(task) = app.tasks.get_mut(task_index) {
+                            task.agent_route = route;
+                        }
+                    }
+                }
+                Picker::Workspace => app.workspace = index,
+                Picker::Permission => app.permission = index,
+                // The add-context menu performs an action; there is nothing to
+                // remember between openings.
+                Picker::Add => {}
             }
-            Picker::Workspace => app.workspace = index,
-            Picker::Permission => app.permission = index,
-            // The add-context menu performs an action; there is nothing to
-            // remember between openings.
-            Picker::Add => {}
-        }
-    });
+            drop(app);
+            crate::state::save(&store);
+            refresher.request();
+        }) as Rc<dyn Fn(Picker, usize)>
+    };
     let collapse = act0(store, &refresher, |app| app.sidebar_visible = false);
     let reveal = act0(store, &refresher, |app| app.sidebar_visible = true);
     let maximise = act0(store, &refresher, |app| {

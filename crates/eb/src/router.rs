@@ -280,6 +280,25 @@ impl AnswerSource for AgentRouter {
         let source = self.source(&config);
         source.start_in(prompt, sink, permissions, workspace)
     }
+
+    fn start_in_route(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: Arc<dyn PermissionPrompter>,
+        workspace: Option<PathBuf>,
+        route: Option<&str>,
+    ) -> Box<dyn AnswerHandle> {
+        let config = self.config();
+        let source: Arc<dyn AnswerSource> = match route {
+            Some("acp:opencode") => self.acp_source(AcpChoice::Opencode),
+            Some("acp:grok") => self.acp_source(AcpChoice::Grok),
+            Some("dsh") => self.dsh.clone(),
+            Some("custom") => Arc::new(CustomModel::new(config.custom.clone())),
+            _ => self.source(&config),
+        };
+        source.start_in(prompt, sink, permissions, workspace)
+    }
 }
 
 static ROUTER: OnceLock<Arc<AgentRouter>> = OnceLock::new();
@@ -343,5 +362,47 @@ mod tests {
         for route in [DefaultRoute::Acp, DefaultRoute::Dsh, DefaultRoute::Custom, DefaultRoute::Demo] {
             assert_eq!(DefaultRoute::parse(route.id()), route);
         }
+    }
+}
+
+
+/// Menu order shared by the composer selector and Settings labels.
+pub fn menu_labels() -> Vec<&'static str> {
+    vec![
+        "Default",
+        "ACP · opencode",
+        "ACP · Grok Build",
+        "dsh",
+        "Custom Model",
+    ]
+}
+
+pub fn route_for_menu(index: usize) -> Option<&'static str> {
+    match index {
+        1 => Some("acp:opencode"),
+        2 => Some("acp:grok"),
+        3 => Some("dsh"),
+        4 => Some("custom"),
+        _ => None,
+    }
+}
+
+pub fn menu_index(route: Option<&str>) -> usize {
+    match route {
+        Some("acp:opencode") => 1,
+        Some("acp:grok") => 2,
+        Some("dsh") => 3,
+        Some("custom") => 4,
+        _ => 0,
+    }
+}
+
+pub fn route_label(route: Option<&str>) -> String {
+    match route {
+        Some("acp:opencode") => "ACP · opencode".into(),
+        Some("acp:grok") => "ACP · Grok Build".into(),
+        Some("dsh") => "dsh".into(),
+        Some("custom") => "Custom Model".into(),
+        _ => format!("Default · {}", label()),
     }
 }

@@ -42,7 +42,18 @@ one scroll.
 The host now mounts an `AgentRouter` as its single answer source. Every new turn
 resolves the current route, so switching ACP / dsh / custom model does not restart
 EvoBuddy. A running turn keeps its old source and finishes; the next message uses
-the new default.
+the new route.
+
+Settings' Default route is global. The composer model menu also offers:
+
+- `Default` — follow the current global route
+- `ACP · opencode`
+- `ACP · Grok Build`
+- `dsh`
+- `Custom Model`
+
+Selecting one writes `Task.agent_route`, so that conversation keeps its own route
+across sends and restarts while other conversations keep the global default.
 
 ### Custom Model
 

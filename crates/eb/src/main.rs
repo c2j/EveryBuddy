@@ -205,18 +205,22 @@ fn build_ui(application: &gtk::Application) {
             let mut app = store.borrow_mut();
             app.tasks = tasks
                 .into_iter()
-                .map(|(title, session_id, workspace)| model::Task {
+                .map(|(title, session_id, workspace, agent_route)| model::Task {
                     title,
                     meta: String::new(),
                     turns: Vec::new(),
                     artifact: None,
                     session_id,
                     workspace,
+                    agent_route,
                     usage: None,
                 })
                 .collect();
             app.route = model::Route::Task(0);
             app.nav = None;
+            app.model = crate::router::menu_index(
+                app.tasks.first().and_then(|task| task.agent_route.as_deref()),
+            );
         }
     }
     let (views, probes) = shell::build(
@@ -273,6 +277,7 @@ fn build_ui(application: &gtk::Application) {
                         streaming: false,
                     },
                 ],
+                agent_route: None,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

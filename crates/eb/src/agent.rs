@@ -75,6 +75,7 @@ impl AgentRuntime {
         sink: AgentSink,
         permissions: Arc<dyn PermissionPrompter>,
         workspace: Option<std::path::PathBuf>,
+        route: Option<String>,
     ) -> Result<Box<dyn AnswerHandle>, String> {
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
         let tx = self
@@ -83,7 +84,7 @@ impl AgentRuntime {
             .ok_or_else(|| "the agent runtime is gone".to_string())?;
         tx.send(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                source.start_in(&prompt, sink, permissions, workspace)
+                source.start_in_route(&prompt, sink, permissions, workspace, route.as_deref())
             }))
             .map_err(|_| "the agent panicked while starting".to_string());
             let _ = reply_tx.send(result);
@@ -290,13 +291,26 @@ impl Runner {
         }
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();
+        let route = self
+            .store
+            .borrow()
+            .tasks
+            .get(task)
+            .and_then(|task| task.agent_route.clone());
 
         let agent_text = crate::catalog::prompt_for(&text);
         let (sink, stream) = AgentSink::channel();
         let handle =
             match self
                 .runtime
-                .start(self.source.clone(), agent_text, sink, self.permissions.clone(), workspace.clone())
+                .start(
+                    self.source.clone(),
+                    agent_text,
+                    sink,
+                    self.permissions.clone(),
+                    workspace.clone(),
+                    route,
+                )
             {
                 Ok(handle) => handle,
                 Err(message) => {

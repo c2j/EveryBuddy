@@ -22,6 +22,7 @@ pub fn save(store: &Store) {
             "title": task.title,
             "session_id": task.session_id,
             "workspace": task.workspace,
+            "agent_route": task.agent_route,
         }))
         .collect();
     let path = path();
@@ -31,7 +32,7 @@ pub fn save(store: &Store) {
     let _ = std::fs::write(path, serde_json::to_string_pretty(&tasks).unwrap_or_default());
 }
 
-pub fn load() -> Vec<(String, Option<String>, Option<String>)> {
+pub fn load() -> Vec<(String, Option<String>, Option<String>, Option<String>)> {
     let Ok(text) = std::fs::read_to_string(path()) else { return Vec::new() };
     let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return Vec::new() };
     values
@@ -41,6 +42,7 @@ pub fn load() -> Vec<(String, Option<String>, Option<String>)> {
                 value["title"].as_str()?.to_string(),
                 value["session_id"].as_str().map(str::to_string),
                 value["workspace"].as_str().map(str::to_string),
+                value["agent_route"].as_str().map(str::to_string),
             ))
         })
         .collect()

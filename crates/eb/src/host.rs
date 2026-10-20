@@ -119,7 +119,7 @@ impl Host {
 
         let mut contribs = contribs.lock().unwrap().clone();
         if let Some((_, items)) = contribs.menus.iter_mut().find(|(name, _)| *name == "model") {
-            *items = crate::models::menu_labels();
+            *items = crate::router::menu_labels();
         }
         let agent_runtime = Arc::new(AgentRuntime::new());
         let host = Host {

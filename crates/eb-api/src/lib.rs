@@ -239,6 +239,20 @@ pub trait AnswerSource: Send + Sync + 'static {
         self.start(prompt, sink)
     }
 
+    /// Start with an optional per-conversation route override. Sources that do
+    /// not route simply ignore it.
+    fn start_in_route(
+        &self,
+        prompt: &str,
+        sink: AgentSink,
+        permissions: std::sync::Arc<dyn PermissionPrompter>,
+        workspace: Option<std::path::PathBuf>,
+        route: Option<&str>,
+    ) -> Box<dyn AnswerHandle> {
+        let _ = route;
+        self.start_in(prompt, sink, permissions, workspace)
+    }
+
     /// Start with a host-provided permission prompt. Sources that never ask for
     /// permission can keep implementing only [`AnswerSource::start`].
     fn start_with_permissions(

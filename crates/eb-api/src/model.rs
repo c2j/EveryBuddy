@@ -56,6 +56,9 @@ pub struct Task {
     pub session_id: Option<String>,
     /// The isolated directory the agent runs in for this task.
     pub workspace: Option<String>,
+    /// Per-conversation route override (`acp:opencode`, `acp:grok`, `dsh`,
+    /// `custom`). None means the global default.
+    pub agent_route: Option<String>,
     /// The last context-usage reading reported by the agent, if any.
     pub usage: Option<(u32, u32)>,
 }
@@ -252,6 +255,7 @@ impl App {
             artifact: None,
             session_id: None,
             workspace: None,
+            agent_route: None,
             usage: None,
         });
 
