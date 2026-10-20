@@ -92,6 +92,9 @@ pub struct Task {
     pub updated_at: Option<u64>,
     /// Pinned tasks float to the top of their sidebar section.
     pub pinned: bool,
+    /// Archived tasks sink to the bottom of their section, greyed out, until
+    /// unarchived from the task menu.
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -296,6 +299,7 @@ impl App {
             started_at: Some(std::time::Instant::now()),
             updated_at: Some(unix_now()),
             pinned: false,
+            archived: false,
         });
 
         self.nav = None;

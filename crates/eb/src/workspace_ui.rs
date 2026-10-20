@@ -213,6 +213,94 @@ fn save_task_to_workspace(
     refresher.request();
 }
 
+/// Share Task: copy the transcript (title plus every turn) to the clipboard.
+/// Genuinely useful today; a proper share sheet can replace this later.
+fn share_task(store: &Store, index: usize) {
+    let text = {
+        let app = store.borrow();
+        let Some(task) = app.tasks.get(index) else {
+            return;
+        };
+        let mut out = format!("{}\n", task.title);
+        for turn in &task.turns {
+            match turn {
+                crate::model::Turn::User { text, .. } => {
+                    out.push_str("\n— user —\n");
+                    out.push_str(text);
+                }
+                crate::model::Turn::Agent { name, blocks, .. } => {
+                    out.push_str("\n— ");
+                    out.push_str(name);
+                    out.push_str(" —\n");
+                    for block in blocks {
+                        if let crate::model::Block::Text(text) = block {
+                            out.push_str(text);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    };
+    let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+    clipboard.set_text(&text);
+}
+
+/// Open in a separate window: a read-only transcript window for the task. The
+/// window intentionally outlives this call — GTK keeps top levels alive until
+/// the user closes them.
+fn open_in_window(store: &Store, index: usize) {
+    let (title, body) = {
+        let app = store.borrow();
+        let Some(task) = app.tasks.get(index) else {
+            return;
+        };
+        let mut out = String::new();
+        for turn in &task.turns {
+            match turn {
+                crate::model::Turn::User { text, .. } => {
+                    out.push_str("— user —\n");
+                    out.push_str(text);
+                    out.push_str("\n\n");
+                }
+                crate::model::Turn::Agent { name, blocks, .. } => {
+                    out.push_str("— ");
+                    out.push_str(name);
+                    out.push_str(" —\n");
+                    for block in blocks {
+                        if let crate::model::Block::Text(text) = block {
+                            out.push_str(text);
+                        }
+                    }
+                    out.push_str("\n\n");
+                }
+                _ => {}
+            }
+        }
+        (task.title.clone(), out)
+    };
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title(&format!("{title} — EvoBuddy"));
+    window.set_default_size(720, 560);
+    let scroller = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    let view = gtk::TextView::new();
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_wrap_mode(gtk::WrapMode::Word);
+    view.set_margin_top(12);
+    view.set_margin_bottom(12);
+    view.set_margin_start(12);
+    view.set_margin_end(12);
+    view.buffer()
+        .expect("text view always has a buffer")
+        .set_text(&body);
+    scroller.add(&view);
+    window.add(&scroller);
+    window.show_all();
+}
+
 /// Task row `...` menu actions (WorkBuddy parity subset).
 pub fn run_task(
     window: &gtk::ApplicationWindow,
@@ -235,6 +323,18 @@ pub fn run_task(
         crate::sidebar::TaskAction::Rename => rename_task(window, store, refresher, index),
         crate::sidebar::TaskAction::SaveToWorkspace => {
             save_task_to_workspace(window, store, refresher, index);
+        }
+        crate::sidebar::TaskAction::ShareTask => share_task(store, index),
+        crate::sidebar::TaskAction::OpenWindow => open_in_window(store, index),
+        crate::sidebar::TaskAction::Archive => {
+            let mut app = store.borrow_mut();
+            if let Some(task) = app.tasks.get_mut(index) {
+                task.archived = !task.archived;
+                task.updated_at = Some(now());
+            }
+            drop(app);
+            crate::state::save(store);
+            refresher.request();
         }
         crate::sidebar::TaskAction::OpenFolder => open_task_folder(store, index),
         crate::sidebar::TaskAction::Delete => delete_task(window, store, refresher, index),

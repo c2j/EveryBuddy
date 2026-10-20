@@ -153,6 +153,7 @@ pub struct Composer {
     streaming: Rc<Cell<bool>>,
     workspace_label: Option<gtk::Label>,
     workspace_choice: Rc<Cell<usize>>,
+    workspace_button: Option<gtk::Button>,
     model_label: gtk::Label,
     model_choice: Rc<Cell<usize>>,
     usage: Option<UsageWidget>,
@@ -220,6 +221,7 @@ impl Composer {
 
         let mut workspace_label = None;
         let mut workspace_choice = Rc::new(Cell::new(space_index));
+        let mut workspace_button: Option<gtk::Button> = None;
         let mut model_label = gtk::Label::new(None);
         let mut model_choice = Rc::new(Cell::new(model));
         let (toolbar, enhance) = match variant {
@@ -231,7 +233,7 @@ impl Composer {
                 (bar, hidden_enhance())
             }
             Variant::Chat => {
-                let (bar, enhance, ws_label, ws_choice, m_label, m_choice) = chat_toolbar(
+                let (bar, enhance, ws_pill, ws_label, ws_choice, m_label, m_choice) = chat_toolbar(
                     permission,
                     model,
                     space_index,
@@ -240,6 +242,7 @@ impl Composer {
                     &wiring,
                     contribs,
                 );
+                workspace_button = Some(ws_pill);
                 workspace_label = Some(ws_label);
                 workspace_choice = ws_choice;
                 model_label = m_label;
@@ -379,6 +382,7 @@ impl Composer {
             streaming,
             workspace_label,
             workspace_choice,
+            workspace_button,
             model_label,
             model_choice,
             usage: if matches!(variant, Variant::Chat) {
@@ -438,6 +442,16 @@ impl Composer {
         let items = crate::router::menu_labels();
         if let Some(label) = items.get(index) {
             self.model_label.set_text(label);
+        }
+    }
+
+    /// WorkBuddy hides the workspace picker while a workspace-assigned task is
+    /// open: the task's home is fixed, and the picker would suggest it can be
+    /// changed mid-conversation. Unassigned tasks keep the picker, because
+    /// that is how they find a workspace.
+    pub fn set_workspace_visible(&self, visible: bool) {
+        if let Some(button) = &self.workspace_button {
+            button.set_visible(visible);
         }
     }
 
@@ -598,6 +612,7 @@ fn chat_toolbar(
 ) -> (
     gtk::Box,
     gtk::Button,
+    gtk::Button,
     gtk::Label,
     Rc<Cell<usize>>,
     gtk::Label,
@@ -614,9 +629,9 @@ fn chat_toolbar(
         false,
         0,
     );
-    let (workspace_button, workspace_label, workspace_choice) =
+    let (ws_pill, workspace_label, workspace_choice) =
         workspace_pill(space_index, wiring);
-    left.pack_start(&workspace_button, false, false, 0);
+    left.pack_start(&ws_pill, false, false, 0);
     left.pack_start(
         &pill("◇", contribs.menu("permission"), permission, Picker::Permission, wiring),
         false,
@@ -643,6 +658,7 @@ fn chat_toolbar(
     (
         bar,
         enhance,
+        ws_pill,
         workspace_label,
         workspace_choice,
         model_label,

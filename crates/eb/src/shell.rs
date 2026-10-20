@@ -732,6 +732,18 @@ impl Views {
             .set_workspace_selection(workspace_index, &workspace_name);
         self.chat_composer
             .set_workspace_selection(workspace_index, &workspace_name);
+        // WorkBuddy hides the picker while a workspace-assigned task is open.
+        // The landing composer keeps it: there the choice still drives where
+        // the next task lands.
+        let task_in_workspace = match app.route {
+            Route::Task(index) => app
+                .tasks
+                .get(index)
+                .and_then(|task| task.workspace_id.as_deref())
+                .is_some_and(|id| app.workspaces.iter().any(|workspace| workspace.id == id)),
+            _ => false,
+        };
+        self.chat_composer.set_workspace_visible(!task_in_workspace);
 
         let usage = match &app.route {
             Route::Task(index) => app.tasks.get(*index).and_then(|task| task.usage),
@@ -757,12 +769,14 @@ impl Views {
                 index,
                 workspace_id: task.workspace_id.clone(),
                 pinned: task.pinned,
+                archived: task.archived,
             })
             .collect();
-        // Pinned tasks float to the top of their section; the stable sort
-        // keeps the newest-first order within each group.
+        // Pinned tasks float to the top of their section and archived ones
+        // sink to the bottom; the stable sort keeps newest-first within each
+        // group.
         let mut rows = rows;
-        rows.sort_by(|a, b| b.pinned.cmp(&a.pinned));
+        rows.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(a.archived.cmp(&b.archived)));
         sidebar::fill_content(
             &self.sidebar.content,
             &rows,

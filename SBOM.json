@@ -2,7 +2,7 @@
  "bomFormat": "CycloneDX",
  "components": [
   {
-   "bom-ref": "pkg:cargo/evobuddy@0.7.4",
+   "bom-ref": "pkg:cargo/evobuddy@0.7.5",
    "licenses": [
     {
      "license": {
@@ -11,9 +11,9 @@
     }
    ],
    "name": "evobuddy",
-   "purl": "pkg:cargo/evobuddy@0.7.4",
+   "purl": "pkg:cargo/evobuddy@0.7.5",
    "type": "application",
-   "version": "0.7.4"
+   "version": "0.7.5"
   },
   {
    "bom-ref": "pkg:cargo/atk@0.19.0",
@@ -1168,6 +1168,18 @@
    "version": "0.2.1"
   },
   {
+   "bom-ref": "pkg:cargo/version_check@0.9.5",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "version_check",
+   "purl": "pkg:cargo/version_check@0.9.5",
+   "type": "library",
+   "version": "0.9.5"
+  },
+  {
    "bom-ref": "pkg:cargo/windows-link@0.2.1",
    "licenses": [
     {
@@ -1202,6 +1214,18 @@
    "purl": "pkg:cargo/winnow@1.0.4",
    "type": "library",
    "version": "1.0.4"
+  },
+  {
+   "bom-ref": "pkg:cargo/winresource@0.1.34",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "winresource",
+   "purl": "pkg:cargo/winresource@0.1.34",
+   "type": "library",
+   "version": "0.1.34"
   },
   {
    "bom-ref": "pkg:cargo/zmij@1.0.23",
@@ -1358,7 +1382,7 @@
  ],
  "metadata": {
   "component": {
-   "bom-ref": "pkg:cargo/evobuddy@0.7.4",
+   "bom-ref": "pkg:cargo/evobuddy@0.7.5",
    "licenses": [
     {
      "license": {
@@ -1367,9 +1391,9 @@
     }
    ],
    "name": "evobuddy",
-   "purl": "pkg:cargo/evobuddy@0.7.4",
+   "purl": "pkg:cargo/evobuddy@0.7.5",
    "type": "application",
-   "version": "0.7.4"
+   "version": "0.7.5"
   },
   "properties": [
    {

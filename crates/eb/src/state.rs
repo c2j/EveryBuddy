@@ -44,6 +44,7 @@ pub fn save(store: &Store) {
                 "last_route": task.last_route,
                 "updated_at": task.updated_at,
                 "pinned": task.pinned,
+                "archived": task.archived,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -138,6 +139,7 @@ pub fn load() -> Loaded {
             started_at: None,
             updated_at,
             pinned: value["pinned"].as_bool().unwrap_or(false),
+            archived: value["archived"].as_bool().unwrap_or(false),
         });
     }
 

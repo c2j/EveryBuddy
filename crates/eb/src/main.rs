@@ -305,6 +305,7 @@ fn build_ui(application: &gtk::Application) {
                 started_at: None,
                 updated_at: None,
                 pinned: false,
+                archived: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

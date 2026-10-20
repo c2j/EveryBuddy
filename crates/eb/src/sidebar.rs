@@ -24,7 +24,10 @@ pub enum TaskAction {
     Pin,
     Rename,
     SaveToWorkspace,
+    ShareTask,
+    OpenWindow,
     OpenFolder,
+    Archive,
     Delete,
 }
 
@@ -70,6 +73,7 @@ pub struct TaskRow {
     pub index: usize,
     pub workspace_id: Option<String>,
     pub pinned: bool,
+    pub archived: bool,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -461,6 +465,9 @@ fn task_row(
     if in_workspace {
         class(&button, "eb-task-child");
     }
+    if row.archived {
+        class(&button, "eb-task-archived");
+    }
 
     let line = hbox(8);
     if row.pinned {
@@ -497,45 +504,57 @@ fn attach_task_menu(
     class(&popover, "eb-menu");
     let column = vbox(0);
     class(&column, "eb-menu-body");
-    // WorkBuddy groups the menu: identity (Pin/Rename/Save), workspace
-    // (Open Folder), then the destructive Archive/Delete group. Only the
-    // actions EvoBuddy implements are listed; unassigned tasks gain
-    // "Save to Workspace…" because that is how they move into one.
-    let mut rows: Vec<(&str, TaskAction)> = vec![
+    // WorkBuddy's menu groups: identity (Pin/Rename/Save-or-Share), window and
+    // folder access, then the destructive Archive/Delete group. Unassigned
+    // tasks get "Save to Workspace…" where assigned ones get "Share Task" and
+    // "Open Folder".
+    let mut groups: Vec<Vec<(&str, TaskAction)>> = vec![vec![
         (
             if row.pinned { "Unpin" } else { "Pin" },
             TaskAction::Pin,
         ),
         ("Rename…", TaskAction::Rename),
-    ];
+    ]];
     if row.workspace_id.is_none() {
-        rows.push(("Save to Workspace…", TaskAction::SaveToWorkspace));
+        groups[0].push(("Save to Workspace…", TaskAction::SaveToWorkspace));
+    } else {
+        groups[0].push(("Share Task", TaskAction::ShareTask));
     }
+    let mut window_group = vec![("Open in a separate window", TaskAction::OpenWindow)];
     if row.workspace_id.is_some() {
-        rows.push(("Open Folder", TaskAction::OpenFolder));
+        window_group.push(("Open Folder", TaskAction::OpenFolder));
     }
-    rows.push(("Delete Task", TaskAction::Delete));
-    let group_breaks = [2usize, 3usize];
-    for (position, (label, kind)) in rows.iter().enumerate() {
-        if group_breaks.contains(&position) && position > 0 {
+    groups.push(window_group);
+    groups.push(vec![
+        (
+            if row.archived { "Unarchive" } else { "Archive" },
+            TaskAction::Archive,
+        ),
+        ("Delete Task", TaskAction::Delete),
+    ]);
+
+    for (group_index, group) in groups.iter().enumerate() {
+        if group_index > 0 {
             let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
             class(&separator, "eb-menu-separator");
             column.pack_start(&separator, false, false, 4);
         }
-        let menu_row = flat_button("eb-menu-item");
-        if *kind == TaskAction::Delete {
-            class(&menu_row, "eb-menu-item-danger");
+        for (label, kind) in group {
+            let menu_row = flat_button("eb-menu-item");
+            if *kind == TaskAction::Delete {
+                class(&menu_row, "eb-menu-item-danger");
+            }
+            menu_row.add(&text(label, "eb-menu-item-label"));
+            let index = row.index;
+            let kind = *kind;
+            let action = action.clone();
+            let popover = popover.clone();
+            menu_row.connect_clicked(move |_| {
+                popover.popdown();
+                action(kind, index);
+            });
+            column.pack_start(&menu_row, false, false, 0);
         }
-        menu_row.add(&text(label, "eb-menu-item-label"));
-        let index = row.index;
-        let kind = *kind;
-        let action = action.clone();
-        let popover = popover.clone();
-        menu_row.connect_clicked(move |_| {
-            popover.popdown();
-            action(kind, index);
-        });
-        column.pack_start(&menu_row, false, false, 0);
     }
     popover.add(&column);
     column.show_all();
