@@ -1314,7 +1314,8 @@ fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refreshe
 }
 
 fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, query: &str) {
-    let configured: Vec<String> = crate::catalog::connectors().into_iter().map(|(name, _)| name).collect();
+    let entries = crate::catalog::configured_connectors();
+    let last_test = store.borrow().connector_test.clone();
     let query = query.to_ascii_lowercase();
     let mut cards: Vec<(String, String, String)> = crate::catalog::connector_cards()
         .iter()
@@ -1325,15 +1326,22 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
         })
         .map(|card| (card.name.into(), card.description.into(), card.icon.into()))
         .collect();
-    for (name, _) in &crate::catalog::connectors() {
-        if !cards.iter().any(|(existing, _, _)| existing == name)
-            && (query.is_empty() || name.to_ascii_lowercase().contains(&query))
+    for entry in &entries {
+        if !cards.iter().any(|(existing, _, _)| existing == &entry.name)
+            && (query.is_empty() || entry.name.to_ascii_lowercase().contains(&query))
         {
-            cards.push((name.clone(), "Configured MCP connector".into(), "⚙".into()));
+            cards.push((
+                entry.name.clone(),
+                entry
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| format!("{} connector", entry.transport)),
+                "⚙".into(),
+            ));
         }
     }
     let intro = gtk::Label::new(Some(
-        "Connect tools and data sources. Connectors are passed to ACP as mcpServers.",
+        "Connect tools and data sources. Connectors are validated and passed to ACP as mcpServers.",
     ));
     intro.set_xalign(0.0);
     class(&intro, "eb-catalog-intro");
@@ -1353,10 +1361,27 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
         name.set_xalign(0.0);
         class(&name, "eb-skill-title");
         head.pack_start(&name, true, true, 0);
-        if configured.iter().any(|name| name == card_name) {
-            let done = gtk::Label::new(Some("Configured"));
-            class(&done, "eb-skill-source");
+        if let Some(entry) = entries.iter().find(|entry| &entry.name == card_name) {
+            let status = if entry.error.is_some() { "Invalid" } else { "Configured" };
+            let done = gtk::Label::new(Some(status));
+            class(&done, if entry.error.is_some() { "eb-skill-error" } else { "eb-skill-source" });
             head.pack_end(&done, false, false, 0);
+            let test = gtk::Button::with_label("Test");
+            let store = store.clone();
+            let refresher = refresher.clone();
+            let name = card_name.clone();
+            test.connect_clicked(move |_| {
+                let outcome = crate::catalog::configured_connectors()
+                    .into_iter()
+                    .find(|entry| entry.name == name)
+                    .map(|entry| match entry.test() {
+                        Ok(message) => (name.clone(), message),
+                        Err(message) => (name.clone(), format!("failed: {message}")),
+                    });
+                store.borrow_mut().connector_test = outcome;
+                refresher.request();
+            });
+            head.pack_end(&test, false, false, 0);
         } else {
             let add = gtk::Button::with_label("+");
             class(&add, "eb-skill-add");
@@ -1372,6 +1397,15 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
         description.set_line_wrap(true);
         class(&description, "eb-skill-meta");
         item.pack_start(&description, false, false, 0);
+        if let Some((name, message)) = &last_test {
+            if name == card_name {
+                let result = gtk::Label::new(Some(message));
+                result.set_xalign(0.0);
+                result.set_line_wrap(true);
+                class(&result, if message.starts_with("failed") { "eb-skill-error" } else { "eb-skill-stats" });
+                item.pack_start(&result, false, false, 0);
+            }
+        }
         grid.attach(&item, (index % 3) as i32, (index / 3) as i32, 1, 1);
     }
     container.pack_start(&grid, false, false, 0);
@@ -1644,12 +1678,22 @@ fn due_label(due: &str) -> String {
 }
 
 fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
-    let section = store.borrow().library_section;
+    let (section, query) = {
+        let app = store.borrow();
+        (app.library_section, app.library_query.clone())
+    };
     let row = hbox(16);
     let sidebar = vbox(3);
     sidebar.set_size_request(210, -1);
     let search = gtk::Entry::new();
     search.set_placeholder_text(Some("Search library"));
+    search.set_text(&query);
+    let store_for_search = store.clone();
+    let refresher_for_search = refresher.clone();
+    search.connect_activate(move |entry| {
+        store_for_search.borrow_mut().library_query = entry.text().to_string();
+        refresher_for_search.request();
+    });
     sidebar.pack_start(&search, false, false, 0);
     for (index, label) in ["Recent", "Local artifacts", "My Materials"].iter().enumerate() {
         let button = gtk::Button::with_label(label);
@@ -1711,6 +1755,13 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
             continue;
         }
         if section == 2 && location != "My Materials" {
+            continue;
+        }
+        let needle = query.to_ascii_lowercase();
+        if !needle.is_empty()
+            && !name.to_ascii_lowercase().contains(&needle)
+            && !location.to_ascii_lowercase().contains(&needle)
+        {
             continue;
         }
         let line = hbox(0);

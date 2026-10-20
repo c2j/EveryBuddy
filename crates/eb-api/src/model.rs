@@ -162,6 +162,9 @@ pub struct App {
     pub expert_teams: bool,
     /// Library section: 0 recent, 1 local artifacts, 2 my materials.
     pub library_section: usize,
+    pub library_query: String,
+    /// Last connector test result: (connector name, message).
+    pub connector_test: Option<(String, String)>,
 }
 
 impl App {
@@ -184,6 +187,8 @@ impl App {
             expert_category: 0,
             expert_teams: false,
             library_section: 0,
+            library_query: String::new(),
+            connector_test: None,
         }
     }
 

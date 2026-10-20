@@ -310,6 +310,169 @@ pub fn connector_cards() -> &'static [ConnectorCard] {
     CONNECTORS
 }
 
+pub struct ConnectorEntry {
+    pub name: String,
+    pub transport: String,
+    pub path: String,
+    pub config: serde_json::Value,
+    pub error: Option<String>,
+}
+
+impl ConnectorEntry {
+    /// Validate the connector file, then perform an MCP initialize handshake.
+    /// Stdio is tested by spawning the command; HTTP by POSTing initialize via
+    /// curl. Both are bounded and return the observed failure reason.
+    pub fn test(&self) -> Result<String, String> {
+        if let Some(error) = &self.error {
+            return Err(error.clone());
+        }
+        let mut request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "evobuddy", "version": env!("CARGO_PKG_VERSION") }
+            }
+        });
+        if self.transport == "stdio" {
+            use std::io::{BufRead, BufReader, Write};
+            let command = self.config["command"].as_str().unwrap_or("");
+            let args: Vec<&str> = self.config["args"]
+                .as_array()
+                .map(|args| args.iter().filter_map(|arg| arg.as_str()).collect())
+                .unwrap_or_default();
+            let mut child = std::process::Command::new(command)
+                .args(args)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|error| format!("cannot start '{command}': {error}"))?;
+            if let Some(stdin) = child.stdin.as_mut() {
+                let _ = writeln!(stdin, "{}", request);
+                let _ = stdin.flush();
+            }
+            let stdout = child.stdout.take();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                if let Some(stdout) = stdout {
+                    let mut line = String::new();
+                    let _ = BufReader::new(stdout).read_line(&mut line);
+                    let _ = tx.send(line);
+                }
+            });
+            let line = rx.recv_timeout(std::time::Duration::from_secs(4)).unwrap_or_default();
+            let _ = child.kill();
+            if line.contains("\"result\"") || line.contains("serverInfo") {
+                Ok("MCP initialize ok".into())
+            } else if line.trim().is_empty() {
+                Err("no MCP response before timeout".into())
+            } else {
+                Err(format!("unexpected MCP response: {}", line.trim()))
+            }
+        } else if self.transport == "http" {
+            let url = self.config["url"].as_str().unwrap_or("");
+            let output = std::process::Command::new("curl")
+                .args([
+                    "-sS",
+                    "-m",
+                    "4",
+                    "-X",
+                    "POST",
+                    url,
+                    "-H",
+                    "Content-Type: application/json",
+                    "-H",
+                    "Accept: application/json, text/event-stream",
+                    "-d",
+                    &request.to_string(),
+                ])
+                .output()
+                .map_err(|error| format!("curl failed: {error}"))?;
+            let body = String::from_utf8_lossy(&output.stdout);
+            if body.contains("\"result\"") || body.contains("serverInfo") {
+                Ok("MCP initialize ok".into())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("no MCP result ({})", stderr.trim()))
+            }
+        } else {
+            Err(format!("unknown transport '{}'", self.transport))
+        }
+    }
+}
+
+fn validate_connector(name: &str, config: &serde_json::Value, path: &str) -> ConnectorEntry {
+    let mut error = None;
+    let command = config["command"].as_str().unwrap_or("");
+    let url = config["url"].as_str().unwrap_or("");
+    if command.is_empty() && url.is_empty() {
+        error = Some("missing command or url".into());
+    }
+    if !command.is_empty() {
+        if !config["args"].is_null() && !config["args"].is_array() {
+            error = Some("args must be an array".into());
+        }
+        if !config["env"].is_null() && !config["env"].is_object() {
+            error = Some("env must be an object".into());
+        }
+    }
+    if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
+        error = Some("url must be http(s)".into());
+    }
+    ConnectorEntry {
+        name: name.into(),
+        transport: transport(config),
+        path: path.into(),
+        config: config.clone(),
+        error,
+    }
+}
+
+pub fn configured_connectors() -> Vec<ConnectorEntry> {
+    let mut out = Vec::new();
+    let root = home().join(".evobuddy/connectors");
+    let Ok(entries) = std::fs::read_dir(root) else { return out };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let path_text = path.to_string_lossy().to_string();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            out.push(ConnectorEntry {
+                name: path.file_stem().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
+                transport: "unknown".into(),
+                path: path_text,
+                config: serde_json::Value::Null,
+                error: Some("cannot read connector file".into()),
+            });
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            out.push(ConnectorEntry {
+                name: path.file_stem().map(|name| name.to_string_lossy().to_string()).unwrap_or_default(),
+                transport: "unknown".into(),
+                path: path_text,
+                config: serde_json::Value::Null,
+                error: Some("invalid JSON".into()),
+            });
+            continue;
+        };
+        if let Some(group) = value["mcpServers"].as_object() {
+            for (name, config) in group {
+                out.push(validate_connector(name, config, &path_text));
+            }
+        } else {
+            let name = value["name"].as_str().unwrap_or("connector");
+            out.push(validate_connector(name, &value, &path_text));
+        }
+    }
+    out
+}
+
 pub fn create_connector(name: &str, command: &str, args: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() || command.trim().is_empty() {
@@ -351,33 +514,18 @@ fn transport(config: &serde_json::Value) -> String {
 }
 
 pub fn connectors() -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let root = home().join(".evobuddy/connectors");
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
-            let stem = path
-                .file_stem()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| "connector".into());
-            if let Some(group) = value["mcpServers"].as_object() {
-                for (name, config) in group {
-                    out.push((name.clone(), transport(config)));
-                }
-            } else {
-                let name = value["name"].as_str().unwrap_or(&stem).to_string();
-                out.push((name, transport(&value)));
-            }
-        }
-    }
+    let mut out: Vec<(String, String)> = configured_connectors()
+        .into_iter()
+        .map(|connector| {
+            let state = connector
+                .error
+                .clone()
+                .unwrap_or_else(|| connector.transport.clone());
+            (connector.name, state)
+        })
+        .collect();
     if out.is_empty() {
-        out.push(("local files".into(), "builtin workspace access".into()));
-        out.push(("shell".into(), "agent exec via ACP".into()));
+        out.push(("No connectors configured".into(), "add ~/.evobuddy/connectors/*.json".into()));
     }
     out
 }
@@ -496,6 +644,30 @@ mod tests {
     #[test]
     fn no_active_context_returns_the_user_prompt_unchanged() {
         assert_eq!(compose_prompt("hello", None, &[]), "hello");
+    }
+
+    #[test]
+    fn connector_validation_rejects_bad_transport_and_args() {
+        let bad = validate_connector("bad", &serde_json::json!({}), "x");
+        assert!(bad.error.is_some());
+        let bad_args = validate_connector(
+            "bad",
+            &serde_json::json!({"command":"echo","args":"nope"}),
+            "x",
+        );
+        assert!(bad_args.error.is_some());
+    }
+
+    #[test]
+    fn connector_stdio_initialize_handshake_is_bounded() {
+        let script = "import sys,json\nline=sys.stdin.readline()\nprint(json.dumps({'jsonrpc':'2.0','id':1,'result':{'protocolVersion':'2024-11-05','serverInfo':{'name':'fixture'}}}),flush=True)";
+        let entry = validate_connector(
+            "fixture",
+            &serde_json::json!({"command":"python3","args":["-c",script]}),
+            "fixture",
+        );
+        assert!(entry.error.is_none());
+        assert_eq!(entry.test().unwrap(), "MCP initialize ok");
     }
 }
 
