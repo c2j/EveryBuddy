@@ -53,4 +53,4 @@ docker build --platform "$platform" -f "$here/Dockerfile.test" -t "$tag" "$root"
 # --user for the same reason as package.sh; HOME because xauth wants one.
 docker run --rm --platform "$platform" --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$root/dist:/out" "$tag" \
-  bash /src/test.sh evobuddy EB_SELFTEST=1
+  bash /src/test.sh evobuddy EB_SELFTEST=1 EB_ASSERT=1

@@ -32,7 +32,11 @@ for required in "Contents/MacOS/evobuddy" "Contents/Info.plist" "Contents/PkgInf
                 "Contents/Resources/evobuddy.icns" \
                 "Contents/Resources/share/glib-2.0/schemas/gschemas.compiled" \
                 "Contents/Resources/lib/gtk-3.0/3.0.0/immodules/im-quartz.so" \
-                "Contents/Resources/etc/fonts.conf.template"; do
+                "Contents/Resources/etc/fonts.conf.template" \
+                "Contents/Resources/share/doc/evobuddy/LICENSE" \
+                "Contents/Resources/share/doc/evobuddy/THIRD_PARTY_NOTICES.md" \
+                "Contents/Resources/share/doc/evobuddy/SBOM.json" \
+                "Contents/Resources/share/doc/evobuddy/lgpl-source-offer.md"; do
   [ -e "$appdir/$required" ] || { echo "missing from the .app: $required" >&2; exit 1; }
 done
 
@@ -137,7 +141,7 @@ fi
 
 shot="$dist/macos-verify/app.png"
 out="$dist/macos-verify/stdout-1.log"
-if ! EB_SELFTEST=1 EB_SHOT="$shot" \
+if ! EB_SELFTEST=1 EB_ASSERT=1 EB_SHOT="$shot" \
      "$appdir/Contents/MacOS/evobuddy" >"$out" 2>"$dist/macos-verify/stderr-1.log"; then
   echo "the .app exited non-zero" >&2
   tail -20 "$dist/macos-verify/stderr-1.log" | sed 's/^/  /' >&2
@@ -147,7 +151,7 @@ sed 's/^/  /' "$out"
 
 echo "== run again (warm caches) =="
 out2="$dist/macos-verify/stdout-2.log"
-if ! EB_SELFTEST=1 "$appdir/Contents/MacOS/evobuddy" >"$out2" 2>/dev/null; then
+if ! EB_SELFTEST=1 EB_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$out2" 2>/dev/null; then
   echo "the .app exited non-zero on the second run" >&2
   exit 1
 fi
@@ -159,7 +163,7 @@ ls -l "$shot" | awk '{print "  " $5 " bytes, " $NF}'
 # being right, not a defect. Assert what does not depend on the screen: the
 # sash position and the fixed-size blocks of the welcome route.
 if grep -q "sash sidebar x=280 (want 280)" "$out" \
-   && grep -Eq "eb-composer-card +[0-9]+, [0-9]+ +800x142" "$out" \
+   && grep -Eq "eb-composer-card +[0-9]+, [0-9]+ +800x144" "$out" \
    && grep -Eq "eb-chips +[0-9]+, [0-9]+ +800x32" "$out"; then
   echo "  geometry selftest: sash and fixed blocks match the measured spec"
   grep -E "selftest: window" "$out" | sed 's/^/  /'
@@ -168,5 +172,69 @@ else
   grep -E "sash|composer-card|chips" "$out" | sed 's/^/  /' >&2
   exit 1
 fi
+
+echo "== click audit =="
+click_out="$dist/macos-verify/click.log"
+if ! EB_CLICK_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$click_out" 2>&1; then
+  echo "the click audit failed" >&2
+  grep -E "ASSERT FAILED|assertion" "$click_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -E "click: assertions|click: --- end" "$click_out" | sed 's/^/  /'
+
+echo "== M2.2 content blocks (752px column) =="
+blocks_out="$dist/macos-verify/blocks.log"
+if ! EB_DEMO_BLOCKS=1 EB_ASSERT=1 "$appdir/Contents/MacOS/evobuddy" >"$blocks_out" 2>&1; then
+  echo "the content-block demo exited non-zero" >&2
+  tail -20 "$blocks_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "selftest: assertions passed" "$blocks_out"
+
+echo "== fake streaming agent =="
+fake_out="$dist/macos-verify/fake-agent.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=3 \
+     "$appdir/Contents/MacOS/evobuddy" >"$fake_out" 2>&1; then
+  echo "the fake streaming agent exited non-zero" >&2
+  tail -20 "$fake_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "fake-demo: finished" "$fake_out"
+
+echo "== fake streaming agent (cancel) =="
+cancel_out="$dist/macos-verify/fake-agent-cancel.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=50 \
+     EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+     "$appdir/Contents/MacOS/evobuddy" >"$cancel_out" 2>&1; then
+  echo "the fake streaming agent's cancellation run exited non-zero" >&2
+  tail -20 "$cancel_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
+grep -q "fake-demo: finished" "$cancel_out"
+
+echo "== fake streaming agent (stop button) =="
+stop_out="$dist/macos-verify/fake-agent-stop.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=150 \
+     EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+     "$appdir/Contents/MacOS/evobuddy" >"$stop_out" 2>&1; then
+  echo "the fake streaming agent's stop-button run exited non-zero" >&2
+  tail -20 "$stop_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q 'Failed { message: "Cancelled" }' "$stop_out"
+grep -q "fake-demo: finished" "$stop_out"
+
+echo "== fake streaming agent (start panic) =="
+panic_out="$dist/macos-verify/fake-agent-panic.log"
+if ! EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 \
+     "$appdir/Contents/MacOS/evobuddy" >"$panic_out" 2>&1; then
+  echo "the fake streaming agent's panic run exited non-zero" >&2
+  tail -20 "$panic_out" | sed 's/^/  /' >&2
+  exit 1
+fi
+grep -q "agent: start failed: the agent panicked while starting" "$panic_out"
+grep -q "fake-demo: finished" "$panic_out"
+
 cmp -s "$out" "$out2" && echo "  second launch rendered the same layout" \
   || echo "  note: first and second launch reports differ"

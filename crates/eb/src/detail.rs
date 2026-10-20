@@ -16,6 +16,7 @@
 //! colours, so the code is shown as plain monospace — the frame is faithful, the
 //! highlighting is not (ui-spec §10).
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -30,6 +31,8 @@ pub struct Wiring {
     pub close: Rc<dyn Fn()>,
     /// The "expand" button in the header.
     pub expand: Rc<dyn Fn()>,
+    /// Open one dsh component-host plugin in the side panel.
+    pub plugin: Rc<dyn Fn(&'static str)>,
 }
 
 pub struct Detail {
@@ -41,6 +44,11 @@ pub struct Detail {
     pub body: gtk::Box,
     /// Kept so the tab's own close affordance can reach it.
     close: Rc<dyn Fn()>,
+    /// The artifact currently built into `tabs`/`body`. Refreshes happen for
+    /// every streamed event; rebuilding the same editor each time churns the
+    /// widget tree and can leave a freshly created text view unpainted in an
+    /// offscreen capture.
+    shown: RefCell<Option<(String, String)>>,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
@@ -62,6 +70,20 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     let actions = hbox(4);
     actions.set_valign(gtk::Align::Center);
     header.pack_end(&actions, false, false, 0);
+
+    let theme_plugin = icon_button("◐", "eb-icon", "Open theme UI plugin");
+    theme_plugin.connect_clicked({
+        let plugin = wiring.plugin.clone();
+        move |_| plugin("ui-theme")
+    });
+    actions.pack_start(&theme_plugin, false, false, 0);
+
+    let feedback_plugin = icon_button("✦", "eb-icon", "Open feedback UI plugin");
+    feedback_plugin.connect_clicked({
+        let plugin = wiring.plugin.clone();
+        move |_| plugin("ui-message-feedback")
+    });
+    actions.pack_start(&feedback_plugin, false, false, 0);
 
     let expand = icon_button("⤢", "eb-icon", "Give the panel the whole window");
     expand.connect_clicked({
@@ -89,6 +111,7 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
         tabs,
         body,
         close: wiring.close.clone(),
+        shown: RefCell::new(None),
     }
 }
 
@@ -98,6 +121,11 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
 /// after the window's first `show_all`, and a newly created widget is not
 /// visible until it is shown.
 pub fn fill(detail: &Detail, artifact: &Artifact) {
+    let key = (artifact.name.clone(), artifact.code.clone());
+    if detail.shown.borrow().as_ref() == Some(&key) {
+        return;
+    }
+
     clear(&detail.tabs);
     clear(&detail.body);
 
@@ -109,6 +137,7 @@ pub fn fill(detail: &Detail, artifact: &Artifact) {
 
     detail.tabs.show_all();
     detail.body.show_all();
+    *detail.shown.borrow_mut() = Some(key);
 }
 
 /// Measured: 240x32, radius 8, `padding: 0 8px`, 4px gap, 14px/600 when active.

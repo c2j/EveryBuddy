@@ -32,11 +32,18 @@ const STYLES = [
   'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-  'background-color', 'background-image',
+  'background-color', 'background-image', 'background-clip', 'background-origin',
   'color', 'border-top-width', 'border-right-width', 'border-bottom-width',
-  'border-left-width', 'border-top-color', 'border-radius', 'box-shadow',
-  'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing',
-  'text-align', 'text-overflow', 'white-space', 'transition',
+  'border-left-width', 'border-top-color', 'border-right-color',
+  'border-bottom-color', 'border-left-color', 'border-style', 'border-radius',
+  'border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius',
+  'border-bottom-right-radius', 'box-shadow', 'outline-color', 'outline-width',
+  'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
+  'letter-spacing', 'font-variant-numeric', 'font-feature-settings',
+  'text-align', 'text-overflow', 'white-space', 'text-decoration-line',
+  'transform', 'filter', 'transition',
+  // SVG (the context-usage ring): computed styles carry these too.
+  'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset',
 ];
 
 class CDP {

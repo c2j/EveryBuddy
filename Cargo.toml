@@ -16,6 +16,7 @@ members = [
     "crates/plugins/eb-plugin-notices",
     "crates/plugins/eb-plugin-composer",
     "crates/plugins/eb-plugin-demo-agent",
+    "crates/plugins/eb-plugin-acp-agent",
 ]
 # The vendored plugin runtime is a path dependency, not a member: building its
 # own test target would drag in its dev-dependencies (tokio's multi-thread
@@ -24,7 +25,7 @@ members = [
 exclude = ["vendor", "prototype"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "MIT"
 

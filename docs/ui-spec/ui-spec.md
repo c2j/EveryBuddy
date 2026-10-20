@@ -73,7 +73,7 @@
 - 两个坑：`gdk-pixbuf-query-loaders` / `gtk-query-immodules-3.0` 在 Debian 上装在 multiarch libdir 下、**不在 PATH**；Debian 10 已 EOL，apt 要指向 `archive.debian.org` 并放宽 valid-until。
 - **CJK 输入法**：Debian 默认的 immodules 只有 xim / cedilla 等，**没有 `im-ibus`**（它跟着 `ibus` 包走）。要支持中文输入需自带 `im-ibus.so` + `libibus-1.0.so.0`，或依赖已自带的 XIM。
 
-**本程序已实测**：`cargo build --release --bin evobuddy` 在 `debian:10` + GTK 3.24.5 上零错误（gtk-rs 0.19，58 秒），打包成的 74MB / 72 `.so` 目录树在**另一个裸机上**用 `EB_SELFTEST=1 EB_SHOT=` 跑通：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`，几何逐项与 macOS 一致（`eb-sidebar 280x868`、`eb-content-topbar 281,0 1159x64`、`eb-composer-card 460,333 800x142`、`eb-detail <hidden>`）。渲染出的 PNG 采样为 `#f7f7f7` 侧栏 / `#ffffff` 路由，与 §4.3 实测值一致；与 macOS 的唯一差异是**文本宽度**（hero 151 vs 137、声明 330 vs 311），因为字体换成了自带的 DejaVu + WenQuanYi——这是"字体必须换"的必然结果（缺口 7）。
+**本程序已实测**：`cargo build --release --bin evobuddy` 在 `debian:10` + GTK 3.24.5 上零错误（gtk-rs 0.19，58 秒），打包成的 74MB / 72 `.so` 目录树在**另一个裸机上**用 `EB_SELFTEST=1 EB_SHOT=` 跑通：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`，几何逐项与 macOS 一致（`eb-sidebar 280x868`、`eb-content-topbar 281,0 1159x64`、`eb-composer-card 460,333 800x144`、`eb-detail <hidden>`）。渲染出的 PNG 采样为 `#f7f7f7` 侧栏 / `#ffffff` 路由，与 §4.3 实测值一致；与 macOS 的唯一差异是**文本宽度**（hero 151 vs 137、声明 330 vs 311），因为字体换成了自带的 DejaVu + WenQuanYi——这是"字体必须换"的必然结果（缺口 7）。
 
 **下限没有余量**：整套产物要求的最小符号版本 = `GLIBC_2.28`，正好等于要求的底线（C 探针只需 2.25，多出来的来自 Rust std）。即"2.28 及以上可跑、以下不行"；若要下探到更老的发行版，需要 Rust 侧更低的 target baseline。
 
@@ -81,11 +81,13 @@
 
 `PLATFORM` 默认取**本机架构**，这不是图省事：AppImage runtime 会在 ELF 头 `EI_ABIVERSION` 字节里写 `AI`（这就是该格式的标记），真实内核忽略它，但 qemu 与 Rosetta 会以 `Exec format error` 拒绝——**任何 AppImage 都无法在模拟层下构建或运行**。所以原生架构是唯一能验证它的地方，CI 也在真实 runner 上按架构各建一份；`test.sh` 会先问环境"这里能不能运行 AppImage"，能则跑并要求渲染一致，不能则明说是模拟层限制而不是产物缺陷。**CI 现在直接调用这两个脚本**（缺口 12），所以发布路径和开发者路径不可能各写一份。
 
-**macOS（v0.3.0 起，双架构独立 .app）**：`packaging/macos/bundle.sh` 对着 Homebrew 的 GTK 3 栈构建，然后把每一条 load command 改写为 `@rpath`（连同给每个 Mach-O 补 rpath），产出自包含的 `EvoBuddy.app`（连 loaders、immodules、schema、图标全部内置；**不带字体**——macOS 上 pango 走 CoreText 而非 fontconfig，实测 `FONTCONFIG_FILE` 不影响度量，系统字体栈本就人人都有，且规格书的几何实测本来就是 macOS 侧的值）。`verify.sh` 的验证分三层：静态审计每条 load command 与 LC_RPATH（只允许 @ 包内路径与系统路径）；检查模板类文本无构建期路径泄漏；最后**把 Homebrew prefix `chmod 000` 藏起来真跑一遍**几何自检（macOS 26 已移除 `DYLD_PRINT_*`，"藏起来"比"观察"更强，退出时恢复）。本机 arm64 实测通过，且 hero=137×42 与规格书 macOS 实测一致；x86_64 交给 CI 的 `macos-15-intel`（Intel 镜像的最后一班，macos-13 已于 2025-12 关停）。踩坑全集在 `packaging/macos/README.md`：`otool -L` 首行是自身 install name、拷贝名必须跟随 load command 名而非 realpath 名、brew 库自带 `@rpath`+自身 `LC_RPATH`、librsvg loader 是 re-export 壳（`-change` 改不动 `LC_REEXPORT_DYLIB`，改用 `.dylib` 孪生）、Apple Silicon 上 dlopen 未签名代码直接 SIGKILL 且 `codesign --deep` 不签 Resources 下的 Mach-O（须逐个显式签名）、以及链接期要 `-headerpad_max_install_names`。CI 侧还发现：runner 屏幕小于 1440×868，GTK 会把默认窗口钳到工作区（1222×778）——这是 OS 的正确行为而非缺陷，macOS 侧的几何断言因此只盯与屏幕无关的不变量（sash x=280、composer 800×142、chips 800×32），窗口尺寸只作信息披露。
+**macOS（v0.3.0 起，双架构独立 .app）**：`packaging/macos/bundle.sh` 对着 Homebrew 的 GTK 3 栈构建，然后把每一条 load command 改写为 `@rpath`（连同给每个 Mach-O 补 rpath），产出自包含的 `EvoBuddy.app`（连 loaders、immodules、schema、图标全部内置；**不带字体**——macOS 上 pango 走 CoreText 而非 fontconfig，实测 `FONTCONFIG_FILE` 不影响度量，系统字体栈本就人人都有，且规格书的几何实测本来就是 macOS 侧的值）。`verify.sh` 的验证分三层：静态审计每条 load command 与 LC_RPATH（只允许 @ 包内路径与系统路径）；检查模板类文本无构建期路径泄漏；最后**把 Homebrew prefix `chmod 000` 藏起来真跑一遍**几何自检（macOS 26 已移除 `DYLD_PRINT_*`，"藏起来"比"观察"更强，退出时恢复）。本机 arm64 实测通过，且 hero=137×42 与规格书 macOS 实测一致；x86_64 交给 CI 的 `macos-15-intel`（Intel 镜像的最后一班，macos-13 已于 2025-12 关停）。踩坑全集在 `packaging/macos/README.md`：`otool -L` 首行是自身 install name、拷贝名必须跟随 load command 名而非 realpath 名、brew 库自带 `@rpath`+自身 `LC_RPATH`、librsvg loader 是 re-export 壳（`-change` 改不动 `LC_REEXPORT_DYLIB`，改用 `.dylib` 孪生）、Apple Silicon 上 dlopen 未签名代码直接 SIGKILL 且 `codesign --deep` 不签 Resources 下的 Mach-O（须逐个显式签名）、以及链接期要 `-headerpad_max_install_names`。CI 侧还发现：runner 屏幕小于 1440×868，GTK 会把默认窗口钳到工作区（1222×778）——这是 OS 的正确行为而非缺陷，macOS 侧的几何断言因此只盯与屏幕无关的不变量（sash x=280、composer 800×144、chips 800×32），窗口尺寸只作信息披露。
 
-**插件化骨架（M1，v0.4.0）**：`prototype/` 的测量工作区裁决了插件运行时（rutis + `wasm32-wasip1`，见 `prototype/probes/README.md`），M1 据此把仓库 workspace 化：`crates/eb`（GTK 宿主：渲染器、装配、EB_* 审计）、`crates/eb-api`（**插件唯一可依赖的 surface**：数据词汇、贡献注册表、`EbPlugin`/`AnswerSource`）、`crates/plugins/`（内置插件：`nav`/`notices`/`composer`/`demo-agent`）、`vendor/rutis`（vendored，收窄 tokio 特性）。两个架构决策：**数据插件 + 宿主渲染**（插件产出纯数据视图，永不触碰 widget——线程契约一句话，像素纪律单点收敛）；**M1 不设内核线程**（内置插件无异步工作，单线程 current_thread tokio 在挂载期 `block_on` 即可，点击审计逐字节稳定；内核线程桥推迟到第一个异步插件出现时再立）。demo-agent 以 `AnswerSource` **服务**（`ctx.provide_as` trait 对象）而非贡献项存在——它是将来被真实 agent 替换的接缝。**等值证据**：改造前后 welcome/demo 两张渲染 PNG SHA 逐字节一致、点击审计 31 行的步骤与文案全等。顺带记录审计的两处**环境敏感**字段：toplevels 计数（macOS 会话有时预建隐藏 `GtkTooltipWindow`）与 popover 绝对坐标（含窗口服务选择的窗口原点）——同二进制两次运行也会不同，比较审计应看步骤与文案而非整行 diff（旧代码同样波动，已用 stash 实验证明）。dsh 兼容路线（Node+Cordis 宿主、服务由 Rust 兑现、"同步返回活对象的注册表必须与插件同进程"的裁决）原样保留在 `prototype/`，不进入 UI 构建。
+**插件化骨架（M1，v0.4.0）**：`prototype/` 的测量工作区裁决了插件运行时（rutis + `wasm32-wasip1`，见 `prototype/probes/README.md`），M1 据此把仓库 workspace 化：`crates/eb`（GTK 宿主：渲染器、装配、EB_* 审计）、`crates/eb-api`（**插件唯一可依赖的 surface**：数据词汇、贡献注册表、`EbPlugin`/`AnswerSource`）、`crates/plugins/`（内置插件：`nav`/`notices`/`composer`/`demo-agent`）、`vendor/rutis`（vendored，收窄 tokio 特性）。两个架构决策：**数据插件 + 宿主渲染**（插件产出纯数据视图，永不触碰 widget——线程契约一句话，像素纪律单点收敛）；**M1 不设内核线程**（内置插件无异步工作，单线程 current_thread tokio 在挂载期 `block_on` 即可，点击审计逐字节稳定；内核线程桥推迟到第一个异步服务/插件出现时再立）。demo-agent 以 `AnswerSource` **服务**（`ctx.provide_as` trait 对象）而非贡献项存在——它是将来被真实 agent 替换的接缝。**等值证据**：改造前后 welcome/demo 两张渲染 PNG SHA 逐字节一致、点击审计 26 步（31 行 `click:` 输出）的步骤与文案全等。顺带记录审计的三处**环境敏感**字段：toplevels 计数（macOS 会话有时预建隐藏 `GtkTooltipWindow`）、popover 绝对坐标（含窗口服务选择的窗口原点）、以及代码区滚动宽度（本机连续运行观察到 579/656 与 579/646 两种读数）——同二进制两次运行也会不同，比较审计应看步骤与文案而非整行 diff（旧代码同样波动，已用 stash 实验证明）。dsh 兼容路线（Node+Cordis 宿主、服务由 Rust 兑现、"同步返回活对象的注册表必须与插件同进程"的裁决）原样保留在 `prototype/`，不进入 UI 构建。
 
-**v0.4.0（run 39089801107，六个任务全绿）**：插件化骨架（M1）首次发布——workspace 化后的 `crates/eb`（宿主）/ `crates/eb-api`（surface）/ `crates/plugins/*`（内置插件）/ `vendor/rutis` 全链路在三平台 CI 上构建并验证通过：Linux 裸 Debian 10.13 上 tar 树与 AppImage 照旧断言渲染逐字节一致；macOS 双架构照旧审计 load command 并藏起 Homebrew prefix 真跑。等值迁移的证据（截图 SHA 逐字节一致、31 行点击审计全等）与两个架构决策见 §2"插件化骨架（M1）"段。发布资产 14 个，与 v0.3.0 同构。
+**M2.0a/b（2026-10-18，已实现）**：`AnswerSource` 从同步整轮返回改为 `start(prompt, AgentSink) -> Box<dyn AnswerHandle>`；`AgentEvent`（started/status/delta/block/artifact/usage/finished/failed）经 `AgentSink`/`AgentStream` 回传。`start` 跑在 `AgentRuntime` 的专用线程（current-thread tokio）上，`Runner` 在 GTK 主线程 drain 并更新 `App`；队列是容量 64 的有界队列，send 按钮流式期间变 stop，`start` panic 转成 `Failed`。demo agent 同步发射，保持原有像素等值；`EB_FAKE_AGENT=1` 的 fake agent 验证慢流、取消与 stop。
+
+**v0.4.0（run 39089801107，六个任务全绿）**：插件化骨架（M1）首次发布——workspace 化后的 `crates/eb`（宿主）/ `crates/eb-api`（surface）/ `crates/plugins/*`（内置插件）/ `vendor/rutis` 全链路在三平台 CI 上构建并验证通过：Linux 裸 Debian 10.13 上 tar 树与 AppImage 照旧断言渲染逐字节一致；macOS 双架构照旧审计 load command 并藏起 Homebrew prefix 真跑。等值迁移的证据（截图 SHA 逐字节一致、26 步点击审计全等）与两个架构决策见 §2"插件化骨架（M1）"段。发布资产 14 个，与 v0.3.0 同构。
 
 ## 3. 设计 Token 体系
 
@@ -405,6 +407,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 1. 点击 chip **不会**填充输入框、也不会切换路由。唯一的 DOM 差异是工具条**右组**多/少一个 32×32 的 **`cr-context-usage` 上下文用量环**（+4px gap = 36px），左组因为是弹性容器而反向变化同样幅度（实测 1303 ⇄ 1231 设备像素 ⇒ 651.5 ⇄ 615.5 CSS px）。
 2. 会话顶栏**只有两个**操作按钮（曾按 3 个实现，已删除）。
 3. 分段控件的选中类是 `wb-segmented__item--active`，`wb-scene-tabs` 实测 163.74×36 @778.1,185（内层 `wb-segmented` 159.74×32，滑块 `wb-segmented__thumb--measured` 79×32）——与 §4.3 的推测吻合。
+4. **M2.1 补采（2026-10-18，5.8.4）修正会话宽度**：没有 artifact 面板时 frame 为 **752**；打开面板后 frame 收窄为 **500**，右侧面板仍 **579**。§4.4 的 500+40 gutter 只适用于面板打开态；详细块尺寸见 §5.3。
 
 ## 5. 组件清单（主工作区）
 
@@ -465,6 +468,40 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 1. **点击 chip 不填输入框、不导航。** 录制里点击 chip 后唯一的 DOM 差异是输入工具条右组的 `cr-context-usage` 上下文用量环出现/消失（32×32 + 4px gap = 36px），左组因为是弹性容器而反向变化同幅度。因此「chip 预填输入框」是实现侧的选择而非产品行为：`spec::CHIP_PROMPTS` 存整句提示语，点击即填入输入框（已在 §4.4 记录）。
 2. **顶栏只有两个操作按钮**（搜索、分享），此前按 3 个实现（多了一个结果面板开关）属于**虚构，已删除**。重新打开已关闭的结果面板改由点击侧栏任务行完成（`open_task` 同时把 `detail_visible` 置为 `artifact.is_some()`）。
 3. **分段控件**：`wb-scene-tabs` 163.74×36 @778.1,185，`wb-segmented` 159.74×32，滑块 `wb-segmented__thumb--measured` 79×32，选中类 `wb-segmented__item--active`——全部与 §4.3 的实现尺寸一致。
+
+### 5.3 内容块实测（v5.8.4，2026-10-18）
+
+采集条件：WorkBuddy AI 5.8.4 / Electron 37.10.3 / Chromium 138，macOS 26.2，
+客户区 1440×868，DPR 2，locale en-US；只读 CDP，按状态命名抓取
+`screenshot.png` + `dom-snapshot.json` + `layout.json`。数值为 CSS px。
+
+**关键布局修正**：没有 artifact 面板时，会话 frame 是 **752** 宽（不是 580）；
+打开 artifact 面板后，会话 frame 收窄到 **500**，右侧 `sidebar-next` 仍为
+**579**。§4.4 的 500+40 gutter 只描述“面板打开”的情况，M2.2 要按这个宽度切换。
+
+| 块 | 外层/关键尺寸 | 关键样式 |
+|---|---|---|
+| `cr-collapse` | 宽 752；header 26.25 高；collapsed 高 26.25；展开后 content 从 header 下方 26.25 开始 | header gap 8；title 15px/400 `rgba(0,0,0,.5)`；chevron 12×12；`cr-tool-exp` 752×318.5，padding `2px 0` |
+| `cr-tool-diff` | `cr-tool-write__body` 752×278；viewport 750×252（12 行） | 圆角 16；gap 12；line 750×21，padding `0 16px`，gap 6，12px 等宽；sign 14，code 698；add `#e7f9ef`，remove `#fef0f0`，context 透明 |
+| `cr-tool-exec` | `cr-tool-exp__content` 752×300；title/command 720 宽；200 行输出 720×3600 | 圆角 16；bg `#f2f2f2`；padding `12px 16px`；gap 4；12px/行高 19.2（输出 18px/行）；输出区纵向滚动 300 |
+| `cr-table-block` | 752×476.75；内层 750×474.75；header 42.75；行 43.25；10 行 | 外圆角 12；header bg `#f7f7f7`，padding `8px 12px`，15px/600；单元格 padding `8px 12px`，15px/400；列宽约 211/317/222；打开 artifact 时 500 宽 |
+| `cr-context-usage` | 按钮 32×32（圆角 16），环 16×16；popover 280×244 | popover 圆角 16、padding 16；百分比 20px/700；条 246×8 圆角 3，track `rgba(0,0,0,.08)`；图例 246×126 gap 4 |
+| `cr-agent__processing-status` | 100.28×26.25 | 15px/400 `rgba(0,0,0,.5)`；运行中命令行有 `cr-tool-head__primary--loading`；示例 `Processed 13s` / `Running command | Used ◇ 0.8` |
+
+用量环的分段颜色（本次采集）：System Prompt `#6366f1`、Tools `#10b981`、
+Conversation `#f59e0b`、MCP `#8b5cf6`、Skills `#ec4899`；示例数值
+`20.8% / 36.6K of 176.0K` 只是该次运行的读数，不应写死。
+
+**状态覆盖**：`cr-collapse--collapsed`、`cr-collapse--completed`、展开态、
+`cr-tool-diff` 的 all-add 与 mixed、exec 长输出、table 默认/artifact 打开、
+usage popover、processing/done 都已采集。`cr-collapse--summary` 与
+`cr-status-chips` 在 5.8.4 本次采集中**没有出现**；不要按旧类名硬实现，标为
+未采集。
+
+可复用数据在 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。M2.2 已实现
+diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组，以及
+仅在 agent 上报 Usage 时出现的 `cr-context-usage` 环；popover 目前只显示
+总量，五类分解仍待事件流补充。
 
 ## 6. 屏幕清单（全量 143 个 CSS module）
 
@@ -559,8 +596,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 - **会话态连续录制已采集**（`watch_dom.js`，21 帧，含两个 popover 帧）。§4.4 的三栏几何全部实测；§5.2 的类名清单直接由 `dom-snapshot.json` 汇总，不再靠 CSS 名推断；早期基于 `main-content-core.css` 的 `message-*` / `assistant-message-*` 命名已判定为旧版命名（§5.2）。
 - **两个状态都已按实测重建**，代码拆成模块：`src/main.rs`（薄壳）+ `spec.rs`（实测字面量）/ `model.rs`（状态）/ `widgets.rs` / `composer.rs` / `sidebar.rs` / `welcome.rs` / `conversation.rs` / `detail.rs` / `shell.rs`（装配）/ `selftest.rs`（自检）。gtk-rs 的 notebook 例子已挪到 `src/bin/notebook/` 作为 CJK 输入基线保留。
 - 交互已连通：欢迎态（导航切换、分段开关、侧栏折叠、chip 预填输入框、输入框启用/发送、下拉 popover）+ 一条真实的会话状态（发送 → 建任务 → 开会话 → 开结果面板）。结果面板的「展开」按钮接的是真动作（`detail_maximised`：面板占满除侧栏外的全部宽度）。Enter 发送（含 IME 组合保护）与欢迎 → 会话的整条路由已用合成按键实测跑通：`EB_ENTER=1` 打印 `before=welcome` / `after=conversation`，见缺口 17/18。
-- 实测校验通过（欢迎态）：`teams-container` 1440×868、侧栏 280、居中列 800、分段控件高 36、chip 行高 32、输入卡 800×142、选择器行高 36；hero / 分段 / chip / 输入卡的 y（127 / 185 / 285 / 333）与产品**逐项一致**；8 个关键色解析值与实测完全吻合。
-- 实测校验通过（会话态）：会话顶栏 64 高、**操作组 68×32 @776,16（逐像素一致）**、消息列表 579×636、输入区 579×168、输入卡 531×132、**结果面板 861,0 579×868（一致）**、**结果面板头部 579×64（一致）**、标签页 240×32 @877,15.5（本轮修正后一致）、加号 1121、头部操作 68×32 @1356（一致）。
+- 实测校验通过（欢迎态）：`teams-container` 1440×868、侧栏 280、居中列 800、分段控件高 36、chip 行高 32、输入卡 800×144、选择器行高 36；hero / 分段 / chip / 输入卡的 y（127 / 185 / 285 / 333）与产品**逐项一致**；8 个关键色解析值与实测完全吻合。
+- 实测校验通过（会话态）：会话顶栏 64 高、**操作组 68×32 @776,16（逐像素一致）**、消息列表 579×636、输入区 579×168、输入卡 531×134、**结果面板 861,0 579×868（一致）**、**结果面板头部 579×64（一致）**、标签页 240×32 @877,15.5（本轮修正后一致）、加号 1121、头部操作 68×32 @1356（一致）。
 - **交互逐控件审计**（`EB_CLICK=1`，26 步「点一下 → 读回状态」，每步打印可观测变化）：导航、chip、分段开关、侧栏折叠 / 恢复、Enter 发送、发送按钮、结果面板展开 / 恢复 / 关闭、任务行重开面板、复制按钮（`Copied` 反馈）**全部有响应**。审计顺带查出并修掉三个**真实缺陷**（产品侧同样会看到的问题，不是测试环境问题）：
   1. **`set_no_show_all(true)` 必须放在 `show_all()` 之后**。`gtk_widget_show_all()` 对 `no_show_all` 控件**直接 return，也不向下递归**，所以此前所有下拉 popover 的内容、以及所有"隐藏待显"按钮（侧栏展开 `▶`、Code assist）的**子控件从未被 show 过**：下拉弹出来是个**空盒子**（requisition 恒为 66×42），按钮是个**空方块**。修法：新增 `widgets::hide_from_show_all()`（先 `show_all()`，再置 `no_show_all` + `set_visible(false)`），7 处调用点全部改掉。修后 popover requisition 回到按内容计算（筛选菜单 93×114、模型菜单 71×114、提示 294–324×48–80），审计打印 `3 of 3 menu rows visible`；离屏渲染 `menu.png` 里能直接看到模型下拉「Auto / Fast / Deep」。
   2. **侧栏分区标题点了没反应** —— 现在接真动作：折叠 / 展开（状态在 `App.collapsed`；因为 `show_all` 会把两个分区都显示出来，折叠只能在 `show_all()` **之后**施加），chevron `⌄` / `›` 随之切换。审计打印 `shown → hidden → shown` 的可见性链。
@@ -568,16 +605,16 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 
 **缺口**
 
-1. **吉祥物未实现** —— `wb-home-route__growth-buddy`（120×120，居于输入区右上）。产品用的是自有图片资产，不得复用，需要自绘或换图。
-2. **图标全是字形占位** —— 产品图标是其自有资产，不得复用。另外 **macOS Homebrew 的 gtk+3 只装了 `hicolor`，没有 Adwaita 图标主题**，所以 `GtkImage::from_icon_name()` 在本机会渲染成空；要支持多平台必须随包附带一套自有图标（如 MIT 许可图标集）。
-3. **GTK 3 的 `box-shadow` 会被裁剪到控件内** —— 输入卡的 `0 16px 32px -8px rgba(0,0,0,.03)` 在产品里会铺到下方选择器行背后（这正是那里看起来发灰的原因），GTK 侧只能画出卡片自身范围内的部分。要完全还原需要自绘（Cairo `draw` 信号）或在外层留出 padding。
-4. **输入卡高/宽差 2px / 1px**（欢迎态实测 800×144，GTK 800×142；会话态实测 532×134，GTK 531×132）—— 2px 来源未查清（疑似 `cr-resize-handle` 或 1px 边框）。当前忽略。
+1. **吉祥物已用自有资产占位** —— 产品 `wb-home-route__growth-buddy` 不得复用；EvoBuddy 的 120×120 绿色 buddy 由 `crates/eb/assets/gen_icons.py` 绘制，以 overlay 放在输入区右上，不改变 hero/输入卡几何。
+2. **图标已换成自有 PNG** —— 23 个图标由 `crates/eb/assets/gen_icons.py` 生成、`include_bytes!` 嵌入，不依赖 `hicolor`/Adwaita 或 librsvg；许可为仓库 MIT。
+3. **GTK 3 的 `box-shadow` 会被裁剪到控件内（已调查，暂接受）** —— 输入卡的 `0 16px 32px -8px rgba(0,0,0,.03)` 在产品里会铺到下方选择器行背后。实测 832px 外层 gutter 仍看不到阴影；完全还原需 Cairo 自绘或改布局。
+4. **输入卡高/宽差已修**（欢迎态 800×144，会话态 531/783×134；产品 532/784×134，剩余 1px 是 GtkPaned sash 折中，记录在 §4.4）。
 5. **文案是占位** —— 产品文案（品牌标语、空态、AI 声明、输入框提示）未复制，各模块顶部的文本常量用自有措辞替代；需替换为 EvoBuddy 自己的文案。
-6. **间距 / 圆角 / 字号未纳入代码生成** —— `ui/gtk.css` 里目前是手写字面量（带实测注释），应一并由生成器产出。
+6. **间距 / 圆角 / 字号已进生成器（部分）** —— `build_gtk_tokens.js` 现输出 `tokens-metrics.{json,rs,css}`，`spec.rs` 已用生成常量，新内容块用生成的 fs/radius 类；旧 `ui/gtk.css` 的结构性字面量尚未全部迁移，CI 用 `docs/ui-spec/check_tokens.sh` 防漂移。
 7. **UI 字族未在 token 层定义** —— 由基础 CSS 直接声明；产品的 `"Segoe UI (Custom)"` / `"Open Sans (Custom)"` 是改名后的自包含字体，**不得打包**，必须换自有字体并重测字宽（会影响上述所有文本宽度）。
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
-10. **工具调用只做了折叠态** —— 产品还有 `cr-collapse` 展开卡（浅绿 `#e7f9ef`）、`cr-tool-diff` 差异视图（`+42 / −0` 行级配色）、`cr-tool-exec` 命令输出、`cr-table-block` 表格块、`cr-status-chips`、`cr-context-usage` 用量环。当前实现把结果面板正文渲染成单块静音文本、工具行只保留折叠行，属**记录在案的偏差**。
+10. **工具调用只做了折叠态** —— 5.8.4 已补采 `cr-collapse` 展开/完成/折叠、`cr-tool-diff`（all-add 与 mixed）、`cr-tool-exec` 长输出、`cr-table-block`、`cr-context-usage` popover、`cr-agent__processing-status`；数值与类名见 §5.3，fixture 见 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。**M2.2 已实现** diff / exec / table 三种块、752/500 宽度切换、`cr-collapse` 工具组与 usage 环；usage popover 的五类分解仍待事件流补充，结果面板正文仍是近似重建。`cr-status-chips` 在 5.8.4 本次采集中未出现，标为未采集。
 11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 
@@ -608,16 +645,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 23. **Windows 7 / 8.1 未验证，且文档自相矛盾** —— 硬要求里有 Win7/8.1，而 §2 表原先写"GTK 3（MSYS2 构建）无 Win7 门槛"，README「Prebuilt binaries」却写"MSYS2 自 2024-05 起不再支持 Win7/8.0，因此没有可维护的 GTK 3 运行时"。二者必有一错。要分清**构建环境**与**目标机**：Cygwin/msys2-runtime 3.5 不支持 Win7 只影响构建侧；MinGW-w64 产物理论上仍可声明 `_WIN32_WINNT` 兼容 Win7，但新版 GLib 可能已调用 Win8+ API（如 `GetSystemTimePreciseAsFileTime`），这只能真机实测。需要一台 Win7/8.1 虚拟机才能定论，目前无法验证。
 24. **Windows 产物并不自包含（且未验证）** —— `evobuddy-<版本>-windows-x86_64.zip` 目前只带 GTK 3 的 DLL 与 exe，**不带 GTK 的数据文件**：GSettings schema、immodules、gdk-pixbuf loader cache、图标主题、字体。缺 `org.gtk.Settings.*` 时 GTK 会直接拒绝启动，所以这个 zip 在没装过 MSYS2/GTK 的机器上大概率起不来。Linux 侧靠启动器在运行时重写两份 cache 里的绝对路径；Windows 需要等价的 `.cmd` 启动器 + 真机验证，因此**刻意没有照抄一份没验证过的实现**。CI 里该任务设为 `continue-on-error`（不阻塞 Linux 发布），产物自带的 README 也如实写明"未验证、非自包含"。另外 UCRT64 目标是 Win10+，与缺口 23 的 Win7/8.1 问题叠加。（v0.2.1 起该 zip 带上了版本号并补了 `.sha256`，与 Linux 产物对齐；但"单文件"对 Windows 无解——GTK 3 无法静态链接进一个 exe。）
 
-**下一步（建议顺序）**
+**下一步**
 
-1. 在真实活跃窗口下人工复核下拉 popover 的呈现、焦点与点外关闭（缺口 21）。
-2. 补上工具调用展开卡、差异视图、表格块与 `cr-context-usage` 用量环（缺口 10）。
-3. 人工复核 IME 组合态下的 Enter 行为（缺口 18，自动化无法提供输入法）。
-4. 补上吉祥物、图标集与真实文案，把欢迎态收尾（缺口 1、2、5）。
-5. 解决输入卡投影：用 Cairo `draw` 自绘阴影，或确认 GTK 能否通过外层留白渲染出卡片外投影（缺口 3）。
-6. 修正结果面板标签的超长省略（缺口 16），并核对会话顶栏那 8px 内缩（缺口 14）。
-7. 把间距 / 圆角 / 字号纳入生成器，`ui/gtk.css` 只留结构规则（缺口 6）。
-8. Debian 10 容器验证自带 GTK 栈的可行性（缺口 11）。
-9. 切换 CI 到 `evobuddy` 并去掉 `notebook` bin（缺口 12）。
+规划统一维护在 [`docs/status-and-roadmap.md`](../status-and-roadmap.md)：P0 验证加固、M2（真实异步 agent + 会话内容块）、P1–P5 与发布合规闸门都在那里。本节只保留测量、决策、缺口与坑，避免两处计划漂移。
 
 

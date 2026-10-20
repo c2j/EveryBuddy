@@ -105,7 +105,19 @@ pub fn build(composer: &Rc<Composer>, wiring: &Wiring, contribs: &Contribs) -> W
     column.pack_start(&spacer(spec::BELOW_INPUT_HEIGHT), false, false, 0);
 
     body.pack_start(&column, false, false, 0);
-    root.pack_start(&body, true, true, 0);
+
+    // A small, original mascot placeholder anchored to the input area's right
+    // side. It is an overlay so the measured column/hero geometry is unchanged.
+    let stage = gtk::Overlay::new();
+    stage.add(&body);
+    if let Some(mascot) = crate::icons::image("mascot", 120) {
+        mascot.set_halign(gtk::Align::End);
+        mascot.set_valign(gtk::Align::Start);
+        mascot.set_margin_top(220);
+        mascot.set_margin_end(40);
+        stage.add_overlay(&mascot);
+    }
+    root.pack_start(&stage, true, true, 0);
 
     let notice = gtk::Label::new(Some(spec::NOTICE));
     class(&notice, "eb-notice");

@@ -24,6 +24,8 @@ pub struct Wiring {
     pub collapse: std::rc::Rc<dyn Fn()>,
     /// A row of the task-filter menu was chosen.
     pub filter: std::rc::Rc<dyn Fn(usize)>,
+    /// A row of the account menu was chosen (0 = Settings).
+    pub account: std::rc::Rc<dyn Fn(usize)>,
 }
 
 pub struct Sidebar {
@@ -42,6 +44,7 @@ pub struct TaskRow {
     pub meta: String,
     pub active: bool,
     pub index: usize,
+    pub workspace: Option<String>,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -70,7 +73,7 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
     scroller.add(&content);
     root.pack_start(&scroller, true, true, 0);
 
-    let footer = footer(contribs);
+    let footer = footer(contribs, &wiring.account);
     root.pack_start(&footer, false, false, 0);
 
     Sidebar {
@@ -130,8 +133,9 @@ fn header(wiring: &Wiring, contribs: &Contribs) -> (gtk::Box, Vec<gtk::Button>) 
 
     let brand_line = hbox(8);
     class(&brand_line, "eb-brand-line");
-    // The mark stands in for the product logo, which is its own asset.
-    brand_line.pack_start(&text("◆", "eb-brand-name"), false, false, 0);
+    // EvoBuddy's own mark, embedded as a PNG (no icon theme / librsvg path).
+    let brand_mark = crate::icons::named("logo", 18, "eb-brand-name");
+    brand_line.pack_start(&brand_mark, false, false, 0);
     brand_line.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
 
     let version_row = hbox(6);
@@ -164,8 +168,7 @@ pub fn nav_row(value: &str, label: &str, badge: &str) -> gtk::Button {
     let button = flat_button("eb-nav");
 
     let row = hbox(8);
-    let icon = gtk::Label::new(Some(value));
-    class(&icon, "eb-nav-icon");
+    let icon = crate::icons::request(value, "eb-nav-icon");
     row.pack_start(&icon, false, false, 0);
     row.pack_start(&text(label, ""), true, true, 0);
 
@@ -179,7 +182,7 @@ pub fn nav_row(value: &str, label: &str, badge: &str) -> gtk::Button {
 
 /// 279x56.5, padding `8px 12px 8px 8px`: the user row (223x40) plus a 32x32
 /// mini-program button.
-fn footer(contribs: &Contribs) -> gtk::Box {
+fn footer(contribs: &Contribs, account: &std::rc::Rc<dyn Fn(usize)>) -> gtk::Box {
     let footer = hbox(0);
     class(&footer, "eb-sidebar-footer");
 
@@ -189,7 +192,7 @@ fn footer(contribs: &Contribs) -> gtk::Box {
         contribs.menu("account"),
         std::rc::Rc::new(std::cell::Cell::new(0)),
         gtk::PositionType::Top,
-        std::rc::Rc::new(|_| {}),
+        account.clone(),
     );
 
     let row = hbox(10);
@@ -265,9 +268,30 @@ pub fn fill_content(
     );
     content.pack_start(&tasks, false, false, 0);
 
-    let none = vbox(0);
-    none.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
-    let (workspaces, workspaces_body) = section("Workspaces (0)", 4, none, collapsed[1], 1, section_toggle);
+    let workspace_rows: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| row.workspace.as_deref())
+        .collect();
+    let workspaces_list = vbox(2);
+    if workspace_rows.is_empty() {
+        workspaces_list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
+    } else {
+        for path in &workspace_rows {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| (*path).to_string());
+            workspaces_list.pack_start(&text(&name, "eb-task-title"), false, false, 0);
+        }
+    }
+    let (workspaces, workspaces_body) = section(
+        &format!("Workspaces ({})", workspace_rows.len()),
+        4,
+        workspaces_list,
+        collapsed[1],
+        1,
+        section_toggle,
+    );
     content.pack_start(&workspaces, false, false, 0);
 
     // `show_all` shows every body, folded or not, so the fold has to be applied

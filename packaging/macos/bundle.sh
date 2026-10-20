@@ -65,6 +65,10 @@ res="$appdir/Contents/Resources"
 mkdir -p "$res"/{etc,share/glib-2.0/schemas,share/icons} \
          "$res/lib/gdk-pixbuf-2.0/2.10.0/loaders" \
          "$res/lib/gtk-3.0/3.0.0/immodules"
+mkdir -p "$res/share/doc/evobuddy"
+cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$root/SBOM.json" "$res/share/doc/evobuddy/"
+cp -r "$root/LICENSES" "$res/share/doc/evobuddy/"
+cp "$root/docs/lgpl-source-offer.md" "$res/share/doc/evobuddy/"
 
 # gdk-pixbuf loaders (any image at all, SVG included) and input-method modules
 # (im-quartz is what makes CJK typing work on macOS). Where a module has a

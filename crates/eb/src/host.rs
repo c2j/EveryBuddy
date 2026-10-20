@@ -1,28 +1,73 @@
 //! The host side of the plugin system: the rutis runtime, the mount of the
 //! built-in plugins, and the validated contribution set the renderers read.
 //!
-//! Threading, in one sentence: everything here runs on the GTK main thread, the
-//! built-in plugins are mounted once at startup, and their contributions are
-//! plain data the renderers read afterwards. Plugin code never touches a
-//! widget; a kernel-thread bridge arrives when a plugin first needs to be async
-//! (the demo agent's replacement will be the first one).
+//! Threading: plugin *mounting* and contribution reads happen on the GTK main
+//! thread. Agent answers run on [`AgentRuntime`]'s dedicated thread; the host
+//! drains their events on the main loop. Plugin code never touches a widget.
 
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rutis::{BoxFuture, Ctx, CordisError, Effect};
 
 use eb_api::contrib::Contribs;
 use eb_api::{AnswerSource, EbPlugin, Ui};
+use crate::agent::AgentRuntime;
+
+static ACP_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn acp_enabled() -> bool {
+    ACP_ACTIVE.load(Ordering::SeqCst)
+}
+
+fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option<eb_plugin_acp_agent::AcpAgent> {
+    if !program.is_file() {
+        return None;
+    }
+    let auto_approve = std::env::var("EVOBUDDY_ACP_AUTO_APPROVE")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    Some(eb_plugin_acp_agent::AcpAgent::new(eb_plugin_acp_agent::AcpConfig {
+        program: program.to_string_lossy().to_string(),
+        args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        auto_approve,
+        name: name.into(),
+        debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
+        env: Vec::new(),
+        auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
+    }))
+}
+
+/// Locally installed ACP agents. Explicit `EVOBUDDY_ACP_AGENT` wins; otherwise
+/// opencode remains the default and Grok Build is the fallback.
+fn default_acp_agent() -> Option<eb_plugin_acp_agent::AcpAgent> {
+    let selected = crate::agents::selected();
+    let build = |agent: crate::agents::AcpAgent| {
+        acp_command(agent.program(), &agent.args(), agent.label())
+    };
+    match selected {
+        crate::agents::AcpAgent::Grok => build(selected),
+        crate::agents::AcpAgent::Opencode => build(selected).or_else(|| {
+            acp_command(
+                crate::agents::AcpAgent::Grok.program(),
+                &crate::agents::AcpAgent::Grok.args(),
+                "Grok build",
+            )
+        }),
+    }
+}
 
 /// The mounted plugin system.
 pub struct Host {
     /// Lives as long as the host: dropping the runtime shuts the driver down —
-    /// the ctx's handle does not keep it alive. Nothing reads it yet; the
-    /// kernel-thread bridge (when a plugin first needs to be async) will.
+    /// the ctx's handle does not keep it alive. Used only for the mount.
     #[allow(dead_code)]
-    pub runtime: tokio::runtime::Runtime,
+    pub mount_runtime: tokio::runtime::Runtime,
     pub ctx: Ctx,
     pub contribs: Contribs,
+    /// Owns the dedicated agent thread and its tokio runtime.
+    pub agent_runtime: Arc<AgentRuntime>,
 }
 
 impl Host {
@@ -37,11 +82,22 @@ impl Host {
         let ctx = Ctx::root_with(runtime.handle().clone());
         let contribs = Arc::new(Mutex::new(Contribs::default()));
 
+        // One router is the answer source for the process lifetime. It
+        // resolves the current default on every turn, so Settings can switch
+        // between ACP, dsh, and a custom model without remounting the host.
+        let router = Arc::new(crate::router::AgentRouter::new(crate::router::load()));
+        crate::router::install(router.clone());
+        eb_api::provide_answer(&ctx, router.clone())
+            .expect("provide the agent router");
+        ACP_ACTIVE.store(
+            crate::router::load().default == crate::router::DefaultRoute::Acp,
+            Ordering::SeqCst,
+        );
+        let _ = crate::dsh_agent::enabled();
         let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),
             Arc::new(eb_plugin_notices::NoticesPlugin),
             Arc::new(eb_plugin_composer::ComposerPlugin),
-            Arc::new(eb_plugin_demo_agent::DemoAgent::new()),
         ];
 
         let mut fibers = Vec::new();
@@ -61,8 +117,17 @@ impl Host {
             }
         });
 
-        let contribs = contribs.lock().unwrap().clone();
-        let host = Host { runtime, ctx, contribs };
+        let mut contribs = contribs.lock().unwrap().clone();
+        if let Some((_, items)) = contribs.menus.iter_mut().find(|(name, _)| *name == "model") {
+            *items = crate::router::menu_labels();
+        }
+        let agent_runtime = Arc::new(AgentRuntime::new());
+        let host = Host {
+            mount_runtime: runtime,
+            ctx,
+            contribs,
+            agent_runtime,
+        };
         host.validate();
         host
     }

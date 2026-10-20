@@ -1,0 +1,35 @@
+name: check
+
+# Fast feedback on every branch and PR. The release workflow stays tag-only;
+# this one exists so a broken `cargo test` does not wait for a release tag.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: cargo test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check generated tokens
+        run: bash docs/ui-spec/check_tokens.sh
+
+      - name: Check compliance manifest
+        run: |
+          python3 packaging/generate_compliance.py
+          git diff --exit-code SBOM.json THIRD_PARTY_NOTICES.md
+
+      - name: Install GTK 3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev
+
+      - name: Test the workspace
+        run: cargo test --workspace

@@ -22,11 +22,18 @@
 @define-color eb_text_tertiary  rgba(0, 0, 0, 0.5);
 @define-color eb_text_faint     rgba(0, 0, 0, 0.451);  /* #00000073 */
 @define-color eb_chevron        rgba(0, 0, 0, 0.35);
+/* Measured M2.1 diff colours (ui-spec §5.3). */
+@define-color eb_diff_add_bg    #e7f9ef;
+@define-color eb_diff_remove_bg #fef0f0;
 
 /* ---------------------------------------------------------------- window */
 
 window.eb-window {
   background-color: @color_bg_primary_default;   /* #f2f2f2 */
+  /* The bundle ships Noto Sans regular/bold; fall back to DejaVu then the CJK
+   * face. Keep this on the window so GTK's default "Sans 10" does not pick a
+   * host-dependent font. */
+  font-family: "Noto Sans", "DejaVu Sans", "WenQuanYi Micro Hei", sans-serif;
 }
 
 /* GtkPaned sash. The product's splitter is a 4px *transparent* overlay at
@@ -225,7 +232,9 @@ button.eb-user:hover {
  * `workbuddy-topbar`: `padding: 0 16px`, 8px gap. */
 .eb-content-topbar {
   min-height: 64px;
-  padding: 0 16px;
+  /* Measured: the chat title starts 24px inside the pane; the actions keep the
+   * same 16px right inset. */
+  padding: 0 16px 0 24px;
 }
 
 /* centred column, 800px wide */
@@ -495,10 +504,11 @@ button.eb-task-active .eb-task-title {
   font-weight: 600;
 }
 
-/* The scrollable message column: `cr-message-list`, `padding: 0 40px`, so the
- * 580px pane holds a 500px column. */
+/* The scrollable message column. Its horizontal margins are set in
+ * shell::Views::refresh: 752 wide with no artifact panel, 500 with it open
+ * (measured M2.1, ui-spec §5.3), centred in the available pane. */
 .eb-messages {
-  padding: 0 40px;
+  padding: 0;
 }
 
 /* `cr-frame`: 16px above every message. The user's frame measured
@@ -577,6 +587,52 @@ button.eb-icon-mini:hover {
   font-size: 15px;
 }
 
+/* Markdown message text and fenced code cards. */
+.eb-md-text {
+  color: @eb_text_primary;
+  font-size: 15px;
+}
+
+.eb-md-h1 {
+  color: @eb_text_primary;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.eb-md-h2 {
+  color: @eb_text_primary;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.eb-md-marker {
+  color: @eb_text_tertiary;
+  font-size: 15px;
+}
+
+.eb-code-block {
+  background-color: @bg_secondary;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+}
+
+.eb-code-header {
+  padding: 0;
+}
+
+.eb-code-language {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.eb-code {
+  color: @eb_text_primary;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 0;
+}
+
 /* Text block: 15px/400 at rgba(0,0,0,.9) on a 24px line. The vertical rhythm
  * (53px per one-line block) is widget margins in Rust, not type metrics. */
 .eb-text-block {
@@ -609,6 +665,124 @@ button.eb-icon-mini:hover {
   font-size: 12px;
 }
 
+/* Context usage: a 32x32 button with a 16x16 ring. The ring itself is drawn
+ * by the widget; this class only supplies the hit target and hover. */
+button.eb-context-usage {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 16px;
+}
+
+button.eb-context-usage:hover {
+  background-color: @bg_tertiary;
+}
+
+.eb-usage-title {
+  color: @eb_text_primary;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eb-usage-detail {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+
+/* Agent plan: a light host-rendered list (product plan UI is not captured). */
+.eb-plan {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.eb-plan-title {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.eb-plan-text {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+/* Collapse header: 26.25px, 8px gap, 15px/400 at rgba(0,0,0,.5). */
+button.eb-group-header {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+  min-height: 26px;
+}
+
+.eb-group-title,
+.eb-group-chevron {
+  color: @eb_text_tertiary;
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------- diff / exec blocks -- */
+
+/* M2.1 capture (ui-spec §5.3): a 752x278 card for 12 lines, radius 16,
+ * 21px lines with 16px side padding. Counts live in the tool row above. */
+.eb-diff-card {
+  background-color: @eb_diff_add_bg;
+  padding: 13px 0;
+}
+
+.eb-diff-scroll {
+  background-color: transparent;
+  border: none;
+}
+
+.eb-diff-line {
+  min-height: 21px;
+}
+
+.eb-diff-add {
+  background-color: @eb_diff_add_bg;
+}
+
+.eb-diff-remove {
+  background-color: @eb_diff_remove_bg;
+}
+
+.eb-diff-context {
+  background-color: transparent;
+}
+
+.eb-diff-sign {
+  color: @eb_text_tertiary;
+  font-family: monospace;
+}
+
+.eb-diff-code {
+  color: @eb_text_primary;
+  font-family: monospace;
+}
+
+/* Exec card: 752x300, radius 16, #f2f2f2, 12/16 padding, 12px mono. */
+.eb-exec-card {
+  background-color: #f2f2f2;
+  border: none;
+}
+
+.eb-exec-title,
+.eb-exec-command,
+.eb-exec-output {
+  color: @eb_text_primary;
+  font-family: monospace;
+}
+
+.eb-exec-output {
+  background-color: transparent;
+}
+
 /* Table block: a rounded card with a tinted header row and hairline
  * separators, `padding: 8px 12px` per cell.
  *
@@ -629,7 +803,7 @@ button.eb-icon-mini:hover {
 
 .eb-th label {
   color: @eb_text_tertiary;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -640,7 +814,7 @@ button.eb-icon-mini:hover {
 
 .eb-td label {
   color: @eb_text_primary;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 /* Streaming footer: 26.25px tall, 8px gap, muted. */
@@ -859,4 +1033,461 @@ button.eb-menu-item.eb-menu-item-active {
 
 button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   font-weight: 600;
+}
+
+/* Experimental Settings → Plugins (runtime dsh host plugins). */
+.eb-settings {
+  background-color: @bg_primary;
+  padding: 24px 28px;
+}
+
+.eb-settings-header {
+  margin-bottom: 16px;
+}
+
+.eb-settings-title {
+  color: @eb_text_primary;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.eb-settings-subtitle {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+.eb-settings-rows {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 4px 12px;
+}
+
+.eb-settings-row {
+  padding: 10px 0;
+  border-bottom: 1px solid @border_strong;
+}
+
+.eb-settings-name {
+  color: @eb_text_primary;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.eb-settings-description {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
+.eb-settings-status {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+
+.eb-settings-actions {
+  margin-top: 12px;
+  margin-bottom: 10px;
+}
+
+.eb-settings-apply,
+.eb-settings-stop {
+  padding: 7px 14px;
+  border-radius: 8px;
+}
+
+.eb-settings-apply {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+}
+
+.eb-settings-apply-label {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.eb-settings-stop-label {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+.eb-settings-log {
+  color: @eb_text_secondary;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+}
+
+/* Files panel contributed by the dsh fs bridge. */
+.eb-files {
+  background-color: @bg_primary;
+  padding: 16px;
+}
+
+.eb-files-header {
+  margin-bottom: 10px;
+}
+
+.eb-files-title {
+  color: @eb_text_primary;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.eb-files-path {
+  color: @eb_text_tertiary;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.eb-files-row {
+  padding: 7px 8px;
+  border-bottom: 1px solid @border_strong;
+}
+
+.eb-files-name {
+  color: @eb_text_primary;
+  font-size: 13px;
+}
+
+.eb-files-empty {
+  color: @eb_text_tertiary;
+  font-size: 13px;
+  padding: 10px;
+}
+
+.eb-files-content {
+  color: @eb_text_secondary;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+}
+
+.eb-file-icon {
+  color: @eb_text_secondary;
+}
+
+.eb-settings-files-label {
+  color: @eb_text_secondary;
+  font-size: 13px;
+}
+
+.eb-settings-ui-header {
+  margin-top: 18px;
+  margin-bottom: 8px;
+}
+
+.eb-settings-title-small {
+  color: @eb_text_primary;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.eb-settings-preview {
+  padding: 5px 10px;
+  border: 1px solid @border_strong;
+  border-radius: 7px;
+}
+
+.eb-settings-preview-label {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
+.eb-plugin-menu {
+  padding: 6px;
+}
+
+.eb-plugin-menu-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.eb-plugin-menu-label {
+  color: @eb_text_primary;
+  font-size: 13px;
+}
+
+/* Catalog: experts, skills, connectors */
+.eb-catalog-intro {
+  color: @eb_text_secondary;
+  font-size: 13px;
+  margin: 0 0 14px 0;
+}
+.eb-catalog-section {
+  color: @eb_text_primary;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 14px 0 6px 0;
+}
+.eb-skill-card {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 3px 0;
+}
+.eb-skill-title {
+  font-weight: 600;
+  color: @eb_text_primary;
+}
+.eb-skill-meta {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+.eb-skill-source {
+  color: @eb_text_tertiary;
+  font-size: 11px;
+  margin-left: 6px;
+}
+.eb-skill-error {
+  color: #b42318;
+  font-size: 12px;
+}
+
+.eb-catalog-tab,
+.eb-catalog-tab-active {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: @eb_text_secondary;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 6px 4px;
+}
+.eb-catalog-tab-active {
+  color: @eb_text_primary;
+  border-bottom-color: @eb_text_primary;
+}
+.eb-catalog-count {
+  color: @eb_text_secondary;
+  font-size: 12px;
+  margin-left: 8px;
+}
+.eb-add-skill {
+  background: @eb_text_primary;
+  color: #ffffff;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 600;
+}
+.eb-chip,
+.eb-chip-active {
+  background: transparent;
+  border: 1px solid @border_strong;
+  border-radius: 14px;
+  color: @eb_text_secondary;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.eb-chip-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  border-color: @eb_text_secondary;
+}
+.eb-skill-icon {
+  background: @bg_secondary;
+  border-radius: 8px;
+  color: @eb_text_primary;
+  font-size: 16px;
+  min-width: 30px;
+  min-height: 30px;
+}
+.eb-skill-add {
+  background: @bg_secondary;
+  border: 1px solid @border_strong;
+  border-radius: 12px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  font-size: 15px;
+}
+.eb-skill-stats {
+  color: @eb_text_tertiary;
+  font-size: 11px;
+}
+.eb-skill-badge {
+  background: @bg_hover_light;
+  border-radius: 4px;
+  color: @eb_text_tertiary;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  margin-bottom: 3px;
+}
+.eb-expert-hero {
+  border-radius: 12px;
+  padding: 14px;
+  min-height: 110px;
+  border: 1px solid @border_strong;
+}
+.eb-expert-hero.content { background: #e8f3ec; }
+.eb-expert-hero.data { background: #e8eef8; }
+.eb-expert-hero.business { background: #edf0e8; }
+.eb-expert-hero.ecommerce { background: #f0e8f5; }
+.eb-expert-hero-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-expert-tag {
+  background: @bg_secondary;
+  border-radius: 5px;
+  color: @eb_text_secondary;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.eb-page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-empty-icon {
+  color: @eb_text_tertiary;
+  font-size: 44px;
+}
+.eb-library-nav,
+.eb-library-nav-active {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: @eb_text_secondary;
+  padding: 7px 10px;
+}
+.eb-library-nav-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  font-weight: 600;
+}
+
+.eb-skill-detail-icon {
+  background: @bg_secondary;
+  border-radius: 10px;
+  font-size: 30px;
+  min-width: 58px;
+  min-height: 58px;
+}
+.eb-skill-detail-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-skill-detail-close {
+  background: transparent;
+  border: 0;
+  color: @eb_text_secondary;
+  font-size: 20px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.eb-skill-detail-description {
+  color: @eb_text_secondary;
+  font-size: 14px;
+}
+.eb-skill-detail-stat {
+  font-size: 15px;
+  font-weight: 600;
+  color: @eb_text_primary;
+}
+
+.eb-settings-model-section {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 8px;
+  margin: 0 0 14px 0;
+  padding: 12px;
+}
+.eb-settings-model-label {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
+
+.eb-settings-model-page {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 16px;
+}
+.eb-settings-provider-row {
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.eb-settings-provider-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.eb-settings-provider-badge {
+  background: @bg_secondary;
+  border-radius: 4px;
+  color: @eb_text_secondary;
+  font-size: 10px;
+  padding: 2px 5px;
+}
+.eb-settings-dot-on {
+  color: #1f9d55;
+  font-size: 12px;
+}
+.eb-settings-dot-off {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+.eb-settings-add-provider {
+  border: 1px dashed @border_strong;
+  border-radius: 10px;
+  padding: 12px;
+}
+.eb-settings-add-provider-label {
+  color: @eb_text_secondary;
+  font-size: 14px;
+}
+.eb-settings-model-error {
+  color: #b42318;
+  font-size: 12px;
+}
+
+.eb-settings-sidebar {
+  background: @bg_sidebar;
+  border-right: 1px solid @border_strong;
+  padding: 20px 14px;
+}
+.eb-settings-content {
+  padding: 24px 28px;
+}
+.eb-settings-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-settings-nav,
+.eb-settings-nav-active {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: @eb_text_secondary;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.eb-settings-nav-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  font-weight: 600;
+}
+
+.eb-settings-groups {
+  padding: 0 2px 20px 2px;
+}
+.eb-settings-group {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 14px;
+}
+.eb-settings-default-value {
+  color: @eb_text_primary;
+  font-weight: 600;
+  font-size: 13px;
 }

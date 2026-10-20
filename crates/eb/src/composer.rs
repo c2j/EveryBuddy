@@ -44,6 +44,8 @@ pub enum Variant {
 #[derive(Clone)]
 pub struct Wiring {
     pub submit: Rc<dyn Fn(String)>,
+    /// Called by the send button while an answer is streaming.
+    pub cancel: Rc<dyn Fn()>,
     /// Called with the picker and the chosen index.
     pub pick: Rc<dyn Fn(Picker, usize)>,
 }
@@ -53,6 +55,80 @@ impl Wiring {
     fn picker(&self, picker: Picker) -> Rc<dyn Fn(usize)> {
         let pick = self.pick.clone();
         Rc::new(move |index| pick(picker, index))
+    }
+}
+
+struct UsageWidget {
+    button: gtk::Button,
+    ring: gtk::DrawingArea,
+    fraction: Rc<Cell<f64>>,
+    detail: gtk::Label,
+}
+
+fn usage_widget() -> UsageWidget {
+    let button = flat_button("eb-context-usage");
+    button.set_valign(gtk::Align::Center);
+    button.set_tooltip_text(Some("Context usage"));
+    hide_from_show_all(&button);
+    button.set_visible(false);
+
+    let ring = gtk::DrawingArea::new();
+    ring.set_size_request(16, 16);
+    ring.set_halign(gtk::Align::Center);
+    ring.set_valign(gtk::Align::Center);
+    let fraction = Rc::new(Cell::new(0.0f64));
+    {
+        let fraction = fraction.clone();
+        ring.connect_draw(move |area, cr| {
+            let allocation = area.allocation();
+            let size = allocation.width().min(allocation.height()) as f64;
+            let center = size / 2.0;
+            let radius = (size / 2.0 - 2.0).max(1.0);
+            let fraction = fraction.get().clamp(0.0, 1.0);
+
+            cr.set_line_width(2.0);
+            cr.set_source_rgba(0.0, 0.0, 0.0, 0.08);
+            cr.arc(center, center, radius, 0.0, std::f64::consts::TAU);
+            let _ = cr.stroke();
+
+            cr.set_source_rgba(0.39, 0.40, 0.95, 1.0); // #6366f1, measured
+            cr.arc(
+                center,
+                center,
+                radius,
+                -std::f64::consts::FRAC_PI_2,
+                -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * fraction,
+            );
+            let _ = cr.stroke();
+            gtk::glib::Propagation::Proceed
+        });
+    }
+    button.add(&ring);
+    ring.show();
+
+    let popover = gtk::Popover::new(Some(&button));
+    popover.set_position(gtk::PositionType::Top);
+    let content = vbox(4);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    content.pack_start(&text("Context Usage", "eb-usage-title"), false, false, 0);
+    let detail = text("", "eb-usage-detail");
+    content.pack_start(&detail, false, false, 0);
+    popover.add(&content);
+    content.show_all();
+
+    button.connect_clicked({
+        let popover = popover.clone();
+        move |_| popover.popup()
+    });
+
+    UsageWidget {
+        button,
+        ring,
+        fraction,
+        detail,
     }
 }
 
@@ -69,7 +145,11 @@ pub struct Composer {
     /// A 32x32 ghost button that only the Code scene shows. Measured: switching
     /// Work -> Code on the landing page changes nothing else in the DOM.
     pub enhance: gtk::Button,
+    send: gtk::Button,
     pristine: Rc<Cell<bool>>,
+    has_text: Rc<Cell<bool>>,
+    streaming: Rc<Cell<bool>>,
+    usage: Option<UsageWidget>,
 }
 
 impl Composer {
@@ -98,12 +178,23 @@ impl Composer {
         // Measured: inactive while the input is empty.
         send.set_sensitive(false);
 
+        let has_text = Rc::new(Cell::new(false));
+        let streaming = Rc::new(Cell::new(false));
         let on_change: Rc<dyn Fn(bool)> = {
             let send = send.clone();
-            Rc::new(move |has_text: bool| send.set_sensitive(has_text))
+            let has_text = has_text.clone();
+            let streaming = streaming.clone();
+            Rc::new(move |value: bool| {
+                has_text.set(value);
+                if !streaming.get() {
+                    send.set_sensitive(value);
+                }
+            })
         };
 
         let (host, view, pristine) = editor(hint, editor_height, on_change);
+
+        let usage = usage_widget();
 
         // ---- the card ------------------------------------------------------
         let card = vbox(0);
@@ -115,7 +206,7 @@ impl Composer {
                 welcome_toolbar(model, &send, &wiring, contribs),
                 hidden_enhance(),
             ),
-            Variant::Chat => chat_toolbar(permission, model, &send, &wiring, contribs),
+            Variant::Chat => chat_toolbar(permission, model, &send, &usage.button, &wiring, contribs),
         };
         card.pack_start(&toolbar, false, false, 0);
 
@@ -198,7 +289,15 @@ impl Composer {
 
         send.connect_clicked({
             let submit = submit.clone();
-            move |_| submit()
+            let cancel = wiring.cancel.clone();
+            let streaming = streaming.clone();
+            move |_| {
+                if streaming.get() {
+                    cancel();
+                } else {
+                    submit();
+                }
+            }
         });
 
         view.connect_key_press_event({
@@ -233,7 +332,15 @@ impl Composer {
             footer: visible_footer,
             view,
             enhance,
+            send,
             pristine,
+            has_text,
+            streaming,
+            usage: if matches!(variant, Variant::Chat) {
+                Some(usage)
+            } else {
+                None
+            },
         }
     }
 
@@ -248,9 +355,49 @@ impl Composer {
         self.view.grab_focus();
     }
 
+    /// Click the send/stop button programmatically. The fake-agent harness uses
+    /// this to exercise the same path a user's click takes.
+    pub fn click_send(&self) {
+        self.send.clicked();
+    }
+
+    /// Update the context-usage ring. No usage event means no ring, which is
+    /// the honest state for the synchronous demo agent.
+    pub fn set_usage(&self, usage: Option<(u32, u32)>) {
+        let Some(widget) = &self.usage else {
+            return;
+        };
+        match usage {
+            Some((used, total)) if total > 0 => {
+                widget.fraction.set(used as f64 / total as f64);
+                widget
+                    .detail
+                    .set_text(&format!("Used {used} of {total} tokens"));
+                widget.ring.show();
+                widget.button.show();
+                widget.ring.queue_draw();
+            }
+            _ => widget.button.hide(),
+        }
+    }
+
     /// The Code scene adds a toolbar button the Work scene does not have.
     pub fn set_scene(&self, scene: Scene) {
         self.enhance.set_visible(matches!(scene, Scene::Code));
+    }
+
+    /// While an answer streams, the send button becomes a stop button. The
+    /// geometry stays 32x32; only the glyph, tooltip and action change.
+    pub fn set_streaming(&self, streaming: bool) {
+        if self.streaming.replace(streaming) == streaming {
+            return;
+        }
+        self.send
+            .set_tooltip_text(Some(if streaming { "Stop" } else { "Send" }));
+        clear(&self.send);
+        self.send.add(&glyph(if streaming { "■" } else { "↑" }));
+        self.send.show_all();
+        self.send.set_sensitive(streaming || self.has_text.get());
     }
 }
 
@@ -375,6 +522,7 @@ fn chat_toolbar(
     permission: usize,
     model: usize,
     send: &gtk::Button,
+    usage: &gtk::Button,
     wiring: &Wiring,
     contribs: &Contribs,
 ) -> (gtk::Box, gtk::Button) {
@@ -406,6 +554,7 @@ fn chat_toolbar(
     attach_notice(&enhance, contribs.notice("composer.code_assist"));
     right.pack_start(&enhance, false, false, 0);
 
+    right.pack_start(usage, false, false, 0);
     right.pack_start(&model_selector(model, wiring, contribs), false, false, 0);
     right.pack_start(send, false, false, 0);
 

@@ -6,13 +6,22 @@ replicating the UI of the Tencent WorkBuddy AI desktop client.
 The app is `evobuddy` (display name **EvoBuddy**). The repository also keeps the
 upstream `notebook` example from
 [gtk3-rs](https://github.com/gtk-rs/gtk3-rs/tree/master/examples/notebook) as the
-validated GTK 3 + CJK-input baseline; it now lives in `src/bin/notebook/` and is
-documented further down.
+validated GTK 3 + CJK-input baseline; it now lives in
+`crates/eb/src/bin/notebook/` and is documented further down.
 
 ```bash
 cargo run                 # runs evobuddy (default-run)
 cargo run --bin notebook  # the CJK baseline demo
 ```
+
+## Licensing
+
+EvoBuddy is MIT-licensed; see [`LICENSE`](LICENSE). The self-contained Linux
+and macOS packages dynamically link the GTK 3 stack (LGPL-2.1-or-later).
+[`SBOM.json`](SBOM.json) lists the exact components, [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+records the Rust/system/font notices, and [`docs/lgpl-source-offer.md`](docs/lgpl-source-offer.md)
+is the LGPL corresponding-source offer. The same files are copied into the
+packages under `share/doc/evobuddy/`.
 
 ## Requirements
 
@@ -85,6 +94,8 @@ too-small allocation:
 
 ```bash
 EB_DEMO=1 EB_SELFTEST=1 EB_SHOT=/tmp/evobuddy-chat.png cargo run
+# second demo answer: diff + exec + table, 752px column
+EB_DEMO_BLOCKS=1 EB_SELFTEST=1 EB_SHOT=/tmp/evobuddy-blocks.png cargo run
 ```
 
 `EB_DEMO=1` submits a message first, so the conversation state is photographed
@@ -97,10 +108,13 @@ EB_ENTER=1 EB_SELFTEST=1 cargo run
 # enter: after=conversation (want conversation), buffer="Ask anything…"
 ```
 
-Any `EB_*` flag attaches the harness, so the explicit `EB_SELFTEST=1` is only
-needed when nothing else is set.
+Any harness flag (`EB_SELFTEST`, `EB_SHOT`, `EB_ENTER`, `EB_CLICK`,
+`EB_CLICK_ASSERT`, `EB_ASSERT`, `EB_DEMO`) attaches the harness, so the explicit
+`EB_SELFTEST=1` is only needed when none of those is set. The fake-agent demo
+(`EB_FAKE_DEMO`) is its own mode and does not go through the selftest harness;
+`EB_FAKE_*` and `EB_CANCEL_AFTER_MS`/`EB_DEBUG` are runtime switches.
 
-`EB_CLICK=1` walks the shell and clicks every interactive surface in turn,
+`EB_CLICK=1` walks the shell and clicks the main interactive surfaces in turn,
 printing what changed after each one — the closest thing here to a person poking
 at the UI:
 
@@ -113,11 +127,73 @@ EB_CLICK=1 cargo run
 # click: artifact tab close (x)   detail visible=false tabs=1
 ```
 
-It asserts nothing on its own: it prints, and you read the column. That is
-deliberate — most of the checks that matter (\"did the panel close\", \"did the
-route change\") are only meaningful next to the label, and a golden file would
-rot the moment the wording changes. `EB_CLICK_SIGNAL=1` emits `clicked` directly
+It prints by default, and you read the column. `EB_CLICK_ASSERT=1` turns the
+stable observations — route, visibility, notice copy, menu rows — into an
+exit-code assertion, which is what the Linux and macOS verify scripts use. The
+numeric columns that move with the window server, fonts and layout timing are
+deliberately not asserted. `EB_CLICK_SIGNAL=1` emits `clicked` directly
 instead of synthesising a press and a release with a window and a device.
+
+`EB_ASSERT=1` does the same for the geometry report: it asserts the fixed
+measured blocks and checks that every colour resolved, then exits non-zero on a
+mismatch. It skips the exact window size only when the screen is too small and
+GTK is right to clamp the window. CI runs it alongside the screenshot.
+
+For the full local launch + plugin checklist (manual UI passes, plugin boundary
+checks and troubleshooting), see
+[`docs/local-verification.md`](docs/local-verification.md).
+
+### Real ACP agents
+
+When `EVOBUDDY_ACP_COMMAND` is set, the host mounts
+`eb-plugin-acp-agent` instead of the demo agent. It launches an
+[Agent Client Protocol](https://agentclientprotocol.com) agent over JSON-RPC
+stdio, creates one persistent session per app launch, and maps
+`session/update` into the same `Delta`/`Block`/`Usage` events the renderer
+already understands. dsh, opencode and other ACP-speaking agents are supported
+without code changes.
+
+```bash
+# opencode's ACP mode
+EVOBUDDY_ACP_COMMAND="$HOME/.opencode/bin/opencode" EVOBUDDY_ACP_ARGS="acp" EVOBUDDY_ACP_CWD="$PWD" cargo run
+
+# dsh's ACP profile (see docs/acp-agent.md for the checkout path)
+EVOBUDDY_ACP_COMMAND="$DSH/node_modules/.bin/pnpm" EVOBUDDY_ACP_ARGS="dsh --profile acp" EVOBUDDY_ACP_CWD="$DSH" DEEPSEEK_API_KEY="…" cargo run
+```
+
+Tool permissions open an in-window allow/reject popover by default; `EVOBUDDY_ACP_AUTO_APPROVE=1` bypasses the popover;
+`EVOBUDDY_ACP_DEBUG=1` forwards the agent's stderr. The full env table, event
+mapping, permission model and limitations are in
+[`docs/acp-agent.md`](docs/acp-agent.md).
+
+`EB_FAKE_AGENT=1` replaces the demo agent with a slow streaming one. The
+`EB_FAKE_DEMO=1` harness submits a prompt, waits for the terminal event and
+quits; `EB_CANCEL_AFTER_MS` cancels via the API, `EB_FAKE_STOP_AFTER_MS` clicks
+the send/stop button, and `EB_FAKE_PANIC_START=1` verifies a panicking start is
+turned into a `Failed` event. This is how the event/cancel paths are exercised
+without a real model:
+
+```bash
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 cargo run
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=300 \
+  EB_FAKE_AGENT_CHUNKS=50 cargo run
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=250 \
+  EB_FAKE_AGENT_CHUNKS=50 cargo run
+EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 cargo run
+```
+
+`EB_FAKE_AGENT_DELAY_MS` (default 120) and `EB_FAKE_AGENT_CHUNKS` (default 8)
+control the stream. For a live window, run `EB_FAKE_AGENT=1 cargo run`, click a
+chip and press Enter; the streaming footer and chunks arrive while the rest of
+the UI stays interactive, and the send button becomes a stop button.
+
+For ACP screenshots, `EB_ACP_DEMO=1` submits once and leaves the window open;
+`EB_SHOT_AFTER_MS=1500` delays the capture until the agent stream settles:
+
+```bash
+EVOBUDDY_ACP_COMMAND=python3 EVOBUDDY_ACP_ARGS="$PWD/crates/plugins/eb-plugin-acp-agent/tests/fixtures/fake_acp.py" EB_ACP_DEMO=1 EB_PERMISSION_AUTO=allow \
+EB_SHOT=/tmp/evobuddy-acp.png EB_SHOT_AFTER_MS=1500 cargo run
+```
 
 Popovers are not in the widget walk — GTK parents them to the window when they
 pop up — so the audit reads them through the input grab instead.
@@ -179,11 +255,13 @@ because both look like \"that control is broken\" and neither raises anything:
 | `crates/eb/src/welcome.rs`, `conversation.rs`, `detail.rs` | the three regions' renderers |
 | `crates/eb/src/sidebar.rs`, `composer.rs`, `widgets.rs` | shared pieces |
 | `crates/eb/src/selftest.rs` | the `EB_*` harness: geometry probe, screenshots, Enter test and the click audit |
+| `crates/eb/src/agent.rs` | the in-flight agent runner: drains `AgentEvent`s, applies them to `App`, handles cancel |
 | `crates/eb-api/` | the **plugin surface**: data model, contribution registries, `EbPlugin` — the only crate a plugin may depend on |
-| `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent` |
+| `crates/plugins/` | the built-in plugins: `nav`, `notices`, `composer`, `demo-agent`, `acp-agent` |
 | `vendor/rutis/` | the vendored plugin runtime (narrowed tokio features; see its README) |
 | `prototype/` | the measurement workspace that chose the plugin runtime (dsh compatibility experiments; not part of the build) |
 | `crates/eb/ui/gtk.css` | colours, type, radii, shadows (GTK CSS is not web CSS — no `var()`, no `flex`, no `gap`) |
+| `crates/eb/assets/` | EvoBuddy's own PNG icon set + mascot (MIT; generated by `gen_icons.py`) |
 | `docs/ui-spec/gtk/` | generated `@define-color` sets (light/dark), built by `build_gtk_tokens.js` |
 | `docs/ui-spec/capture_dom.js` | read-only CDP capture of the real client (DOM + computed styles) |
 | `docs/ui-spec/query_layout.js` | query tool for that capture; reports CSS px |
@@ -195,11 +273,22 @@ because both look like \"that control is broken\" and neither raises anything:
 ## Plugins
 
 "Everything is a plugin" is enforced by the workspace layout: a plugin crate
-depends on `eb-api` and on nothing else — Cargo will not let it reach into the
-host, and the host never names a plugin's internals. A plugin's `mount` receives
+depends on `eb-api` (plus data-only crates where unavoidable, such as
+`serde_json` in the ACP plugin) and never on the host or GTK — Cargo will not
+let it reach into the host, and the host never names a plugin's internals. A plugin's `mount` receives
 a `Ui` handle and *declares* content — nav rows, dropdown menus, notice copy,
-scenario chips — or *provides a service* (the demo agent implements
+scenario chips — or *provides a service* (the demo/ACP agents implement
 `AnswerSource`, the service behind the composer's send path).
+
+An `AnswerSource` now starts an answer instead of returning one: `start` gets an
+`AgentSink` and returns a cancel handle, then emits `Started`, `Delta`, `Block`,
+`Artifact`, `Usage`, `Finished` or `Failed` events. `start` runs on
+`AgentRuntime`'s dedicated thread (`crates/eb/src/agent.rs`); the `Runner`
+drains its bounded event queue on the GTK main loop and applies events to `App`.
+Plugin code still never touches a widget. While an answer streams, the send
+button becomes a stop button (same 32x32 geometry).
+The demo agent emits synchronously; `EB_FAKE_AGENT=1` swaps in a slow streaming
+agent whose worker thread is the first real cross-thread producer.
 
 The model is **data plugins, host rendering**: plugins produce plain values, the
 host turns them into widgets. Plugin code never touches a widget, which keeps
@@ -263,7 +352,9 @@ be discovered — re-exported loaders, unsigned-code SIGKILLs, the death of
 
 Pushing a `v*` tag runs [`build.yml`](.github/workflows/build.yml): it calls the
 same `package.sh` / `verify.sh` a developer runs locally, and publishes the
-results as a GitHub release.
+results as a GitHub release. Every push and pull request also runs
+[`check.yml`](.github/workflows/check.yml) (`cargo test --workspace`), so a
+broken test does not wait for the next tag.
 
 | artifact                                  | built in                 | notes                                          |
 | ----------------------------------------- | ------------------------ | ---------------------------------------------- |

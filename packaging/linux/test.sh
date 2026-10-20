@@ -81,8 +81,64 @@ if [ "$runs_appimage" = yes ]; then
   fi
 fi
 
+# The click audit is the only check that the controls are *wired*, not merely
+# drawn. It asserts the stable observations (route, visibility, notice copy),
+# not the environment-sensitive numbers; see `EB_CLICK_ASSERT` in selftest.rs.
+echo "== click audit (tree) =="
+xvfb-run -a --server-args="-screen 0 1920x1080x24" env "$@" EB_CLICK_ASSERT=1 \
+  "$prefix/run" 2>&1 | sed 's/^/  /'
+
+# The fake agent is the only end-to-end check of the streaming contract: a
+# worker thread produces events, the GTK main loop drains them, and the app
+# quits on the terminal event. The second run cancels before the stream ends.
+echo "== M2.2 content blocks (752px column) =="
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_DEMO_BLOCKS=1 EB_ASSERT=1 "$prefix/run" 2>&1 | sed 's/^/  /'
+
+echo "== fake streaming agent =="
+fake_out=/tmp/fake-agent.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=3 \
+  "$prefix/run" >"$fake_out" 2>&1
+sed 's/^/  /' "$fake_out"
+
+echo "== fake streaming agent (cancel) =="
+cancel_out=/tmp/fake-agent-cancel.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_CANCEL_AFTER_MS=50 \
+  EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+  "$prefix/run" >"$cancel_out" 2>&1
+grep -q "fake-demo: finished" "$fake_out"
+grep -q 'Failed { message: "Cancelled" }' "$cancel_out"
+grep -q "fake-demo: finished" "$cancel_out"
+
+echo "== fake streaming agent (stop button) =="
+stop_out=/tmp/fake-agent-stop.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_STOP_AFTER_MS=150 \
+  EB_FAKE_AGENT_DELAY_MS=10 EB_FAKE_AGENT_CHUNKS=50 \
+  "$prefix/run" >"$stop_out" 2>&1
+grep -q 'Failed { message: "Cancelled" }' "$stop_out"
+grep -q "fake-demo: finished" "$stop_out"
+
+echo "== fake streaming agent (start panic) =="
+panic_out=/tmp/fake-agent-panic.log
+xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+  env EB_FAKE_AGENT=1 EB_FAKE_DEMO=1 EB_DEBUG=1 EB_FAKE_PANIC_START=1 \
+  "$prefix/run" >"$panic_out" 2>&1
+grep -q "agent: start failed: the agent panicked while starting" "$panic_out"
+grep -q "fake-demo: finished" "$panic_out"
+
 # install.sh is only exercised here: it copies the tree, links the launcher and
 # registers the menu entry, and a typo in it would otherwise ship unnoticed.
+echo "== compliance files =="
+for f in LICENSE THIRD_PARTY_NOTICES.md SBOM.json LICENSES/MIT.txt lgpl-source-offer.md; do
+  test -f "$prefix/share/doc/evobuddy/$f" || {
+    echo "missing compliance file: $f" >&2
+    exit 1
+  }
+done
+
 echo "== install.sh =="
 rm -rf /tmp/inst-prefix
 "$prefix/install.sh" /tmp/inst-prefix 2>&1 | sed 's/^/  /'
