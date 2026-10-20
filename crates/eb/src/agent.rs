@@ -744,6 +744,11 @@ impl Runner {
                 }
             }
         }
+        if closed {
+            // Persist the completed turn so switching tasks after a restart
+            // shows the conversation, not just the title.
+            crate::state::save(&self.store);
+        }
         if applied {
             // Agent events must paint even when no UI handler follows them.
             // `request_now` avoids relying on an idle callback that can be

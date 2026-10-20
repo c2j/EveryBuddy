@@ -205,10 +205,16 @@ fn build_ui(application: &gtk::Application) {
             let mut app = store.borrow_mut();
             app.tasks = tasks
                 .into_iter()
-                .map(|(title, session_id, workspace, agent_route, last_route)| model::Task {
+                .map(|(title, session_id, workspace, agent_route, last_route, mut turns)| {
+                    for turn in &mut turns {
+                        if let model::Turn::Agent { streaming, .. } = turn {
+                            *streaming = false;
+                        }
+                    }
+                    model::Task {
                     title,
                     meta: String::new(),
-                    turns: Vec::new(),
+                    turns,
                     artifact: None,
                     session_id,
                     workspace,
@@ -216,6 +222,7 @@ fn build_ui(application: &gtk::Application) {
                     last_route,
                     usage: None,
                     started_at: None,
+                    }
                 })
                 .collect();
             app.route = model::Route::Task(0);
