@@ -347,7 +347,7 @@ impl ConnectorEntry {
                 .args(args)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
                 .spawn()
                 .map_err(|error| format!("cannot start '{command}': {error}"))?;
             if let Some(stdin) = child.stdin.as_mut() {
@@ -363,12 +363,25 @@ impl ConnectorEntry {
                     let _ = tx.send(line);
                 }
             });
-            let line = rx.recv_timeout(std::time::Duration::from_secs(4)).unwrap_or_default();
+            let line = rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap_or_default();
             let _ = child.kill();
+            let _ = child.wait();
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                use std::io::Read;
+                let _ = pipe.read_to_string(&mut stderr);
+            }
             if line.contains("\"result\"") || line.contains("serverInfo") {
                 Ok("MCP initialize ok".into())
             } else if line.trim().is_empty() {
-                Err("no MCP response before timeout".into())
+                let detail = stderr.lines().last().unwrap_or("").trim();
+                if detail.is_empty() {
+                    Err("no MCP response before timeout".into())
+                } else {
+                    Err(format!("no MCP response: {detail}"))
+                }
             } else {
                 Err(format!("unexpected MCP response: {}", line.trim()))
             }
