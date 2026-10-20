@@ -1352,7 +1352,6 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   border-radius: 6px;
   color: @eb_text_secondary;
   padding: 7px 10px;
-  text-align: left;
 }
 .eb-library-nav-active {
   background: @bg_secondary;
