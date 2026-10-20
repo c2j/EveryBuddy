@@ -12,6 +12,8 @@ app=@@APP@@
 
 # glibc, the dynamic loader and the NSS modules deliberately stay on the host:
 # they are forward compatible, and a bundled libc breaks name resolution.
+# External ACP agents must not inherit the bundle's GTK libraries.
+export EVOBUDDY_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 LD_LIBRARY_PATH="$here/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH
 

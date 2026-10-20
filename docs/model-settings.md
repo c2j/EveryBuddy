@@ -13,6 +13,23 @@ Installed state and the resolved command are shown. Saving writes
 `~/.evobuddy/acp.json`; the host reads it at startup (or
 `EVOBUDDY_ACP_AGENT` overrides it).
 
+Each agent uses its default location (`~/.opencode/bin/opencode` or
+`~/.grok/bin/grok`). Override it when the binary is elsewhere:
+
+```sh
+EVOBUDDY_OPENCODE_BIN=/opt/opencode/bin/opencode
+EVOBUDDY_GROK_BIN=/opt/grok/bin/grok
+```
+
+A bare command name is resolved on `PATH`:
+
+```sh
+EVOBUDDY_OPENCODE_BIN=opencode
+```
+
+The default agent is still selected with `EVOBUDDY_ACP_AGENT=opencode|grok` or
+the Settings radio buttons; the row shows the resolved path.
+
 ### Custom Model
 
 For the dsh path:
