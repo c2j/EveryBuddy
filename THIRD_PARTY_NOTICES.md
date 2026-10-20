@@ -104,9 +104,11 @@ packages also include the components below. Full license texts are in
 | `toml_writer` | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 |
 | `unicode-ident` | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | `version-compare` | 0.2.1 | MIT |
+| `version_check` | 0.9.5 | MIT/Apache-2.0 |
 | `windows-link` | 0.2.1 | MIT OR Apache-2.0 |
 | `windows-sys` | 0.61.2 | MIT OR Apache-2.0 |
 | `winnow` | 1.0.4 | MIT |
+| `winresource` | 0.1.34 | MIT |
 | `zmij` | 1.0.23 | MIT |
 
 ## GTK stack (dynamically linked)
