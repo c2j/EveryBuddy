@@ -218,7 +218,7 @@ impl Composer {
         class(&footer, "eb-composer-footer");
         if matches!(variant, Variant::Welcome) {
             footer.pack_start(
-                &pill("▤", contribs.menu("workspace"), workspace, Picker::Workspace, &wiring),
+                &pill("▦", contribs.menu("workspace"), workspace, Picker::Workspace, &wiring),
                 false,
                 false,
                 0,
