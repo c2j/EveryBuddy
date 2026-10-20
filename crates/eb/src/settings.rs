@@ -976,6 +976,61 @@ fn plugins_page(controller: Rc<Controller>) -> gtk::Box {
     page
 }
 
+/// Settings → General: the user-configurable default workspace storage path
+/// (WorkBuddy parity). New workspaces are created under this directory.
+fn general_page() -> gtk::Box {
+    let page = vbox(8);
+    let card = vbox(8);
+    class(&card, "eb-settings-rows");
+
+    let title = text("Default workspace storage path", "eb-settings-name");
+    card.pack_start(&title, false, false, 0);
+    let description = gtk::Label::new(Some(
+        "New tasks and workspaces will be stored under this path by default; changes do not affect existing data.",
+    ));
+    description.set_line_wrap(true);
+    description.set_xalign(0.0);
+    class(&description, "eb-settings-description");
+    card.pack_start(&description, false, false, 0);
+
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let entry = gtk::Entry::new();
+    entry.set_text(&crate::workspace::default_root().to_string_lossy().to_string());
+    entry.set_editable(false);
+    entry.set_hexpand(true);
+    row.pack_start(&entry, true, true, 0);
+    let change = gtk::Button::with_label("Change");
+    let entry_for_change = entry.clone();
+    change.connect_clicked(move |_| {
+        let chooser = gtk::FileChooserDialog::new(
+            Some("Default workspace storage path"),
+            None::<&gtk::Window>,
+            gtk::FileChooserAction::SelectFolder,
+        );
+        chooser.add_button("Cancel", gtk::ResponseType::Cancel);
+        chooser.add_button("Select", gtk::ResponseType::Accept);
+        chooser.set_select_multiple(false);
+        chooser.show_all();
+        let response = chooser.run();
+        let folder = chooser.filename();
+        chooser.close();
+        if response != gtk::ResponseType::Accept {
+            return;
+        }
+        let Some(path) = folder else {
+            return;
+        };
+        if crate::workspace::set_default_root(&path).is_ok() {
+            entry_for_change.set_text(&crate::workspace::default_root().to_string_lossy().to_string());
+        }
+    });
+    row.pack_start(&change, false, false, 0);
+    card.pack_start(&row, false, false, 0);
+
+    page.pack_start(&card, false, false, 0);
+    page
+}
+
 fn simple_page(_title: &str, body: &str) -> gtk::Box {
     let page = vbox(8);
     let label = text(body, "eb-settings-description");
@@ -1021,13 +1076,7 @@ pub fn open() {
     stack.set_vexpand(true);
 
     let controller = Controller::new();
-    stack.add_named(
-        &simple_page(
-            "General",
-            "EvoBuddy is a GTK host for external ACP agents and the dsh runtime. Use Models to choose an ACP agent or a custom model provider.",
-        ),
-        "general",
-    );
+    stack.add_named(&general_page(), "general");
     stack.add_named(&models_page(), "models");
     stack.add_named(&plugins_page(controller.clone()), "plugins");
     stack.add_named(

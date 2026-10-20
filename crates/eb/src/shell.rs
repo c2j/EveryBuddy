@@ -182,8 +182,21 @@ pub fn build(
     let pick = {
         let store = store.clone();
         let refresher = refresher.clone();
+        let window = window.clone();
         Rc::new(move |picker: Picker, index: usize| {
             let mut app = store.borrow_mut();
+            // "+ New Workspace" / "Open Local Folder" run their own dialogs
+            // and select the result themselves.
+            let workspace_count = app.workspaces.len();
+            if picker == Picker::Workspace && index >= workspace_count + 2 {
+                drop(app);
+                if index == workspace_count + 2 {
+                    crate::workspace_ui::prompt_new(&window, &store, &refresher);
+                } else {
+                    crate::workspace_ui::open_local(&window, &store, &refresher);
+                }
+                return;
+            }
             match picker {
                 Picker::Model => {
                     app.model = index;
@@ -299,7 +312,8 @@ pub fn build(
             let app = store.borrow();
             let mut items = vec!["Auto workspace".to_string(), "No workspace".to_string()];
             items.extend(app.workspaces.iter().map(crate::workspace::display_name));
-            items.push("New workspace…".to_string());
+            items.push("New Workspace…".to_string());
+            items.push("Open Local Folder…".to_string());
             items
         }) as Rc<dyn Fn() -> Vec<String>>
     };

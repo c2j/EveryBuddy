@@ -7,13 +7,56 @@ use std::path::PathBuf;
 
 use crate::model::{Workspace, WorkspaceState};
 
-pub fn root() -> PathBuf {
+pub fn legacy_root() -> PathBuf {
     std::env::var("EB_WORKSPACES")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
             PathBuf::from(home).join(".evobuddy/workspaces")
         })
+}
+
+fn settings_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".evobuddy/workspace-settings.json")
+}
+
+/// The user-configurable directory new workspaces are created under
+/// (Settings → General). Defaults to `~/EvoBuddy`.
+pub fn default_root() -> PathBuf {
+    if let Ok(text) = std::fs::read_to_string(settings_path()) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(root) = value["default_root"].as_str() {
+                if !root.trim().is_empty() {
+                    return PathBuf::from(root);
+                }
+            }
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join("EvoBuddy")
+}
+
+pub fn set_default_root(path: &std::path::Path) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf());
+    std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+    let value = serde_json::json!({
+        "default_root": path.to_string_lossy().to_string(),
+    });
+    if let Some(parent) = settings_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(
+        settings_path(),
+        serde_json::to_string_pretty(&value).unwrap_or_default(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn root() -> PathBuf {
+    default_root()
 }
 
 fn slug(title: &str) -> String {
@@ -59,6 +102,54 @@ pub fn create(name: &str) -> Option<Workspace> {
     })
 }
 
+/// Create a user-named workspace at `<default_root>/<name>` (WorkBuddy's
+/// "+ New Workspace"). Reuses the directory when it already exists, and
+/// dedupes against an entity that already points at the same root.
+pub fn create_named(name: &str) -> Option<Workspace> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let path = default_root().join(name);
+    std::fs::create_dir_all(&path).ok()?;
+    let root = path.to_string_lossy().to_string();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0);
+    Some(Workspace {
+        id: format!("ws-{stamp}-{}", stable_suffix(&root)),
+        name: name.to_string(),
+        root,
+        created_at: stamp,
+        updated_at: stamp,
+        state: WorkspaceState::Kept,
+    })
+}
+
+/// Adopt a user-chosen local directory as a kept workspace (WorkBuddy's
+/// "Open Local Folder"). The directory's contents are never touched.
+pub fn create_at(dir: &std::path::Path) -> Option<Workspace> {
+    let path = dir.canonicalize().ok()?;
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "workspace".into());
+    let root = path.to_string_lossy().to_string();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0);
+    Some(Workspace {
+        id: format!("ws-{stamp}-{}", stable_suffix(&root)),
+        name,
+        root,
+        created_at: stamp,
+        updated_at: stamp,
+        state: WorkspaceState::Kept,
+    })
+}
+
 /// Create a workspace entity for an existing root during migration.
 pub fn adopt(root: &str, name: &str, updated_at: Option<u64>) -> Workspace {
     let seconds = updated_at.unwrap_or(0);
@@ -92,12 +183,16 @@ pub fn find_mut<'a>(
     workspaces.iter_mut().find(|workspace| workspace.id == id)
 }
 
-/// Remove a workspace root only when it lives under EvoBuddy's managed area.
-pub fn remove_root(path: &str) {
+/// Remove a workspace root only when EvoBuddy created it: under the current
+/// default storage path or the legacy area. User-chosen local folders are
+/// kept on disk ("changes do not affect existing data").
+pub fn remove_root(path: &str) -> bool {
     let path = std::path::Path::new(path);
-    if path.starts_with(root()) {
+    let managed = path.starts_with(root()) || path.starts_with(legacy_root());
+    if managed {
         let _ = std::fs::remove_dir_all(path);
     }
+    managed
 }
 
 /// Remove Temporary workspaces that no task references. Kept workspaces and
