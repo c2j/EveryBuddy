@@ -1,6 +1,6 @@
 # Workspace model
 
-Status: accepted; core model implemented in v0.6.0. Keep/rename UI pending.
+Status: accepted; model and UI implemented for v0.7.0.
 
 ## Why this exists
 
@@ -198,7 +198,9 @@ existing workspace root.
 1. **Sharing**: yes. Multiple tasks may share one workspace.
 2. **Default**: yes. The first prompt creates a Temporary workspace.
 3. **Keep flow**: Task topbar menu, agreed. UI is not implemented yet.
-4. **Cleanup**: Temporary workspaces remain until explicit cleanup.
+4. **Cleanup**: implemented as: remove a Temporary workspace when it has no
+   tasks, at app startup and after a task is detached. Kept workspaces, and
+   Temporary workspaces still referenced by a task, are never removed.
 
 ## Implemented in v0.6.0
 
@@ -214,6 +216,10 @@ existing workspace root.
 
 Still open:
 
-- Keep/rename dialog and Temporary cleanup
-- Workspace picker in the chat toolbar (currently the landing footer)
-- Workspace deletion policy
+- Keep/rename dialog: implemented from the workspace header menu.
+- Workspace deletion: implemented with confirmation; tasks become unassigned.
+- Temporary cleanup: empty Temporary workspaces are removed at startup and
+  when a task is detached.
+- Workspace picker: present in both the landing footer and chat toolbar.
+- Explicit unassigned entry: `New unassigned task` under Tasks, and the
+  `No workspace` picker choice.

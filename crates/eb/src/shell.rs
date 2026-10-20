@@ -113,6 +113,7 @@ pub struct Views {
     open_task: Rc<dyn Fn(usize)>,
     /// A sidebar section header was clicked.
     section_toggle: Rc<dyn Fn(usize)>,
+    workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)>,
     /// The last `(sidebar_visible, artifact_open, artifact_maximised)` triple
     /// that positioned the panes. Tracking it keeps a repaint from undoing a
     /// sash the user dragged.
@@ -200,9 +201,13 @@ pub fn build(
                         _ => None,
                     };
                     let target = if index == 0 {
+                        // "Auto workspace" only affects the next new task; it
+                        // must not silently detach an existing task.
+                        None
+                    } else if index == 1 {
                         Some(None)
-                    } else if index <= app.workspaces.len() {
-                        Some(Some(app.workspaces[index - 1].id.clone()))
+                    } else if index <= app.workspaces.len() + 1 {
+                        Some(Some(app.workspaces[index - 2].id.clone()))
                     } else {
                         let title = task_index
                             .and_then(|index| app.tasks.get(index))
@@ -211,7 +216,7 @@ pub fn build(
                         crate::workspace::create(&title).map(|workspace| {
                             let id = workspace.id.clone();
                             app.workspaces.push(workspace);
-                            app.workspace = app.workspaces.len();
+                            app.workspace = app.workspaces.len() + 1;
                             Some(id)
                         })
                     };
@@ -231,6 +236,17 @@ pub fn build(
                 Picker::Add => {}
             }
             drop(app);
+            // Unassigning can leave an empty Temporary workspace behind.
+            let removed = {
+                let mut app = store.borrow_mut();
+                let crate::model::App { workspaces, tasks, .. } = &mut *app;
+                let removed = crate::workspace::cleanup_temporary(workspaces, tasks);
+                if removed > 0 && app.workspace > 1 {
+                    app.workspace = 0;
+                }
+                removed
+            };
+            let _ = removed;
             crate::state::save(&store);
             refresher.request();
         }) as Rc<dyn Fn(Picker, usize)>
@@ -281,9 +297,9 @@ pub fn build(
         let store = store.clone();
         Rc::new(move || {
             let app = store.borrow();
-            let mut items = vec!["No workspace".to_string()];
+            let mut items = vec!["Auto workspace".to_string(), "No workspace".to_string()];
             items.extend(app.workspaces.iter().map(crate::workspace::display_name));
-            items.push("Add workspace…".to_string());
+            items.push("New workspace…".to_string());
             items
         }) as Rc<dyn Fn() -> Vec<String>>
     };
@@ -322,6 +338,14 @@ pub fn build(
     };
 
     // ---- panes ----------------------------------------------------------
+    let workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        let window = window.clone();
+        Rc::new(move |action, id| {
+            crate::workspace_ui::run(&window, &store, &refresher, action, &id);
+        })
+    };
     let sidebar = sidebar::build(
         &sidebar::Wiring {
             nav: nav.clone(),
@@ -332,6 +356,7 @@ pub fn build(
                     crate::settings::open();
                 }
             }),
+            workspace_action: workspace_action.clone(),
         },
         contribs,
     );
@@ -476,6 +501,7 @@ pub fn build(
         refresher,
         open_task,
         section_toggle: section,
+        workspace_action,
         laid_out: Cell::new(None),
     };
 
@@ -650,13 +676,23 @@ impl Views {
                         .position(|workspace| workspace.id == id)
                         .map(|position| {
                             (
-                                position + 1,
+                                position + 2,
                                 crate::workspace::display_name(&app.workspaces[position]),
                             )
                         })
                 })
-                .unwrap_or((0, "No workspace".to_string())),
-            _ => (app.workspace, "No workspace".to_string()),
+                .unwrap_or((1, "No workspace".to_string())),
+            _ => match app.workspace {
+                0 => (0, "Auto workspace".to_string()),
+                1 => (1, "No workspace".to_string()),
+                index => app
+                    .workspaces
+                    .get(index.saturating_sub(2))
+                    .map(|workspace| {
+                        (index, crate::workspace::display_name(workspace))
+                    })
+                    .unwrap_or((0, "Auto workspace".to_string())),
+            },
         };
         self.welcome_composer
             .set_workspace_selection(workspace_index, &workspace_name);
@@ -695,6 +731,7 @@ impl Views {
             app.collapsed,
             &self.open_task,
             &self.section_toggle,
+            &self.workspace_action,
         );
 
         // ---- content pane ------------------------------------------------

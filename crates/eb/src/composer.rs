@@ -213,12 +213,27 @@ impl Composer {
         class(&card, "eb-composer-card");
         card.pack_start(&host, false, false, 0);
 
+        let mut workspace_label = None;
+        let mut workspace_choice = Rc::new(Cell::new(space_index));
         let (toolbar, enhance) = match variant {
             Variant::Welcome => (
                 welcome_toolbar(model, &send, &wiring, contribs),
                 hidden_enhance(),
             ),
-            Variant::Chat => chat_toolbar(permission, model, &send, &usage.button, &wiring, contribs),
+            Variant::Chat => {
+                let (bar, enhance, label, choice) = chat_toolbar(
+                    permission,
+                    model,
+                    space_index,
+                    &send,
+                    &usage.button,
+                    &wiring,
+                    contribs,
+                );
+                workspace_label = Some(label);
+                workspace_choice = choice;
+                (bar, enhance)
+            }
         };
         card.pack_start(&toolbar, false, false, 0);
 
@@ -228,8 +243,6 @@ impl Composer {
         // background — the grey visible there is the card's own shadow.
         let footer = hbox(4);
         class(&footer, "eb-composer-footer");
-        let mut workspace_label = None;
-        let mut workspace_choice = Rc::new(Cell::new(space_index));
         if matches!(variant, Variant::Welcome) {
             let (button, label, choice) = workspace_pill(space_index, &wiring);
             workspace_label = Some(label);
@@ -547,11 +560,12 @@ fn welcome_toolbar(
 fn chat_toolbar(
     permission: usize,
     model: usize,
+    space_index: usize,
     send: &gtk::Button,
     usage: &gtk::Button,
     wiring: &Wiring,
     contribs: &Contribs,
-) -> (gtk::Box, gtk::Button) {
+) -> (gtk::Box, gtk::Button, gtk::Label, Rc<Cell<usize>>) {
     let bar = hbox(8);
     class(&bar, "eb-composer-toolbar");
 
@@ -563,6 +577,9 @@ fn chat_toolbar(
         false,
         0,
     );
+    let (workspace_button, workspace_label, workspace_choice) =
+        workspace_pill(space_index, wiring);
+    left.pack_start(&workspace_button, false, false, 0);
     left.pack_start(
         &pill("◇", contribs.menu("permission"), permission, Picker::Permission, wiring),
         false,
@@ -585,7 +602,7 @@ fn chat_toolbar(
     right.pack_start(send, false, false, 0);
 
     bar.pack_end(&right, false, false, 0);
-    (bar, enhance)
+    (bar, enhance, workspace_label, workspace_choice)
 }
 
 /// A hidden placeholder button, so the Welcome variant can keep one

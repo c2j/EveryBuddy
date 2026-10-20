@@ -180,6 +180,8 @@ pub struct App {
     pub detail_maximised: bool,
     /// Menu selections, so the dropdowns hold their state.
     pub model: usize,
+    /// Workspace picker choice: 0 = auto/create, 1 = unassigned, 2.. =
+    /// workspaces[index - 2].
     pub workspace: usize,
     pub permission: usize,
     /// Whether each sidebar section is folded: 0 = Tasks, 1 = Workspaces.

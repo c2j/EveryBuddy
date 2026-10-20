@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::model::{Workspace, WorkspaceState};
 
-fn root() -> PathBuf {
+pub fn root() -> PathBuf {
     std::env::var("EB_WORKSPACES")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -90,6 +90,41 @@ pub fn find_mut<'a>(
     id: &str,
 ) -> Option<&'a mut Workspace> {
     workspaces.iter_mut().find(|workspace| workspace.id == id)
+}
+
+/// Remove a workspace root only when it lives under EvoBuddy's managed area.
+pub fn remove_root(path: &str) {
+    let path = std::path::Path::new(path);
+    if path.starts_with(root()) {
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
+
+/// Remove Temporary workspaces that no task references. Kept workspaces and
+/// workspaces with tasks survive. Returns the number removed.
+pub fn cleanup_temporary(
+    workspaces: &mut Vec<Workspace>,
+    tasks: &[crate::model::Task],
+) -> usize {
+    let used: std::collections::HashSet<&str> = tasks
+        .iter()
+        .filter_map(|task| task.workspace_id.as_deref())
+        .collect();
+    let before = workspaces.len();
+    let removed: Vec<Workspace> = workspaces
+        .iter()
+        .filter(|workspace| {
+            workspace.state == WorkspaceState::Temporary && !used.contains(workspace.id.as_str())
+        })
+        .cloned()
+        .collect();
+    workspaces.retain(|workspace| {
+        !(workspace.state == WorkspaceState::Temporary && !used.contains(workspace.id.as_str()))
+    });
+    for workspace in removed {
+        remove_root(&workspace.root);
+    }
+    before - workspaces.len()
 }
 
 pub fn display_name(workspace: &Workspace) -> String {

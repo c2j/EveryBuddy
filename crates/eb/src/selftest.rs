@@ -517,7 +517,10 @@ fn observe_detail(views: &Views) -> String {
 fn task_row_state(views: &Views) -> String {
     let rows: Vec<String> = widgets(views)
         .into_iter()
-        .filter(|widget| widget.style_context().has_class("eb-task"))
+        .filter(|widget| {
+            widget.style_context().has_class("eb-task")
+                && !widget.style_context().has_class("eb-task-new")
+        })
         .map(|widget| {
             let mut chain = Vec::new();
             let mut node = Some(widget);
