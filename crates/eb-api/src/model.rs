@@ -90,6 +90,8 @@ pub struct Task {
     /// Last time the task changed, as Unix seconds for the sidebar's relative
     /// date (3d, 2d) across restarts.
     pub updated_at: Option<u64>,
+    /// Pinned tasks float to the top of their sidebar section.
+    pub pinned: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -293,6 +295,7 @@ impl App {
             usage: None,
             started_at: Some(std::time::Instant::now()),
             updated_at: Some(unix_now()),
+            pinned: false,
         });
 
         self.nav = None;

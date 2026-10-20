@@ -194,6 +194,9 @@ impl Composer {
                 has_text.set(value);
                 if !streaming.get() {
                     send.set_sensitive(value);
+                    // The enabled button is a solid dark circle; its dark arrow
+                    // would vanish, so swap to the white glyph.
+                    swap_send(&send, if value { "send-light" } else { "send" });
                 }
             })
         };
@@ -454,9 +457,14 @@ impl Composer {
         }
         self.send
             .set_tooltip_text(Some(if streaming { "Stop" } else { "Send" }));
-        clear(&self.send);
-        self.send.add(&glyph(if streaming { "■" } else { "↑" }));
-        self.send.show_all();
+        let glyph = if streaming {
+            "stop-light"
+        } else if self.has_text.get() {
+            "send-light"
+        } else {
+            "send"
+        };
+        swap_send(&self.send, glyph);
         self.send.set_sensitive(streaming || self.has_text.get());
     }
 }
@@ -688,6 +696,17 @@ fn model_selector(
 
     attach_menu(&button, &items, choice.clone(), gtk::PositionType::Top, on_pick);
     (button, label, choice)
+}
+
+/// Swap the send button's icon. The dark enabled/streaming states need the
+/// white variants; the disabled grey circle uses the dark one.
+fn swap_send(send: &gtk::Button, name: &str) {
+    clear(send);
+    match crate::icons::image(name, 20) {
+        Some(image) => send.add(&image),
+        None => send.add(&glyph("↑")),
+    }
+    send.show_all();
 }
 
 fn workspace_pill(

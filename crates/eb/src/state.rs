@@ -43,6 +43,7 @@ pub fn save(store: &Store) {
                 "agent_route": task.agent_route,
                 "last_route": task.last_route,
                 "updated_at": task.updated_at,
+                "pinned": task.pinned,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -136,6 +137,7 @@ pub fn load() -> Loaded {
             usage: None,
             started_at: None,
             updated_at,
+            pinned: value["pinned"].as_bool().unwrap_or(false),
         });
     }
 

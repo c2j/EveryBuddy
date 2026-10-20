@@ -20,6 +20,14 @@ use crate::widgets::*;
 
 /// Callbacks the sidebar raises.
 #[derive(Clone, Copy)]
+pub enum TaskAction {
+    Pin,
+    Rename,
+    OpenFolder,
+    Delete,
+}
+
+#[derive(Clone, Copy)]
 pub enum WorkspaceAction {
     NewTask,
     Keep,
@@ -40,6 +48,8 @@ pub struct Wiring {
     pub account: std::rc::Rc<dyn Fn(usize)>,
     /// Workspace header menu action; the id is empty for NewUnassigned.
     pub workspace_action: std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+    /// Task row menu action.
+    pub task_action: std::rc::Rc<dyn Fn(TaskAction, usize)>,
 }
 
 pub struct Sidebar {
@@ -59,6 +69,7 @@ pub struct TaskRow {
     pub active: bool,
     pub index: usize,
     pub workspace_id: Option<String>,
+    pub pinned: bool,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -248,6 +259,7 @@ pub fn fill_content(
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     section_toggle: &std::rc::Rc<dyn Fn(usize)>,
     workspace_action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+    task_action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
 ) {
     clear(content);
 
@@ -290,7 +302,7 @@ pub fn fill_content(
         list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
     } else {
         for row in &standalone {
-            list.pack_start(&task_row(row, open_task, false), false, false, 0);
+            list.pack_start(&task_row(row, open_task, false, task_action), false, false, 0);
         }
     }
     let (tasks, tasks_body) = section(
@@ -312,7 +324,12 @@ pub fn fill_content(
             workspaces_list.pack_start(&header, false, false, 0);
             if let Some(tasks_in_group) = grouped.get(&workspace.id) {
                 for row in tasks_in_group {
-                    workspaces_list.pack_start(&task_row(row, open_task, true), false, false, 0);
+                    workspaces_list.pack_start(
+                        &task_row(row, open_task, true, task_action),
+                        false,
+                        false,
+                        0,
+                    );
                 }
             }
         }
@@ -445,7 +462,13 @@ fn task_row(
     row: &TaskRow,
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     in_workspace: bool,
-) -> gtk::Button {
+    task_action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
+) -> gtk::Box {
+    // The row is a flat button plus a trailing `...` action button (WorkBuddy
+    // parity): the button opens the task, `...` opens its menu.
+    let wrapper = hbox(0);
+    class(&wrapper, "eb-task-row");
+
     let button = flat_button("eb-task");
     if row.active {
         class(&button, "eb-task-active");
@@ -455,6 +478,9 @@ fn task_row(
     }
 
     let line = hbox(8);
+    if row.pinned {
+        line.pack_start(&glyph("pin"), false, false, 0);
+    }
     line.pack_start(&ellipsized(&row.title, "eb-task-title"), true, true, 0);
     if !row.meta.is_empty() {
         line.pack_end(&text(&row.meta, "eb-task-meta"), false, false, 0);
@@ -466,5 +492,54 @@ fn task_row(
         let open_task = open_task.clone();
         move |_| open_task(index)
     });
-    button
+    wrapper.pack_start(&button, true, true, 0);
+
+    let menu = flat_button("eb-task-menu");
+    menu.set_tooltip_text(Some("Task actions"));
+    menu.add(&glyph("⋯"));
+    attach_task_menu(&menu, row, task_action);
+    wrapper.pack_start(&menu, false, false, 0);
+    wrapper
+}
+
+fn attach_task_menu(
+    button: &gtk::Button,
+    row: &TaskRow,
+    action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
+) {
+    let popover = gtk::Popover::new(Some(button));
+    popover.set_position(gtk::PositionType::Bottom);
+    class(&popover, "eb-menu");
+    let column = vbox(0);
+    class(&column, "eb-menu-body");
+    let mut rows: Vec<(&str, TaskAction)> = vec![
+        (
+            if row.pinned { "Unpin" } else { "Pin" },
+            TaskAction::Pin,
+        ),
+        ("Rename…", TaskAction::Rename),
+    ];
+    if row.workspace_id.is_some() {
+        rows.push(("Open Folder", TaskAction::OpenFolder));
+    }
+    rows.push(("Delete Task", TaskAction::Delete));
+    for (label, kind) in rows {
+        let menu_row = flat_button("eb-menu-item");
+        menu_row.add(&text(label, "eb-menu-item-label"));
+        let index = row.index;
+        let action = action.clone();
+        let popover = popover.clone();
+        menu_row.connect_clicked(move |_| {
+            popover.popdown();
+            action(kind, index);
+        });
+        column.pack_start(&menu_row, false, false, 0);
+    }
+    popover.add(&column);
+    column.show_all();
+    hide_from_show_all(&popover);
+    button.connect_clicked({
+        let popover = popover.clone();
+        move |_| popover.popup()
+    });
 }

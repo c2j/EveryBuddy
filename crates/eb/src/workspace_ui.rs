@@ -98,6 +98,155 @@ fn select_new(workspace: crate::model::Workspace, store: &Store, refresher: &Ref
     refresher.request();
 }
 
+/// Task row `...` menu actions (WorkBuddy parity subset).
+pub fn run_task(
+    window: &gtk::ApplicationWindow,
+    store: &Store,
+    refresher: &Refresher,
+    action: crate::sidebar::TaskAction,
+    index: usize,
+) {
+    match action {
+        crate::sidebar::TaskAction::Pin => {
+            let mut app = store.borrow_mut();
+            if let Some(task) = app.tasks.get_mut(index) {
+                task.pinned = !task.pinned;
+                task.updated_at = Some(now());
+            }
+            drop(app);
+            crate::state::save(store);
+            refresher.request();
+        }
+        crate::sidebar::TaskAction::Rename => rename_task(window, store, refresher, index),
+        crate::sidebar::TaskAction::OpenFolder => open_task_folder(store, index),
+        crate::sidebar::TaskAction::Delete => delete_task(window, store, refresher, index),
+    }
+}
+
+fn rename_task(
+    window: &gtk::ApplicationWindow,
+    store: &Store,
+    refresher: &Refresher,
+    index: usize,
+) {
+    let Some(current) = ({
+        let app = store.borrow();
+        app.tasks.get(index).map(|task| task.title.clone())
+    }) else {
+        return;
+    };
+    let dialog = gtk::Dialog::with_buttons(
+        Some("Rename task"),
+        Some(window),
+        gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+        &[
+            ("Cancel", gtk::ResponseType::Cancel),
+            ("Save", gtk::ResponseType::Accept),
+        ],
+    );
+    dialog.set_default_response(gtk::ResponseType::Accept);
+    let entry = gtk::Entry::new();
+    entry.set_text(&current);
+    entry.set_activates_default(true);
+    entry.set_margin_top(12);
+    entry.set_margin_bottom(12);
+    entry.set_margin_start(12);
+    entry.set_margin_end(12);
+    dialog.content_area().pack_start(&entry, false, false, 0);
+    dialog.show_all();
+    let response = dialog.run();
+    let title = entry.text().to_string();
+    dialog.close();
+    if response != gtk::ResponseType::Accept {
+        return;
+    }
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+    let mut app = store.borrow_mut();
+    if let Some(task) = app.tasks.get_mut(index) {
+        task.title = title.to_string();
+        task.updated_at = Some(now());
+    }
+    drop(app);
+    crate::state::save(store);
+    refresher.request();
+}
+
+fn open_task_folder(store: &Store, index: usize) {
+    let root = {
+        let app = store.borrow();
+        app.tasks.get(index).and_then(|task| {
+            let id = task.workspace_id.as_deref()?;
+            app.workspaces
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .map(|workspace| workspace.root.clone())
+        })
+    };
+    let Some(root) = root else {
+        return;
+    };
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&root).spawn();
+    #[cfg(not(target_os = "macos"))]
+    let _ = std::process::Command::new("xdg-open").arg(&root).spawn();
+}
+
+fn delete_task(
+    window: &gtk::ApplicationWindow,
+    store: &Store,
+    refresher: &Refresher,
+    index: usize,
+) {
+    let Some(title) = ({
+        let app = store.borrow();
+        app.tasks.get(index).map(|task| task.title.clone())
+    }) else {
+        return;
+    };
+    let dialog = gtk::MessageDialog::new(
+        Some(window),
+        gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+        gtk::MessageType::Warning,
+        gtk::ButtonsType::None,
+        &format!("Delete task “{title}”?
+
+Its conversation turns are removed. A workspace left without tasks is cleaned up."),
+    );
+    dialog.add_button("Cancel", gtk::ResponseType::Cancel);
+    dialog.add_button("Delete", gtk::ResponseType::Accept);
+    dialog.set_default_response(gtk::ResponseType::Cancel);
+    dialog.show_all();
+    let response = dialog.run();
+    dialog.close();
+    if response != gtk::ResponseType::Accept {
+        return;
+    }
+    {
+        let mut app = store.borrow_mut();
+        if index < app.tasks.len() {
+            app.tasks.remove(index);
+        }
+        match app.route {
+            crate::model::Route::Task(open) if open >= app.tasks.len() => {
+                app.route = if app.tasks.is_empty() {
+                    crate::model::Route::Welcome
+                } else {
+                    crate::model::Route::Task(app.tasks.len() - 1)
+                };
+                app.nav = if app.tasks.is_empty() { Some(0) } else { None };
+            }
+            _ => {}
+        }
+        let crate::model::App { workspaces, tasks, .. } = &mut *app;
+        crate::workspace::cleanup_temporary(workspaces, tasks);
+    }
+    crate::state::save(store);
+    refresher.request();
+}
+
 pub fn run(
     window: &gtk::ApplicationWindow,
     store: &Store,
