@@ -665,6 +665,8 @@ impl Views {
         paint(&self.welcome.segments, Some(scene), "eb-segment-active");
         self.welcome_composer.set_scene(app.scene);
         self.chat_composer.set_scene(app.scene);
+        self.welcome_composer.set_model_selection(app.model);
+        self.chat_composer.set_model_selection(app.model);
         let (workspace_index, workspace_name) = match app.route {
             Route::Task(index) => app
                 .tasks

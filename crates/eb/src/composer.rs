@@ -153,6 +153,8 @@ pub struct Composer {
     streaming: Rc<Cell<bool>>,
     workspace_label: Option<gtk::Label>,
     workspace_choice: Rc<Cell<usize>>,
+    model_label: gtk::Label,
+    model_choice: Rc<Cell<usize>>,
     usage: Option<UsageWidget>,
 }
 
@@ -215,13 +217,18 @@ impl Composer {
 
         let mut workspace_label = None;
         let mut workspace_choice = Rc::new(Cell::new(space_index));
+        let mut model_label = gtk::Label::new(None);
+        let mut model_choice = Rc::new(Cell::new(model));
         let (toolbar, enhance) = match variant {
-            Variant::Welcome => (
-                welcome_toolbar(model, &send, &wiring, contribs),
-                hidden_enhance(),
-            ),
+            Variant::Welcome => {
+                let (bar, label, choice) =
+                    welcome_toolbar(model, &send, &wiring, contribs);
+                model_label = label;
+                model_choice = choice;
+                (bar, hidden_enhance())
+            }
             Variant::Chat => {
-                let (bar, enhance, label, choice) = chat_toolbar(
+                let (bar, enhance, ws_label, ws_choice, m_label, m_choice) = chat_toolbar(
                     permission,
                     model,
                     space_index,
@@ -230,8 +237,10 @@ impl Composer {
                     &wiring,
                     contribs,
                 );
-                workspace_label = Some(label);
-                workspace_choice = choice;
+                workspace_label = Some(ws_label);
+                workspace_choice = ws_choice;
+                model_label = m_label;
+                model_choice = m_choice;
                 (bar, enhance)
             }
         };
@@ -367,6 +376,8 @@ impl Composer {
             streaming,
             workspace_label,
             workspace_choice,
+            model_label,
+            model_choice,
             usage: if matches!(variant, Variant::Chat) {
                 Some(usage)
             } else {
@@ -415,6 +426,16 @@ impl Composer {
     /// The Code scene adds a toolbar button the Work scene does not have.
     pub fn set_scene(&self, scene: Scene) {
         self.enhance.set_visible(matches!(scene, Scene::Code));
+    }
+
+    /// Keep the model selector in sync with the active choice across the two
+    /// composer instances.
+    pub fn set_model_selection(&self, index: usize) {
+        self.model_choice.set(index);
+        let items = crate::router::menu_labels();
+        if let Some(label) = items.get(index) {
+            self.model_label.set_text(label);
+        }
     }
 
     /// Keep the picker label in sync with the active task's workspace.
@@ -532,7 +553,7 @@ fn welcome_toolbar(
     send: &gtk::Button,
     wiring: &Wiring,
     contribs: &Contribs,
-) -> gtk::Box {
+) -> (gtk::Box, gtk::Label, Rc<Cell<usize>>) {
     let bar = hbox(8);
     class(&bar, "eb-composer-toolbar");
 
@@ -548,11 +569,12 @@ fn welcome_toolbar(
 
     let right = hbox(4);
     right.set_valign(gtk::Align::Center);
-    right.pack_start(&model_selector(model, wiring, contribs), false, false, 0);
+    let (model_button, model_label, model_choice) = model_selector(model, wiring, contribs);
+    right.pack_start(&model_button, false, false, 0);
     right.pack_start(send, false, false, 0);
 
     bar.pack_end(&right, false, false, 0);
-    bar
+    (bar, model_label, model_choice)
 }
 
 /// Measured 530x56: the same padding, but the left group carries the permission
@@ -565,7 +587,14 @@ fn chat_toolbar(
     usage: &gtk::Button,
     wiring: &Wiring,
     contribs: &Contribs,
-) -> (gtk::Box, gtk::Button, gtk::Label, Rc<Cell<usize>>) {
+) -> (
+    gtk::Box,
+    gtk::Button,
+    gtk::Label,
+    Rc<Cell<usize>>,
+    gtk::Label,
+    Rc<Cell<usize>>,
+) {
     let bar = hbox(8);
     class(&bar, "eb-composer-toolbar");
 
@@ -590,6 +619,7 @@ fn chat_toolbar(
 
     let right = hbox(4);
     right.set_valign(gtk::Align::Center);
+    let (model_button, model_label, model_choice) = model_selector(model, wiring, contribs);
 
     // Built here, shown only in the Code scene.
     let enhance = icon_button("✎", "eb-tool", "Code assist");
@@ -598,11 +628,18 @@ fn chat_toolbar(
     right.pack_start(&enhance, false, false, 0);
 
     right.pack_start(usage, false, false, 0);
-    right.pack_start(&model_selector(model, wiring, contribs), false, false, 0);
+    right.pack_start(&model_button, false, false, 0);
     right.pack_start(send, false, false, 0);
 
     bar.pack_end(&right, false, false, 0);
-    (bar, enhance, workspace_label, workspace_choice)
+    (
+        bar,
+        enhance,
+        workspace_label,
+        workspace_choice,
+        model_label,
+        model_choice,
+    )
 }
 
 /// A hidden placeholder button, so the Welcome variant can keep one
@@ -614,7 +651,11 @@ fn hidden_enhance() -> gtk::Button {
 }
 
 /// Measured: 74.75x32, radius 999px, 13px, with a 2px caret gap.
-fn model_selector(model: usize, wiring: &Wiring, contribs: &Contribs) -> gtk::Button {
+fn model_selector(
+    model: usize,
+    wiring: &Wiring,
+    contribs: &Contribs,
+) -> (gtk::Button, gtk::Label, Rc<Cell<usize>>) {
     // The model selector shows a caret but no leading glyph.
     let button = flat_button("eb-model");
     button.set_valign(gtk::Align::Center);
@@ -645,8 +686,8 @@ fn model_selector(model: usize, wiring: &Wiring, contribs: &Contribs) -> gtk::Bu
         })
     };
 
-    attach_menu(&button, &items, choice, gtk::PositionType::Top, on_pick);
-    button
+    attach_menu(&button, &items, choice.clone(), gtk::PositionType::Top, on_pick);
+    (button, label, choice)
 }
 
 fn workspace_pill(

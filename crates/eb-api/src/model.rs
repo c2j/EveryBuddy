@@ -298,7 +298,6 @@ impl App {
         self.nav = None;
         self.route = Route::Task(index);
         self.detail_visible = false;
-        self.model = 0;
         Some(index)
     }
 
