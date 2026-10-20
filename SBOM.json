@@ -52,6 +52,18 @@
    "version": "1.5.1"
   },
   {
+   "bom-ref": "pkg:cargo/bitflags@1.3.2",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "bitflags",
+   "purl": "pkg:cargo/bitflags@1.3.2",
+   "type": "library",
+   "version": "1.3.2"
+  },
+  {
    "bom-ref": "pkg:cargo/bitflags@2.13.2",
    "licenses": [
     {
@@ -62,6 +74,18 @@
    "purl": "pkg:cargo/bitflags@2.13.2",
    "type": "library",
    "version": "2.13.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/block2@0.6.2",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "block2",
+   "purl": "pkg:cargo/block2@0.6.2",
+   "type": "library",
+   "version": "0.6.2"
   },
   {
    "bom-ref": "pkg:cargo/bytes@1.12.1",
@@ -112,6 +136,66 @@
    "version": "0.20.10"
   },
   {
+   "bom-ref": "pkg:cargo/core-foundation@0.9.4",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "core-foundation",
+   "purl": "pkg:cargo/core-foundation@0.9.4",
+   "type": "library",
+   "version": "0.9.4"
+  },
+  {
+   "bom-ref": "pkg:cargo/core-foundation-sys@0.8.7",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "core-foundation-sys",
+   "purl": "pkg:cargo/core-foundation-sys@0.8.7",
+   "type": "library",
+   "version": "0.8.7"
+  },
+  {
+   "bom-ref": "pkg:cargo/core-graphics@0.23.2",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "core-graphics",
+   "purl": "pkg:cargo/core-graphics@0.23.2",
+   "type": "library",
+   "version": "0.23.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/core-graphics-types@0.1.3",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "core-graphics-types",
+   "purl": "pkg:cargo/core-graphics-types@0.1.3",
+   "type": "library",
+   "version": "0.1.3"
+  },
+  {
+   "bom-ref": "pkg:cargo/dispatch2@0.3.1",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "dispatch2",
+   "purl": "pkg:cargo/dispatch2@0.3.1",
+   "type": "library",
+   "version": "0.3.1"
+  },
+  {
    "bom-ref": "pkg:cargo/equivalent@1.0.3",
    "licenses": [
     {
@@ -134,6 +218,42 @@
    "purl": "pkg:cargo/field-offset@0.3.6",
    "type": "library",
    "version": "0.3.6"
+  },
+  {
+   "bom-ref": "pkg:cargo/foreign-types@0.5.0",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "foreign-types",
+   "purl": "pkg:cargo/foreign-types@0.5.0",
+   "type": "library",
+   "version": "0.5.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/foreign-types-macros@0.2.4",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "foreign-types-macros",
+   "purl": "pkg:cargo/foreign-types-macros@0.2.4",
+   "type": "library",
+   "version": "0.2.4"
+  },
+  {
+   "bom-ref": "pkg:cargo/foreign-types-shared@0.3.1",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "foreign-types-shared",
+   "purl": "pkg:cargo/foreign-types-shared@0.3.1",
+   "type": "library",
+   "version": "0.3.1"
   },
   {
    "bom-ref": "pkg:cargo/futures-channel@0.3.34",
@@ -470,6 +590,198 @@
    "purl": "pkg:cargo/memoffset@0.9.1",
    "type": "library",
    "version": "0.9.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2@0.6.5",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "objc2",
+   "purl": "pkg:cargo/objc2@0.6.5",
+   "type": "library",
+   "version": "0.6.5"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-app-kit@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-app-kit",
+   "purl": "pkg:cargo/objc2-app-kit@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-cloud-kit@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-cloud-kit",
+   "purl": "pkg:cargo/objc2-cloud-kit@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-data@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-data",
+   "purl": "pkg:cargo/objc2-core-data@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-foundation@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-foundation",
+   "purl": "pkg:cargo/objc2-core-foundation@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-graphics@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-graphics",
+   "purl": "pkg:cargo/objc2-core-graphics@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-image@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-image",
+   "purl": "pkg:cargo/objc2-core-image@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-text@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-text",
+   "purl": "pkg:cargo/objc2-core-text@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-core-video@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-core-video",
+   "purl": "pkg:cargo/objc2-core-video@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-encode@4.1.0",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "objc2-encode",
+   "purl": "pkg:cargo/objc2-encode@4.1.0",
+   "type": "library",
+   "version": "4.1.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-foundation@0.3.2",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "objc2-foundation",
+   "purl": "pkg:cargo/objc2-foundation@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-io-surface@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-io-surface",
+   "purl": "pkg:cargo/objc2-io-surface@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-javascript-core@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-javascript-core",
+   "purl": "pkg:cargo/objc2-javascript-core@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-quartz-core@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-quartz-core",
+   "purl": "pkg:cargo/objc2-quartz-core@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-security@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-security",
+   "purl": "pkg:cargo/objc2-security@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/objc2-web-kit@0.3.2",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "objc2-web-kit",
+   "purl": "pkg:cargo/objc2-web-kit@0.3.2",
+   "type": "library",
+   "version": "0.3.2"
   },
   {
    "bom-ref": "pkg:cargo/pango@0.22.9",

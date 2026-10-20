@@ -11,13 +11,23 @@ packages also include the components below. Full license texts are in
 | `atk` | 0.19.0 | MIT |
 | `atk-sys` | 0.19.0 | MIT |
 | `autocfg` | 1.5.1 | Apache-2.0 OR MIT |
+| `bitflags` | 1.3.2 | MIT/Apache-2.0 |
 | `bitflags` | 2.13.2 | MIT OR Apache-2.0 |
+| `block2` | 0.6.2 | MIT |
 | `bytes` | 1.12.1 | MIT |
 | `cairo-rs` | 0.22.9 | MIT |
 | `cairo-sys-rs` | 0.22.9 | MIT |
 | `cfg-expr` | 0.20.10 | MIT OR Apache-2.0 |
+| `core-foundation` | 0.9.4 | MIT OR Apache-2.0 |
+| `core-foundation-sys` | 0.8.7 | MIT OR Apache-2.0 |
+| `core-graphics` | 0.23.2 | MIT OR Apache-2.0 |
+| `core-graphics-types` | 0.1.3 | MIT OR Apache-2.0 |
+| `dispatch2` | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | `equivalent` | 1.0.3 | Apache-2.0 OR MIT |
 | `field-offset` | 0.3.6 | MIT OR Apache-2.0 |
+| `foreign-types` | 0.5.0 | MIT/Apache-2.0 |
+| `foreign-types-macros` | 0.2.4 | MIT/Apache-2.0 |
+| `foreign-types-shared` | 0.3.1 | MIT/Apache-2.0 |
 | `futures-channel` | 0.3.34 | MIT OR Apache-2.0 |
 | `futures-core` | 0.3.34 | MIT OR Apache-2.0 |
 | `futures-executor` | 0.3.34 | MIT OR Apache-2.0 |
@@ -46,6 +56,22 @@ packages also include the components below. Full license texts are in
 | `libc` | 0.2.190 | MIT OR Apache-2.0 |
 | `memchr` | 2.8.3 | Unlicense OR MIT |
 | `memoffset` | 0.9.1 | MIT |
+| `objc2` | 0.6.5 | MIT |
+| `objc2-app-kit` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-cloud-kit` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-data` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-foundation` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-graphics` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-image` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-text` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-core-video` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-encode` | 4.1.0 | MIT |
+| `objc2-foundation` | 0.3.2 | MIT |
+| `objc2-io-surface` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-javascript-core` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-quartz-core` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-security` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| `objc2-web-kit` | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | `pango` | 0.22.9 | MIT |
 | `pango-sys` | 0.22.9 | MIT |
 | `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT |
