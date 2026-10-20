@@ -410,6 +410,7 @@ fn workspace_header(
     popover.set_position(gtk::PositionType::Bottom);
     class(&popover, "eb-menu");
     let column = vbox(0);
+    class(&column, "eb-menu-body");
     let mut rows = Vec::new();
     rows.push(("New task here", WorkspaceAction::NewTask));
     rows.push(("Rename…", WorkspaceAction::Rename));
@@ -430,6 +431,7 @@ fn workspace_header(
         column.pack_start(&row, false, false, 0);
     }
     popover.add(&column);
+    column.show_all();
     hide_from_show_all(&popover);
     button.connect_clicked({
         let popover = popover.clone();

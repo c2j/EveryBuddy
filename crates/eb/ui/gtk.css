@@ -1021,6 +1021,15 @@ popover.eb-menu > contents {
   box-shadow: 0 6px 16px alpha(@palette_black_100, 0.12);
 }
 
+/* The menu's own column carries the card background explicitly: a popover
+   whose `> contents` node is not styled by the theme must still be opaque. */
+.eb-menu-body {
+  background-color: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 8px;
+  padding: 4px;
+}
+
 /* Measured rows are 30px tall with a 6px radius and 13px type. */
 button.eb-menu-item {
   background: none;

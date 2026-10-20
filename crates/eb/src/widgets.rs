@@ -203,6 +203,7 @@ pub fn attach_dynamic_menu(
     class(&popover, "eb-menu");
 
     let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    class(&column, "eb-menu-body");
     popover.add(&column);
     hide_from_show_all(&popover);
 
@@ -268,6 +269,7 @@ pub fn attach_menu(
     class(&popover, "eb-menu");
 
     let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    class(&column, "eb-menu-body");
     let mut rows: Vec<gtk::Button> = Vec::new();
     for (index, item) in items.iter().enumerate() {
         let row = flat_button("eb-menu-item");
