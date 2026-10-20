@@ -50,3 +50,10 @@ objc2-web-kit = { version = "0.3", features = ["WKSnapshotConfiguration", "block
 block2 = "0.6"
 core-foundation = "0.9"
 core-graphics = "0.23"
+
+# Embeds packaging/evobuddy.ico into the Windows executable so the taskbar and
+# Explorer show the app mark instead of a generic icon. build.rs only invokes
+# it when the compile target is Windows; on every other target this crate is
+# compiled but never used.
+[build-dependencies]
+winresource = "0.1"

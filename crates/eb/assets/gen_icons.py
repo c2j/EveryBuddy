@@ -245,6 +245,29 @@ def mascot():
     return im
 
 
+def appicon(size=1024):
+    """The app icon: the mascot head on a dark rounded square.
+
+    Mirrors packaging/evobuddy.svg (same geometry, same colours) so the macOS
+    .icns, the Linux hicon and the Windows .exe icon all carry one mark. Also
+    writes packaging/evobuddy.ico for the Windows resource compiler.
+    """
+    scale = size / 256.0
+    s = lambda v: int(round(v * scale))
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rounded_rectangle((0, 0, size - 1, size - 1), radius=s(56), fill=(22, 43, 38, 255))
+    # face: the mascot head, inset like the sidebar mascot
+    d.rounded_rectangle((s(36), s(64), s(204), s(208)), radius=s(48), fill=GREEN)
+    d.ellipse((s(78), s(112), s(108), s(142)), fill=DARK)
+    d.ellipse((s(132), s(112), s(162), s(142)), fill=DARK)
+    d.arc((s(96), s(134), s(144), s(178)), 0, 180, fill=DARK, width=s(8))
+    d.line((s(120), s(64), s(120), s(34)), fill=GREEN, width=s(12))
+    d.ellipse((s(104), s(18), s(136), s(50)), fill=GREEN)
+    d.ellipse((s(112), s(26), s(128), s(42)), fill=(255, 255, 255, 230))
+    return im
+
+
 def main():
     (HERE / "icons").mkdir(exist_ok=True)
     icons = {
@@ -258,6 +281,10 @@ def main():
     for name, image in icons.items():
         save(image, name)
     mascot().resize((120, 120), Image.LANCZOS).save(HERE / "mascot.png")
+    icon = appicon(1024)
+    icon.save(HERE / "appicon.png")
+    ico_path = HERE / "../../../packaging/evobuddy.ico"
+    icon.save(ico_path, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print(f"wrote {len(icons)} icons + mascot to {HERE}")
 
 

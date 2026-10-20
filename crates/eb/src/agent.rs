@@ -925,6 +925,7 @@ mod tests {
             started_at: None,
             updated_at: None,
             pinned: false,
+            archived: false,
         }
     }
 
