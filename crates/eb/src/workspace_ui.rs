@@ -6,6 +6,98 @@ use crate::model::{Store, WorkspaceState};
 use crate::sidebar::WorkspaceAction;
 use crate::shell::Refresher;
 
+/// WorkBuddy-style "+ New Workspace": ask for a name, create
+/// `<default storage path>/<name>`, and select it.
+pub fn prompt_new(window: &gtk::ApplicationWindow, store: &Store, refresher: &Refresher) {
+    let dialog = gtk::Dialog::with_buttons(
+        Some("New Workspace"),
+        Some(window),
+        gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+        &[
+            ("Cancel", gtk::ResponseType::Cancel),
+            ("Create", gtk::ResponseType::Accept),
+        ],
+    );
+    dialog.set_default_response(gtk::ResponseType::Accept);
+    let entry = gtk::Entry::new();
+    entry.set_placeholder_text(Some("Workspace name"));
+    entry.set_activates_default(true);
+    entry.set_margin_top(12);
+    entry.set_margin_bottom(12);
+    entry.set_margin_start(12);
+    entry.set_margin_end(12);
+    dialog.content_area().pack_start(&entry, false, false, 0);
+    dialog.show_all();
+    let response = dialog.run();
+    let name = entry.text().to_string();
+    dialog.close();
+    if response != gtk::ResponseType::Accept {
+        return;
+    }
+    let Some(workspace) = crate::workspace::create_named(&name) else {
+        return;
+    };
+    select_new(workspace, store, refresher);
+}
+
+/// WorkBuddy-style "Open Local Folder": adopt a user-chosen directory as a
+/// kept workspace without touching its contents.
+pub fn open_local(window: &gtk::ApplicationWindow, store: &Store, refresher: &Refresher) {
+    let chooser = gtk::FileChooserDialog::new(
+        Some("Open Local Folder"),
+        Some(window),
+        gtk::FileChooserAction::SelectFolder,
+    );
+    chooser.add_button("Cancel", gtk::ResponseType::Cancel);
+    chooser.add_button("Open", gtk::ResponseType::Accept);
+    chooser.set_select_multiple(false);
+    chooser.show_all();
+    let response = chooser.run();
+    let folder = chooser.filename();
+    chooser.close();
+    if response != gtk::ResponseType::Accept {
+        return;
+    }
+    let Some(path) = folder else {
+        return;
+    };
+    let Some(workspace) = crate::workspace::create_at(&path) else {
+        return;
+    };
+    select_new(workspace, store, refresher);
+}
+
+/// Insert a freshly created workspace, select it for the current task (or the
+/// picker itself on the landing page), and persist.
+fn select_new(workspace: crate::model::Workspace, store: &Store, refresher: &Refresher) {
+    let mut app = store.borrow_mut();
+    // One entity per root: adopting an already-open folder reselects it.
+    if let Some(position) = app
+        .workspaces
+        .iter()
+        .position(|existing| existing.root == workspace.root)
+    {
+        app.workspace = position + 2;
+    } else {
+        let id = workspace.id.clone();
+        app.workspaces.push(workspace);
+        app.workspace = app.workspaces.len() + 1;
+    }
+    let selected = app.workspaces[app.workspace.saturating_sub(2)].id.clone();
+    if let crate::model::Route::Task(index) = app.route {
+        if let Some(task) = app.tasks.get_mut(index) {
+            task.workspace_id = Some(selected);
+            task.updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|time| time.as_secs())
+                .ok();
+        }
+    }
+    drop(app);
+    crate::state::save(store);
+    refresher.request();
+}
+
 pub fn run(
     window: &gtk::ApplicationWindow,
     store: &Store,

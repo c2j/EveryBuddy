@@ -223,3 +223,12 @@ Still open:
 - Workspace picker: present in both the landing footer and chat toolbar.
 - Explicit unassigned entry: `New unassigned task` under Tasks, and the
   `No workspace` picker choice.
+- Default workspace storage path: user-configurable in Settings → General
+  (`~/.evobuddy/workspace-settings.json`), defaulting to `~/EvoBuddy`. Auto
+  workspaces and `New Workspace…` are created under it.
+- `New Workspace…`: asks for a name and creates `<default path>/<name>` as a
+  Kept workspace (WorkBuddy parity).
+- `Open Local Folder…`: adopts a user-chosen directory as a Kept workspace
+  without touching its contents.
+- Deletion policy: managed roots (default path or the legacy area) are removed
+  with the entity; user-chosen local folders are only detached, never deleted.
