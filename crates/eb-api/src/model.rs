@@ -63,6 +63,8 @@ pub struct Task {
     pub last_route: Option<String>,
     /// The last context-usage reading reported by the agent, if any.
     pub usage: Option<(u32, u32)>,
+    /// When the current streaming turn began, for elapsed-time feedback.
+    pub started_at: Option<std::time::Instant>,
 }
 
 #[derive(Debug)]
@@ -260,6 +262,7 @@ impl App {
             agent_route: None,
             last_route: None,
             usage: None,
+            started_at: Some(std::time::Instant::now()),
         });
 
         self.nav = None;
@@ -289,6 +292,7 @@ impl App {
             blocks: Vec::new(),
             streaming: true,
         });
+        task.started_at = Some(std::time::Instant::now());
         self.nav = None;
         self.route = Route::Task(index);
         Some(index)
@@ -335,6 +339,7 @@ impl App {
             return false;
         };
 
+        let terminal = matches!(event, AgentEvent::Finished | AgentEvent::Failed { .. });
         match event {
             AgentEvent::Started { name: agent_name } => *name = agent_name,
             AgentEvent::Status { text } => *status = Some(text),
@@ -356,6 +361,9 @@ impl App {
                 *status = Some(format!("Failed: {message}"));
             }
             AgentEvent::Artifact { .. } => unreachable!("handled above"),
+        }
+        if terminal {
+            task.started_at = None;
         }
         true
     }

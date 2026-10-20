@@ -757,9 +757,16 @@ impl Runner {
             return;
         }
         let runner = self.clone();
+        let mut ticks = 0u32;
         gtk::glib::timeout_add_local(Duration::from_millis(16), move || {
             runner.drain();
-            runner.refresher.request();
+            ticks = ticks.wrapping_add(1);
+            // Deltas repaint from drain(), but the elapsed status needs a
+            // clock even when the agent is silent. One repaint per ~0.5s is
+            // enough; repainting every 16ms burns a full core while waiting.
+            if ticks % 30 == 0 {
+                runner.refresher.request();
+            }
             if runner.active.borrow().is_some() {
                 gtk::glib::ControlFlow::Continue
             } else {
@@ -863,6 +870,7 @@ mod tests {
             agent_route: Some("acp:grok".into()),
             last_route: Some("acp:opencode".into()),
             usage: None,
+            started_at: None,
         }
     }
 

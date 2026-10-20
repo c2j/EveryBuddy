@@ -148,6 +148,9 @@ pub fn fill_messages(conversation: &Conversation, task: &Task) {
                 blocks,
                 streaming,
             } => {
+                let status = status
+                    .as_deref()
+                    .map(|status| status_with_elapsed(status, *streaming, task.started_at));
                 conversation
                     .messages
                     .pack_start(&agent_turn(name, status.as_deref(), blocks, *streaming), false, false, 0);
@@ -156,6 +159,24 @@ pub fn fill_messages(conversation: &Conversation, task: &Task) {
     }
     conversation.messages.show_all();
     scroll_to_bottom(&conversation.scroll);
+}
+
+fn status_with_elapsed(status: &str, streaming: bool, started: Option<std::time::Instant>) -> String {
+    if !streaming {
+        return status.to_string();
+    }
+    let Some(started) = started else {
+        return status.to_string();
+    };
+    let seconds = started.elapsed().as_secs();
+    if seconds == 0 {
+        return status.to_string();
+    }
+    if seconds >= 60 {
+        format!("{status} · {}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{status} · {seconds}s")
+    }
 }
 
 /// Keep the newest message in view, the way a chat log is expected to behave.

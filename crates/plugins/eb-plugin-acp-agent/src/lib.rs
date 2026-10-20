@@ -117,6 +117,7 @@ pub struct AcpAgent {
 struct CancelState {
     stdin: Option<Arc<Mutex<ChildStdin>>>,
     session_id: Option<String>,
+    pid: Option<u32>,
 }
 
 impl AcpAgent {
@@ -168,6 +169,7 @@ impl AcpAgent {
                     let mut cancel = lock(&self.cancel);
                     cancel.stdin = Some(session.stdin.clone());
                     cancel.session_id = Some(session.session_id.clone());
+                    cancel.pid = Some(session.child.id());
                     *slot = Some(session);
                 }
                 Err(error) => {
@@ -197,7 +199,31 @@ impl AcpAgent {
             });
             return;
         }
-        match session.prompt(&prompt, &sink, &cancelled) {
+        let done = Arc::new(AtomicBool::new(false));
+        {
+            let cancel = self.cancel.clone();
+            let done = done.clone();
+            let limit = std::env::var("EVOBUDDY_ACP_TIMEOUT_SECS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(180);
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(limit));
+                if done.load(Ordering::SeqCst) {
+                    return;
+                }
+                let state = lock(&cancel);
+                if let Some(pid) = state.pid {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-TERM")
+                        .arg(pid.to_string())
+                        .status();
+                }
+            });
+        }
+        let result = session.prompt(&prompt, &sink, &cancelled);
+        done.store(true, Ordering::SeqCst);
+        match result {
             Ok(()) => {
                 let _ = sink.send(AgentEvent::Finished);
             }

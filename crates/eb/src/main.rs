@@ -215,6 +215,7 @@ fn build_ui(application: &gtk::Application) {
                     agent_route,
                     last_route,
                     usage: None,
+                    started_at: None,
                 })
                 .collect();
             app.route = model::Route::Task(0);
@@ -280,6 +281,7 @@ fn build_ui(application: &gtk::Application) {
                 ],
                 agent_route: None,
                 last_route: None,
+                started_at: None,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),
