@@ -238,7 +238,7 @@ fn expected_click(label: &str) -> &'static [&'static str] {
         "sidebar mini programs" => &["notice=\"Mini programs"],
         "sidebar filter menu" => &["3 of 3 menu rows visible"],
         "composer '+' menu" => &["4 of 4 menu rows visible"],
-        "model selector menu" => &["2 of 2 menu rows visible"],
+        "model selector menu" => &["5 of 5 menu rows visible"],
         "Enter (submit via chip text)" => &["route=conversation", "Ask anything"],
         "chat search" => &["notice=\"Searching inside a task"],
         "chat share" => &["notice=\"Sharing a task"],
