@@ -309,26 +309,57 @@ impl Runner {
             self.refresher.request();
             return;
         };
-        // Give the task an isolated workspace before the agent starts.
-        let (workspace, title) = {
+        // A workspace selected on the welcome page is the destination for the
+        // new task. Otherwise the first prompt creates a Temporary one below.
+        {
+            let mut app = self.store.borrow_mut();
+            if app.tasks.get(task).is_some_and(|task| task.workspace_id.is_none())
+                && app.workspace > 0
+                && app.workspace <= app.workspaces.len()
+            {
+                let id = app.workspaces[app.workspace - 1].id.clone();
+                if let Some(task) = app.tasks.get_mut(task) {
+                    task.workspace_id = Some(id);
+                }
+            }
+        }
+        // Resolve the task's Workspace, or create a Temporary one on its first
+        // prompt. The workspace owns the execution root; the task stores only
+        // the id.
+        let (workspace_id, title) = {
             let app = self.store.borrow();
             let task_ref = app.tasks.get(task);
             (
-                task_ref.and_then(|task| task.workspace.clone()),
+                task_ref.and_then(|task| task.workspace_id.clone()),
                 task_ref.map(|task| task.title.clone()).unwrap_or_default(),
             )
         };
-        let workspace = match workspace {
-            Some(path) => Some(std::path::PathBuf::from(path)),
+        let existing_root = workspace_id.as_deref().and_then(|id| {
+            self.store
+                .borrow()
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .map(|workspace| workspace.root.clone())
+        });
+        let workspace = match existing_root {
+            Some(root) => Some(std::path::PathBuf::from(root)),
             None => {
-                let path = crate::workspace::create(&title);
-                if let Some(path) = &path {
-                    if let Some(task_ref) = self.store.borrow_mut().tasks.get_mut(task) {
-                        task_ref.workspace = Some(path.clone());
+                let created = crate::workspace::create(&title);
+                if let Some(workspace) = &created {
+                    let root = workspace.root.clone();
+                    let id = workspace.id.clone();
+                    let mut app = self.store.borrow_mut();
+                    app.workspaces.push(workspace.clone());
+                    if let Some(task_ref) = app.tasks.get_mut(task) {
+                        task_ref.workspace_id = Some(id);
                     }
+                    drop(app);
                     crate::state::save(&self.store);
+                    Some(std::path::PathBuf::from(root))
+                } else {
+                    None
                 }
-                path.map(std::path::PathBuf::from)
             }
         };
         // Bind a stable dsh session to this task before the first event, unless
@@ -871,7 +902,7 @@ mod tests {
             ],
             artifact: None,
             session_id: None,
-            workspace: None,
+            workspace_id: None,
             agent_route: Some("acp:grok".into()),
             last_route: Some("acp:opencode".into()),
             usage: None,

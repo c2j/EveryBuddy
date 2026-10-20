@@ -187,6 +187,66 @@ pub fn flash(button: &gtk::Button, value: &str, tooltip: &str) {
 
 /// Attach a single-select popover to `button`.
 ///
+
+/// A menu whose rows are read from a callback every time it opens. Workspace
+/// names change while the composer stays mounted, so they cannot use the
+/// static `attach_menu` item slice.
+pub fn attach_dynamic_menu(
+    button: &gtk::Button,
+    items: Rc<dyn Fn() -> Vec<String>>,
+    selection: Rc<std::cell::Cell<usize>>,
+    position: gtk::PositionType,
+    on_pick: Rc<dyn Fn(usize)>,
+) -> gtk::Popover {
+    let popover = gtk::Popover::new(Some(button));
+    popover.set_position(position);
+    class(&popover, "eb-menu");
+
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    popover.add(&column);
+    hide_from_show_all(&popover);
+
+    popover.connect_show({
+        let column = column.clone();
+        let items = items.clone();
+        let selection = selection.clone();
+        let on_pick = on_pick.clone();
+        let popover = popover.clone();
+        move |_| {
+            for child in column.children() {
+                column.remove(&child);
+            }
+            let values = items();
+            let selected = selection.get();
+            for (index, item) in values.iter().enumerate() {
+                let row = flat_button("eb-menu-item");
+                row.set_tooltip_text(Some(item));
+                row.add(&text(item, "eb-menu-item-label"));
+                if index == selected {
+                    class(&row, "eb-menu-item-active");
+                }
+                row.connect_clicked({
+                    let popover = popover.clone();
+                    let on_pick = on_pick.clone();
+                    move |_| {
+                        popover.popdown();
+                        on_pick(index);
+                    }
+                });
+                column.pack_start(&row, false, false, 0);
+            }
+            column.show_all();
+        }
+    });
+
+    button.connect_clicked({
+        let popover = popover.clone();
+        move |_| popover.popup()
+    });
+
+    popover
+}
+
 /// The product's dropdowns are portalled `wb-popover` nodes positioned against
 /// their trigger; `GtkPopover` is the same idea and already handles the grab,
 /// click-outside dismissal and Escape. Rows are plain buttons rather than a

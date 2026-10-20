@@ -193,7 +193,38 @@ pub fn build(
                         }
                     }
                 }
-                Picker::Workspace => app.workspace = index,
+                Picker::Workspace => {
+                    app.workspace = index;
+                    let task_index = match app.route {
+                        Route::Task(index) if app.tasks.get(index).is_some() => Some(index),
+                        _ => None,
+                    };
+                    let target = if index == 0 {
+                        Some(None)
+                    } else if index <= app.workspaces.len() {
+                        Some(Some(app.workspaces[index - 1].id.clone()))
+                    } else {
+                        let title = task_index
+                            .and_then(|index| app.tasks.get(index))
+                            .map(|task| task.title.clone())
+                            .unwrap_or_else(|| "Workspace".into());
+                        crate::workspace::create(&title).map(|workspace| {
+                            let id = workspace.id.clone();
+                            app.workspaces.push(workspace);
+                            app.workspace = app.workspaces.len();
+                            Some(id)
+                        })
+                    };
+                    if let (Some(index), Some(workspace_id)) = (task_index, target) {
+                        if let Some(task) = app.tasks.get_mut(index) {
+                            task.workspace_id = workspace_id;
+                            task.updated_at = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|time| time.as_secs())
+                                .ok();
+                        }
+                    }
+                }
                 Picker::Permission => app.permission = index,
                 // The add-context menu performs an action; there is nothing to
                 // remember between openings.
@@ -246,10 +277,21 @@ pub fn build(
         let agent = agent.clone();
         Rc::new(move || agent.cancel())
     };
+    let workspace_items = {
+        let store = store.clone();
+        Rc::new(move || {
+            let app = store.borrow();
+            let mut items = vec!["No workspace".to_string()];
+            items.extend(app.workspaces.iter().map(crate::workspace::display_name));
+            items.push("Add workspace…".to_string());
+            items
+        }) as Rc<dyn Fn() -> Vec<String>>
+    };
     let composer_wiring = composer::Wiring {
         submit: submit.clone(),
         cancel,
         pick: pick.clone(),
+        workspace_items,
     };
     let welcome_composer = Rc::new(Composer::new(
         Variant::Welcome,
@@ -597,6 +639,29 @@ impl Views {
         paint(&self.welcome.segments, Some(scene), "eb-segment-active");
         self.welcome_composer.set_scene(app.scene);
         self.chat_composer.set_scene(app.scene);
+        let (workspace_index, workspace_name) = match app.route {
+            Route::Task(index) => app
+                .tasks
+                .get(index)
+                .and_then(|task| task.workspace_id.as_deref())
+                .and_then(|id| {
+                    app.workspaces
+                        .iter()
+                        .position(|workspace| workspace.id == id)
+                        .map(|position| {
+                            (
+                                position + 1,
+                                crate::workspace::display_name(&app.workspaces[position]),
+                            )
+                        })
+                })
+                .unwrap_or((0, "No workspace".to_string())),
+            _ => (app.workspace, "No workspace".to_string()),
+        };
+        self.welcome_composer
+            .set_workspace_selection(workspace_index, &workspace_name);
+        self.chat_composer
+            .set_workspace_selection(workspace_index, &workspace_name);
 
         let usage = match &app.route {
             Route::Task(index) => app.tasks.get(*index).and_then(|task| task.usage),
@@ -620,12 +685,13 @@ impl Views {
                     .unwrap_or_else(|| task.meta.clone()),
                 active: matches!(app.route, Route::Task(active) if active == index),
                 index,
-                workspace: task.workspace.clone(),
+                workspace_id: task.workspace_id.clone(),
             })
             .collect();
         sidebar::fill_content(
             &self.sidebar.content,
             &rows,
+            &app.workspaces,
             app.collapsed,
             &self.open_task,
             &self.section_toggle,
@@ -1973,14 +2039,14 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     let tasks = store.borrow();
     let mut added = 0;
     for task in &tasks.tasks {
+        let workspace = task.workspace_id.as_deref().and_then(|id| {
+            tasks.workspaces.iter().find(|workspace| workspace.id == id)
+        });
         let (name, location) = if let Some(artifact) = &task.artifact {
             (artifact.name.clone(), "Local artifacts")
-        } else if let Some(workspace) = &task.workspace {
+        } else if let Some(workspace) = workspace {
             (
-                std::path::Path::new(workspace)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| workspace.clone()),
+                crate::workspace::display_name(workspace),
                 "My Materials",
             )
         } else {

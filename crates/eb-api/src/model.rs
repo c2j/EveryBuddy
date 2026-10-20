@@ -46,6 +46,25 @@ pub struct Artifact {
     pub code: String,
 }
 
+/// A named, persistent working environment that owns zero or more tasks and
+/// provides the root in which their agents run. Paths are an implementation
+/// detail of the workspace, never its identity.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub root: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub state: WorkspaceState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkspaceState {
+    Temporary,
+    Kept,
+}
+
 /// One conversation in the sidebar list.
 #[derive(Debug)]
 pub struct Task {
@@ -56,8 +75,9 @@ pub struct Task {
     pub artifact: Option<Artifact>,
     /// The dsh Session backing this task, once the bridge has bound it.
     pub session_id: Option<String>,
-    /// The isolated directory the agent runs in for this task.
-    pub workspace: Option<String>,
+    /// The Workspace this task belongs to. None means unassigned and shown
+    /// under Tasks; the workspace owns the execution root.
+    pub workspace_id: Option<String>,
     /// Per-conversation route override (`acp:opencode`, `acp:grok`, `dsh`,
     /// `custom`). None means the global default.
     pub agent_route: Option<String>,
@@ -152,6 +172,7 @@ pub struct App {
     pub scene: Scene,
     pub route: Route,
     pub tasks: Vec<Task>,
+    pub workspaces: Vec<Workspace>,
     pub sidebar_visible: bool,
     pub detail_visible: bool,
     /// The artifact panel's "expand" button: the panel takes the whole window
@@ -186,6 +207,7 @@ impl App {
             scene: Scene::Work,
             route: Route::Welcome,
             tasks: Vec::new(),
+            workspaces: Vec::new(),
             sidebar_visible: true,
             detail_visible: false,
             detail_maximised: false,
@@ -263,7 +285,7 @@ impl App {
             ],
             artifact: None,
             session_id: None,
-            workspace: None,
+            workspace_id: None,
             agent_route: None,
             last_route: None,
             usage: None,
