@@ -71,6 +71,11 @@ instructions.
 
 ![Skill detail](/tmp/skill-detail-final.png)
 
+Expert cards also have `Details`, opening a sheet with role, tags, version,
+usage, three example prompts (Copy), Summon, and a stable `ex_` ID.
+
+![Expert detail](/tmp/expert-detail-career.png)
+
 Example scheduled run observed in the log:
 
 ```text

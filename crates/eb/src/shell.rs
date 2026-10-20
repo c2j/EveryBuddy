@@ -1152,17 +1152,25 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
         head.pack_start(&name, true, true, 0);
         let selected = active == Some(expert.name);
         let use_button = gtk::Button::with_label(if selected { "Clear" } else { "Use" });
-        let store = store.clone();
-        let refresher = refresher.clone();
+        let store_for_use = store.clone();
+        let refresher_for_use = refresher.clone();
         use_button.connect_clicked(move |_| {
             if selected {
                 crate::catalog::set_expert(None);
             } else {
                 crate::catalog::set_expert(Some(expert.name));
             }
-            refresher.request();
+            refresher_for_use.request();
         });
         head.pack_end(&use_button, false, false, 0);
+        let details = gtk::Button::with_label("Details");
+        let store_for_details = store.clone();
+        let refresher_for_details = refresher.clone();
+        let name_for_details = expert.name;
+        details.connect_clicked(move |_| {
+            open_expert_detail(name_for_details, &store_for_details, &refresher_for_details)
+        });
+        head.pack_end(&details, false, false, 0);
         card.pack_start(&head, false, false, 0);
         let description = gtk::Label::new(Some(expert.description));
         description.set_xalign(0.0);
@@ -1179,6 +1187,135 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
         grid.attach(&card, (index % 3) as i32, (index / 3) as i32, 1, 1);
     }
     container.pack_start(&grid, false, false, 0);
+}
+
+fn open_expert_detail(name: &str, store: &Store, refresher: &Refresher) {
+    let Some(expert) = crate::catalog::expert_cards().iter().find(|expert| expert.name == name) else {
+        return;
+    };
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title(expert.name);
+    window.set_default_size(720, 640);
+    window.set_modal(true);
+    window.set_decorated(false);
+    window.set_position(gtk::WindowPosition::Center);
+    window.set_keep_above(true);
+    let root = vbox(10);
+    root.set_margin_top(20);
+    root.set_margin_bottom(20);
+    root.set_margin_start(24);
+    root.set_margin_end(24);
+
+    let header = hbox(14);
+    let icon = gtk::Label::new(Some(expert.avatar));
+    class(&icon, "eb-skill-detail-icon");
+    header.pack_start(&icon, false, false, 0);
+    let title_box = vbox(6);
+    let title = gtk::Label::new(Some(&format!("{}  |  {}", expert.name, expert.role)));
+    title.set_xalign(0.0);
+    class(&title, "eb-skill-detail-title");
+    title_box.pack_start(&title, false, false, 0);
+    let selected = crate::catalog::active_expert() == Some(expert.name);
+    let summon = gtk::Button::with_label(if selected { "Summoned" } else { "Summon" });
+    summon.set_halign(gtk::Align::Start);
+    class(&summon, "eb-add-skill");
+    let summon_for_click = summon.clone();
+    let store_for_summon = store.clone();
+    let refresher_for_summon = refresher.clone();
+    summon.connect_clicked(move |_| {
+        if selected {
+            crate::catalog::set_expert(None);
+            summon_for_click.set_label("Summon");
+        } else {
+            crate::catalog::set_expert(Some(expert.name));
+            summon_for_click.set_label("Summoned");
+        }
+        store_for_summon.borrow_mut().catalog_tab = 0;
+        refresher_for_summon.request();
+    });
+    title_box.pack_start(&summon, false, false, 0);
+    header.pack_start(&title_box, true, true, 0);
+    let close = gtk::Button::with_label("×");
+    class(&close, "eb-skill-detail-close");
+    let window_for_close = window.clone();
+    close.connect_clicked(move |_| window_for_close.close());
+    header.pack_end(&close, false, false, 0);
+    root.pack_start(&header, false, false, 0);
+
+    let description = gtk::Label::new(Some(expert.description));
+    description.set_xalign(0.0);
+    description.set_line_wrap(true);
+    class(&description, "eb-skill-detail-description");
+    root.pack_start(&description, false, false, 0);
+    let tags = hbox(6);
+    for tag in expert.tags {
+        let label = gtk::Label::new(Some(tag));
+        class(&label, "eb-expert-tag");
+        tags.pack_start(&label, false, false, 0);
+    }
+    root.pack_start(&tags, false, false, 0);
+    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+
+    let stats = hbox(12);
+    for (value, label) in [
+        (expert.version.to_string(), "Version"),
+        ("No data".to_string(), "Usage"),
+    ] {
+        let column = vbox(2);
+        column.set_hexpand(true);
+        let value = gtk::Label::new(Some(&value));
+        class(&value, "eb-skill-detail-stat");
+        column.pack_start(&value, false, false, 0);
+        let label = gtk::Label::new(Some(label));
+        class(&label, "eb-skill-stats");
+        column.pack_start(&label, false, false, 0);
+        stats.pack_start(&column, true, true, 0);
+    }
+    root.pack_start(&stats, false, false, 0);
+    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+
+    let help = gtk::Label::new(Some("Expert can help with"));
+    help.set_xalign(0.0);
+    class(&help, "eb-catalog-section");
+    root.pack_start(&help, false, false, 0);
+    let status = gtk::Label::new(None);
+    status.set_xalign(0.0);
+    class(&status, "eb-skill-stats");
+    for example in expert.examples {
+        let row = hbox(8);
+        let label = gtk::Label::new(Some(example));
+        label.set_xalign(0.0);
+        label.set_line_wrap(true);
+        label.set_hexpand(true);
+        row.pack_start(&label, true, true, 0);
+        let copy = gtk::Button::with_label("Copy");
+        let text = (*example).to_string();
+        let status_for_copy = status.clone();
+        copy.connect_clicked(move |_| {
+            let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+            clipboard.set_text(&text);
+            clipboard.store();
+            status_for_copy.set_text("Copied to clipboard");
+        });
+        row.pack_end(&copy, false, false, 0);
+        root.pack_start(&row, false, false, 0);
+    }
+    root.pack_start(&status, false, false, 0);
+
+    let more = gtk::Label::new(Some("More"));
+    more.set_xalign(0.0);
+    class(&more, "eb-catalog-section");
+    root.pack_start(&more, false, false, 0);
+    let id = gtk::Label::new(Some(&format!(
+        "ID: {}",
+        crate::catalog::expert_identity(expert)
+    )));
+    id.set_xalign(0.0);
+    class(&id, "eb-skill-meta");
+    root.pack_start(&id, false, false, 0);
+
+    window.add(&root);
+    window.show_all();
 }
 
 fn fill_skills(
@@ -1455,6 +1592,7 @@ fn open_skill_detail(skill: crate::catalog::Skill, store: &Store, refresher: &Re
     title_box.pack_start(&title, false, false, 0);
     let install = gtk::Button::with_label(if skill.enabled { "Installed" } else { "Install" });
     install.set_halign(gtk::Align::Start);
+    class(&install, "eb-add-skill");
     let store_for_install = store.clone();
     let refresher_for_install = refresher.clone();
     let name = skill.name.clone();

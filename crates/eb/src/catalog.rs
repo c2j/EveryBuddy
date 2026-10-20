@@ -52,22 +52,38 @@ const BUILTIN: &[(&str, &str)] = &[
 
 pub struct Expert {
     pub name: &'static str,
+    pub role: &'static str,
     pub description: &'static str,
     pub category: &'static str,
     pub tags: &'static [&'static str],
     pub avatar: &'static str,
+    pub version: &'static str,
+    pub examples: &'static [&'static str],
+}
+
+fn expert_id(name: &str) -> String {
+    let mut hash: u64 = 0x9e3779b97f4a7c15;
+    for byte in name.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("ex_{hash:012x}")
+}
+
+pub fn expert_identity(expert: &Expert) -> String {
+    expert_id(expert.name)
 }
 
 const EXPERTS: &[Expert] = &[
-    Expert { name: "Code Review Expert", description: "Examines changes for correctness, regressions, and missing tests.", category: "Engineering", tags: &["Code Review", "Quality Gate"], avatar: "🧑‍💻" },
-    Expert { name: "Data Analytics Reporter", description: "Transforms complex data into clear reports and visual explanations.", category: "Data & AI", tags: &["Data Analysis", "Visualization"], avatar: "📊" },
-    Expert { name: "UI Designer", description: "Designs component systems, layouts, and interaction details.", category: "Product Design", tags: &["UI Design", "Components"], avatar: "🎨" },
-    Expert { name: "Frontend Developer", description: "Builds and reviews accessible desktop and web interfaces.", category: "Engineering", tags: &["Frontend", "Accessibility"], avatar: "🖥️" },
-    Expert { name: "Content Creator", description: "Turns source material into structured, publishable content.", category: "Content & Creative", tags: &["Writing", "Content"], avatar: "✍️" },
-    Expert { name: "Brand Strategist", description: "Clarifies positioning, voice, and brand consistency.", category: "Marketing & Growth", tags: &["Brand", "Strategy"], avatar: "💡" },
-    Expert { name: "Research Analyst", description: "Gathers evidence first and separates observation from inference.", category: "Data & AI", tags: &["Research", "Evidence"], avatar: "🔎" },
-    Expert { name: "Project Manager", description: "Breaks work into milestones, owners, and verifiable outcomes.", category: "Operations", tags: &["Planning", "Delivery"], avatar: "📋" },
-    Expert { name: "Career Coach", description: "Helps tailor resumes, interviews, and career narratives.", category: "Sales & Business", tags: &["Career", "Interview"], avatar: "🧭" },
+    Expert { name: "Code Review Expert", role: "QualityGate", description: "Examines changes for correctness, regressions, and missing tests.", category: "Engineering", tags: &["Code Review", "Quality Gate"], avatar: "🧑‍💻", version: "1.2.0", examples: &["Review this diff for regressions", "Find missing tests in this change"] },
+    Expert { name: "Data Analytics Reporter", role: "DataStory", description: "Transforms complex data into clear reports and visual explanations.", category: "Data & AI", tags: &["Data Analysis", "Visualization"], avatar: "📊", version: "1.1.0", examples: &["Turn this CSV into an executive summary", "Explain the trend in this chart"] },
+    Expert { name: "UI Designer", role: "DesignSystem", description: "Designs component systems, layouts, and interaction details.", category: "Product Design", tags: &["UI Design", "Components"], avatar: "🎨", version: "1.0.0", examples: &["Design a settings panel for this app", "Review this layout for hierarchy issues"] },
+    Expert { name: "Frontend Developer", role: "Interface", description: "Builds and reviews accessible desktop and web interfaces.", category: "Engineering", tags: &["Frontend", "Accessibility"], avatar: "🖥️", version: "1.3.0", examples: &["Implement this component accessibly", "Find keyboard navigation bugs"] },
+    Expert { name: "Content Creator", role: "Wordsmith", description: "Turns source material into structured, publishable content.", category: "Content & Creative", tags: &["Writing", "Content"], avatar: "✍️", version: "1.0.0", examples: &["Turn these notes into a launch post", "Rewrite this for a technical audience"] },
+    Expert { name: "Brand Strategist", role: "Positioning", description: "Clarifies positioning, voice, and brand consistency.", category: "Marketing & Growth", tags: &["Brand", "Strategy"], avatar: "💡", version: "1.0.0", examples: &["Clarify our positioning for this launch", "Check this copy for brand voice"] },
+    Expert { name: "Research Analyst", role: "Evidence", description: "Gathers evidence first and separates observation from inference.", category: "Data & AI", tags: &["Research", "Evidence"], avatar: "🔎", version: "1.1.0", examples: &["Research this market with citations", "Separate facts from assumptions in this report"] },
+    Expert { name: "Project Manager", role: "Delivery", description: "Breaks work into milestones, owners, and verifiable outcomes.", category: "Operations", tags: &["Planning", "Delivery"], avatar: "📋", version: "1.0.0", examples: &["Turn this goal into a milestone plan", "Identify the critical path"] },
+    Expert { name: "Career Coach", role: "JobHunter", description: "Auto-searches matching positions, tailors resumes, and generates structured application checklists.", category: "Sales & Business", tags: &["Job Search", "Resume Tailoring", "Application Management"], avatar: "🧭", version: "1.0.2", examples: &["I want to apply to this role: [paste job link]. Tailor my resume.", "I'm looking for [job title] roles in [location]. Here's my resume.", "Is this posting still accepting applications?"] },
 ];
 
 pub fn expert_cards() -> &'static [Expert] {
