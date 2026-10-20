@@ -715,28 +715,21 @@ fn acp_page() -> gtk::Box {
         row.pack_start(&copy, true, true, 0);
         let state = if agent.installed() { "installed" } else { "not found" };
         row.pack_end(&text(state, "eb-settings-status"), false, false, 0);
+        let status = text("", "eb-settings-status");
+        let status_for_toggle = status.clone();
+        let agent_for_toggle = agent;
+        radio.connect_toggled(move |radio| {
+            if !radio.is_active() {
+                return;
+            }
+            match crate::agents::save(agent_for_toggle).and_then(|_| crate::router::set_acp(agent_for_toggle)) {
+                Ok(()) => status_for_toggle.set_text("Default set"),
+                Err(error) => status_for_toggle.set_text(&format!("Save failed: {error}")),
+            }
+        });
+        row.pack_start(&status, false, false, 0);
         page.pack_start(&row, false, false, 0);
     }
-    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    let save = flat_button("eb-settings-apply");
-    save.add(&text("Save ACP agent", "eb-settings-apply-label"));
-    let status = text("", "eb-settings-status");
-    actions.pack_start(&save, false, false, 0);
-    actions.pack_start(&status, true, true, 0);
-    page.pack_start(&actions, false, false, 0);
-    let group_for_save = group;
-    save.connect_clicked(move |_| {
-        let Some(group) = &group_for_save else { return };
-        let agent = if group.is_active() {
-            crate::agents::AcpAgent::Opencode
-        } else {
-            crate::agents::AcpAgent::Grok
-        };
-        match crate::agents::save(agent).and_then(|_| crate::router::set_acp(agent)) {
-            Ok(()) => status.set_text("Saved. The next message uses this ACP agent."),
-            Err(error) => status.set_text(&format!("Save failed: {error}")),
-        }
-    });
     page
 }
 
@@ -806,80 +799,66 @@ fn custom_model_page() -> gtk::Box {
 
 fn models_page() -> gtk::Box {
     let page = vbox(8);
-    let default_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    default_row.pack_start(&text("Default:", "eb-settings-model-label"), false, false, 0);
-    let route_buttons = Rc::new(RefCell::new(Vec::<(gtk::Button, crate::router::DefaultRoute)>::new()));
-    for route in [
-        crate::router::DefaultRoute::Acp,
-        crate::router::DefaultRoute::Dsh,
-        crate::router::DefaultRoute::Custom,
-    ] {
-        let button = gtk::Button::with_label(match route {
-            crate::router::DefaultRoute::Acp => "ACP",
-            crate::router::DefaultRoute::Dsh => "dsh",
-            _ => "Custom Model",
-        });
-        let active = crate::router::current().default == route;
-        class(&button, if active { "eb-chip-active" } else { "eb-chip" });
-        let buttons = route_buttons.clone();
-        let status = text("", "eb-settings-status");
-        let status_for_click = status.clone();
-        button.connect_clicked(move |_| {
-            match crate::router::set_default(route) {
-                Ok(()) => {
-                    for (button, candidate) in buttons.borrow().iter() {
-                        class(button, if *candidate == route { "eb-chip-active" } else { "eb-chip" });
-                    }
-                    status_for_click.set_text(&format!("Default: {}", crate::router::label()));
-                }
-                Err(error) => status_for_click.set_text(&format!("Default failed: {error}")),
-            }
-        });
-        default_row.pack_start(&button, false, false, 0);
-        route_buttons.borrow_mut().push((button, route));
-        if active {
-            default_row.pack_start(&status, false, false, 0);
-        }
-    }
-    page.pack_start(&default_row, false, false, 0);
-    page.pack_start(
+    let scroller = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroller.set_vexpand(true);
+    let body = vbox(14);
+    class(&body, "eb-settings-groups");
+
+    let default_group = vbox(6);
+    class(&default_group, "eb-settings-group");
+    default_group.pack_start(&text("Default route", "eb-settings-title-small"), false, false, 0);
+    default_group.pack_start(
         &text(
-            "Use an external ACP agent, the dsh runtime, or a custom OpenAI-compatible model.",
-            "eb-settings-subtitle",
+            "Choose which answer source new messages use. dsh and custom model are independent of the ACP agent below.",
+            "eb-settings-description",
         ),
         false,
         false,
         0,
     );
-
-    let tabs = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let stack = gtk::Stack::new();
-    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    stack.add_named(&acp_page(), "acp");
-    stack.add_named(&model_section(), "dsh");
-    stack.add_named(&custom_model_page(), "custom");
-    stack.set_visible_child_name("acp");
-    let tab_buttons = Rc::new(RefCell::new(Vec::<gtk::Button>::new()));
-    for (index, (name, label)) in [("acp", "ACP agents"), ("dsh", "dsh"), ("custom", "Custom Model")].iter().enumerate() {
+    let current_label = text(&format!("Current: {}", crate::router::label()), "eb-settings-default-value");
+    default_group.pack_start(&current_label, false, false, 0);
+    let route_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    for (route, label) in [
+        (crate::router::DefaultRoute::Acp, "ACP agent"),
+        (crate::router::DefaultRoute::Dsh, "dsh"),
+        (crate::router::DefaultRoute::Custom, "Custom Model"),
+    ] {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == 0 { "eb-chip-active" } else { "eb-chip" });
-        let buttons = tab_buttons.clone();
-        let stack = stack.clone();
-        let name = name.to_string();
-        button.connect_clicked(move |_| {
-            stack.set_visible_child_name(&name);
-            for (i, button) in buttons.borrow().iter().enumerate() {
-                class(button, if (name == "acp" && i == 0) || (name == "dsh" && i == 1) || (name == "custom" && i == 2) {
-                    "eb-chip-active"
-                } else { "eb-chip" });
-            }
+        let active = crate::router::current().default == route;
+        class(&button, if active { "eb-chip-active" } else { "eb-chip" });
+        let current_label = current_label.clone();
+        button.connect_clicked(move |_| match crate::router::set_default(route) {
+            Ok(()) => current_label.set_text(&format!("Current: {}", crate::router::label())),
+            Err(error) => current_label.set_text(&format!("Default failed: {error}")),
         });
-        tab_buttons.borrow_mut().push(button.clone());
-        tabs.pack_start(&button, false, false, 0);
+        route_row.pack_start(&button, false, false, 0);
     }
-    page.pack_start(&tabs, false, false, 0);
-    stack.set_vexpand(true);
-    page.pack_start(&stack, true, true, 0);
+    default_group.pack_start(&route_row, false, false, 0);
+    body.pack_start(&default_group, false, false, 0);
+
+    let acp = acp_page();
+    class(&acp, "eb-settings-group");
+    body.pack_start(&acp, false, false, 0);
+
+    let dsh = model_section();
+    class(&dsh, "eb-settings-group");
+    body.pack_start(&dsh, false, false, 0);
+
+    let custom = custom_model_page();
+    class(&custom, "eb-settings-group");
+    body.pack_start(&custom, false, false, 0);
+
+    scroller.add(&body);
+    page.pack_start(&scroller, true, true, 0);
+
+    // Keep the default label fresh even when a provider/ACP row changes it.
+    let current_label_for_timer = current_label.clone();
+    gtk::glib::timeout_add_seconds_local(1, move || {
+        current_label_for_timer.set_text(&format!("Current: {}", crate::router::label()));
+        gtk::glib::ControlFlow::Continue
+    });
     page
 }
 

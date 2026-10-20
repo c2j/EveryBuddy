@@ -1472,3 +1472,18 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_primary;
   font-weight: 600;
 }
+
+.eb-settings-groups {
+  padding: 0 2px 20px 2px;
+}
+.eb-settings-group {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 14px;
+}
+.eb-settings-default-value {
+  color: @eb_text_primary;
+  font-weight: 600;
+  font-size: 13px;
+}

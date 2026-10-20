@@ -33,10 +33,11 @@ that menu, so the selector text refreshes on the next app start; the dsh turn
 itself uses the saved env immediately.
 
 Settings has a sidebar with General / Models / Built-in plugins / Agent presets /
-About. Models has a default-route selector and three tabs: **ACP agents**, **dsh**,
-and **Custom Model**.
+About. Models is a grouped list: Default route, ACP agents, Provider keys, and
+Custom Model — no tabs, so the current default and every option stay visible in
+one scroll.
 
-![Settings Models](/tmp/settings-router.png)
+![Settings Models](/tmp/settings-group.png)
 
 The host now mounts an `AgentRouter` as its single answer source. Every new turn
 resolves the current route, so switching ACP / dsh / custom model does not restart
