@@ -127,3 +127,10 @@ MCP initialize ok
 - Skill enablement affects the prompt, not ACP's native skill resolution.
 - Experts are prompt profiles, not separately installed agent packages.
 - Scheduled creation is a one-minute quick-add; there is no full cron editor.
+
+
+## Model settings
+
+Settings now has a native Models section; see [model-settings.md](model-settings.md).
+The dsh React `ui-settings-models` plugin is a Web client plugin and cannot be
+mounted directly by the GTK host.

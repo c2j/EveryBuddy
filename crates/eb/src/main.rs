@@ -41,6 +41,7 @@ mod host;
 mod markdown;
 mod icons;
 mod model;
+mod models;
 mod selftest;
 mod settings;
 #[cfg(target_os = "macos")]
@@ -188,6 +189,9 @@ fn load_css() {
 }
 
 fn build_ui(application: &gtk::Application) {
+    // Saved model settings must be in the environment before the dsh bridge
+    // is spawned and before the composer reads its model menu.
+    crate::models::apply_env(&crate::models::load());
     // Mount the plugins first: the window is rendered from their contributions.
     let host = host::Host::mount();
 

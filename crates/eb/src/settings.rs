@@ -476,11 +476,82 @@ fn open_files(controller: Rc<Controller>) {
     }
 }
 
+fn model_section() -> gtk::Box {
+    let section = vbox(6);
+    class(&section, "eb-settings-model-section");
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    header.pack_start(&text("Models", "eb-settings-title-small"), false, false, 0);
+    let active = text(&format!("Active: {}", crate::models::active_label()), "eb-settings-status");
+    header.pack_end(&active, false, false, 0);
+    section.pack_start(&header, false, false, 0);
+    section.pack_start(
+        &text(
+            "Native model configuration for the dsh path. The dsh React Models plugin cannot be mounted in GTK; this applies the same provider/model concept to AIMUX_* and restarts the bridge on save.",
+            "eb-settings-description",
+        ),
+        false,
+        false,
+        0,
+    );
+
+    let config = crate::models::load();
+    let provider = gtk::Entry::new();
+    provider.set_text(&config.provider);
+    provider.set_placeholder_text(Some("Provider, e.g. aihubmix or deepseek"));
+    let model = gtk::Entry::new();
+    model.set_text(&config.model);
+    model.set_placeholder_text(Some("Model id, e.g. deepseek-v4.1-flash"));
+    let api_key = gtk::Entry::new();
+    api_key.set_visibility(false);
+    api_key.set_placeholder_text(Some(if config.api_key.is_empty() {
+        "API key (write-only)"
+    } else {
+        "API key saved; leave blank to keep it"
+    }));
+    for (label, entry) in [
+        ("Provider", &provider),
+        ("Model", &model),
+        ("API key", &api_key),
+    ] {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let label = text(label, "eb-settings-model-label");
+        label.set_size_request(90, -1);
+        row.pack_start(&label, false, false, 0);
+        row.pack_start(entry, true, true, 0);
+        section.pack_start(&row, false, false, 0);
+    }
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let save = flat_button("eb-settings-apply");
+    save.add(&text("Save & Apply", "eb-settings-apply-label"));
+    let status = text("", "eb-settings-status");
+    actions.pack_start(&save, false, false, 0);
+    actions.pack_start(&status, true, true, 0);
+    section.pack_start(&actions, false, false, 0);
+    save.connect_clicked(move |_| {
+        let config = crate::models::ModelConfig {
+            provider: provider.text().to_string(),
+            model: model.text().to_string(),
+            base_url: config.base_url.clone(),
+            api_key: api_key.text().to_string(),
+        };
+        match crate::models::save(&config) {
+            Ok(()) => {
+                // The bridge captures env at spawn; stop it so the next turn
+                // starts with the selected model.
+                crate::bridge::stop();
+                status.set_text("Saved. Next dsh turn uses the new model.");
+            }
+            Err(error) => status.set_text(&format!("Save failed: {error}")),
+        }
+    });
+    section
+}
+
 /// Open the Settings window. The window owns the controller; closing it stops
 /// the sidecar so the experiment leaves no process behind.
 pub fn open() {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Settings — Plugins");
+    window.set_title("Settings");
     window.set_default_size(900, 680);
     let root = vbox(0);
     class(&root, "eb-settings");
@@ -488,10 +559,10 @@ pub fn open() {
 
     let header = vbox(4);
     class(&header, "eb-settings-header");
-    header.pack_start(&text("Plugins", "eb-settings-title"), false, false, 0);
+    header.pack_start(&text("Settings", "eb-settings-title"), false, false, 0);
     header.pack_start(
         &text(
-            "Runtime dsh host plugins via rutis-loader. Apply rewrites rutis.json; no rebuild. Host services only — no UI bridge yet.",
+            "Model configuration for the dsh path, plus runtime dsh host plugins via rutis-loader. Model saves restart the bridge; plugin Apply rewrites rutis.json without a rebuild.",
             "eb-settings-subtitle",
         ),
         false,
@@ -499,6 +570,8 @@ pub fn open() {
         0,
     );
     root.pack_start(&header, false, false, 0);
+    root.pack_start(&model_section(), false, false, 0);
+    root.pack_start(&text("Runtime plugins", "eb-settings-title-small"), false, false, 0);
 
     let controller = Controller::new();
     let rows = vbox(2);

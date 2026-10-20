@@ -122,7 +122,10 @@ impl Host {
             }
         });
 
-        let contribs = contribs.lock().unwrap().clone();
+        let mut contribs = contribs.lock().unwrap().clone();
+        if let Some((_, items)) = contribs.menus.iter_mut().find(|(name, _)| *name == "model") {
+            *items = crate::models::menu_labels();
+        }
         let agent_runtime = Arc::new(AgentRuntime::new());
         let host = Host {
             mount_runtime: runtime,

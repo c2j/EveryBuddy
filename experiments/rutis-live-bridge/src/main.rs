@@ -91,16 +91,23 @@ async fn mount(scripted: Arc<Scripted>) -> Ctx {
         agents: Default::default(),
         agent_loop: Default::default(),
         adapter: agent::AdapterConfig {
-            providers: [(
-                std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into()),
-                agent::Route {
-                    provider: Some(std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into())),
-                    api_key_env: Some("AIHUBMIX_API_KEY".into()),
-                    display_name: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
+            providers: {
+                let provider = std::env::var("AIMUX_PROVIDER").unwrap_or_else(|_| "aihubmix".into());
+                let key_env = format!(
+                    "{}_API_KEY",
+                    provider.replace(['-', '.'], "_").to_ascii_uppercase()
+                );
+                [(
+                    provider.clone(),
+                    agent::Route {
+                        provider: Some(provider),
+                        api_key_env: Some(key_env),
+                        display_name: None,
+                    },
+                )]
+                .into_iter()
+                .collect()
+            },
         },
         llm_probe: Default::default(),
         agent_probe: Default::default(),

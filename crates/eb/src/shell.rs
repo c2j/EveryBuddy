@@ -168,7 +168,10 @@ pub fn build(
     };
     let pick = act2(store, &refresher, |app, picker: Picker, index: usize| {
         match picker {
-            Picker::Model => app.model = index,
+            Picker::Model => {
+                crate::models::select(index);
+                app.model = index;
+            }
             Picker::Workspace => app.workspace = index,
             Picker::Permission => app.permission = index,
             // The add-context menu performs an action; there is nothing to

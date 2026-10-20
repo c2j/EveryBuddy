@@ -1358,3 +1358,45 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_primary;
   font-weight: 600;
 }
+
+.eb-skill-detail-icon {
+  background: @bg_secondary;
+  border-radius: 10px;
+  font-size: 30px;
+  min-width: 58px;
+  min-height: 58px;
+}
+.eb-skill-detail-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-skill-detail-close {
+  background: transparent;
+  border: 0;
+  color: @eb_text_secondary;
+  font-size: 20px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.eb-skill-detail-description {
+  color: @eb_text_secondary;
+  font-size: 14px;
+}
+.eb-skill-detail-stat {
+  font-size: 15px;
+  font-weight: 600;
+  color: @eb_text_primary;
+}
+
+.eb-settings-model-section {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 8px;
+  margin: 0 0 14px 0;
+  padding: 12px;
+}
+.eb-settings-model-label {
+  color: @eb_text_secondary;
+  font-size: 12px;
+}
