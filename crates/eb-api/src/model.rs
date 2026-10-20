@@ -59,6 +59,8 @@ pub struct Task {
     /// Per-conversation route override (`acp:opencode`, `acp:grok`, `dsh`,
     /// `custom`). None means the global default.
     pub agent_route: Option<String>,
+    /// The concrete route used by the last turn, used to detect a migration.
+    pub last_route: Option<String>,
     /// The last context-usage reading reported by the agent, if any.
     pub usage: Option<(u32, u32)>,
 }
@@ -256,12 +258,14 @@ impl App {
             session_id: None,
             workspace: None,
             agent_route: None,
+            last_route: None,
             usage: None,
         });
 
         self.nav = None;
         self.route = Route::Task(index);
         self.detail_visible = false;
+        self.model = 0;
         Some(index)
     }
 

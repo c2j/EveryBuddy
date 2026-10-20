@@ -55,6 +55,13 @@ Settings' Default route is global. The composer model menu also offers:
 Selecting one writes `Task.agent_route`, so that conversation keeps its own route
 across sends and restarts while other conversations keep the global default.
 
+When an existing conversation switches routes (or a task without an override
+follows a changed global default), EvoBuddy injects a bounded plain-text
+transcript of the prior visible turns into the next prompt. ACP cannot export its
+session, so this is a best-effort context migration: text and tool names are
+preserved, but the old agent's internal session, token cache, and exact tool
+state are not.
+
 ### Custom Model
 
 The custom route takes a display name, an OpenAI-compatible Base URL, model id,

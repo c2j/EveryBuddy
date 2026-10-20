@@ -406,3 +406,18 @@ pub fn route_label(route: Option<&str>) -> String {
         _ => format!("Default · {}", label()),
     }
 }
+
+
+/// Resolve a task override to a concrete route string.
+pub fn effective_route(override_route: Option<&str>) -> String {
+    if let Some(route) = override_route {
+        return route.to_string();
+    }
+    let config = current();
+    match config.default {
+        DefaultRoute::Acp => format!("acp:{}", config.acp.id()),
+        DefaultRoute::Dsh => "dsh".into(),
+        DefaultRoute::Custom => "custom".into(),
+        DefaultRoute::Demo => "demo".into(),
+    }
+}

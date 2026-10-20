@@ -112,6 +112,74 @@ impl Default for AgentRuntime {
     }
 }
 
+/// Build a bounded plain-text transcript when a conversation switches routes.
+/// ACP cannot export its internal session, so this is the portable context the
+/// next agent receives. Tool rows are summarized rather than replayed.
+fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
+    let mut context = String::new();
+    let end = task.turns.len().saturating_sub(2);
+    for turn in task.turns.iter().take(end) {
+        match turn {
+            crate::model::Turn::User { text, .. } => {
+                context.push_str("User: ");
+                context.push_str(text.trim());
+                context.push('\n');
+            }
+            crate::model::Turn::Agent { blocks, .. } => {
+                let mut body = String::new();
+                for block in blocks {
+                    match block {
+                        crate::model::Block::Text(text) => {
+                            if !body.is_empty() {
+                                body.push('\n');
+                            }
+                            body.push_str(text.trim());
+                        }
+                        crate::model::Block::Tool { primary, .. } => {
+                            body.push_str(&format!("\n[tool: {primary}]"));
+                        }
+                        crate::model::Block::Exec { command, .. } => {
+                            body.push_str(&format!("\n[exec: {command}]"));
+                        }
+                        crate::model::Block::Diff { path, .. } => {
+                            body.push_str(&format!("\n[diff: {path}]"));
+                        }
+                        crate::model::Block::Group { blocks, .. } => {
+                            for nested in blocks {
+                                if let crate::model::Block::Tool { primary, .. } = nested {
+                                    body.push_str(&format!("\n[tool: {primary}]"));
+                                }
+                            }
+                        }
+                        crate::model::Block::Plan { entries } => {
+                            body.push_str(&format!("\n[plan: {} steps]", entries.len()));
+                        }
+                        crate::model::Block::Table { .. } => body.push_str("\n[table]"),
+                    }
+                }
+                if !body.trim().is_empty() {
+                    context.push_str("Assistant: ");
+                    context.push_str(body.trim());
+                    context.push('\n');
+                }
+            }
+        }
+    }
+    const MAX: usize = 24_000;
+    if context.len() > MAX {
+        let start = context.len() - MAX;
+        let start = context
+            .char_indices()
+            .map(|(index, _)| index)
+            .find(|index| *index >= start)
+            .unwrap_or(context.len());
+        context = format!("[… earlier context omitted …]\n{}", &context[start..]);
+    }
+    format!(
+        "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}"
+    )
+}
+
 pub struct Runner {
     store: Store,
     refresher: Refresher,
@@ -291,14 +359,29 @@ impl Runner {
         }
         // Paint the user's turn before waiting for any agent handshake.
         self.refresh_now();
-        let route = self
-            .store
-            .borrow()
-            .tasks
-            .get(task)
-            .and_then(|task| task.agent_route.clone());
+        let (route_override, last_route, had_turns) = {
+            let app = self.store.borrow();
+            let task_ref = app.tasks.get(task);
+            (
+                task_ref.and_then(|task| task.agent_route.clone()),
+                task_ref.and_then(|task| task.last_route.clone()),
+                task_ref.map(|task| task.turns.len() > 2).unwrap_or(false),
+            )
+        };
+        let route = crate::router::effective_route(route_override.as_deref());
+        let migrate = (last_route.is_some() || had_turns)
+            && last_route.as_deref() != Some(route.as_str());
 
         let agent_text = crate::catalog::prompt_for(&text);
+        let agent_text = if migrate {
+            let app = self.store.borrow();
+            match app.tasks.get(task) {
+                Some(task_ref) => migrated_prompt(task_ref, &agent_text),
+                None => agent_text,
+            }
+        } else {
+            agent_text
+        };
         let (sink, stream) = AgentSink::channel();
         let handle =
             match self
@@ -309,7 +392,7 @@ impl Runner {
                     sink,
                     self.permissions.clone(),
                     workspace.clone(),
-                    route,
+                    Some(route.clone()),
                 )
             {
                 Ok(handle) => handle,
@@ -324,6 +407,10 @@ impl Runner {
                     return;
                 }
             };
+        if let Some(task_ref) = self.store.borrow_mut().tasks.get_mut(task) {
+            task_ref.last_route = Some(route.clone());
+        }
+        crate::state::save(&self.store);
         *self.active.borrow_mut() = Some(Active {
             task,
             handle,
@@ -744,4 +831,61 @@ fn cancel_after_ms() -> Option<u64> {
     std::env::var("EB_CANCEL_AFTER_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_with_turns() -> crate::model::Task {
+        crate::model::Task {
+            title: "demo".into(),
+            meta: String::new(),
+            turns: vec![
+                crate::model::Turn::User { text: "first question".into(), time: "now".into() },
+                crate::model::Turn::Agent {
+                    name: "ACP".into(),
+                    status: Some("Finished".into()),
+                    blocks: vec![crate::model::Block::Text("first answer".into())],
+                    streaming: false,
+                },
+                crate::model::Turn::User { text: "current question".into(), time: "now".into() },
+                crate::model::Turn::Agent {
+                    name: "EvoBuddy".into(),
+                    status: None,
+                    blocks: Vec::new(),
+                    streaming: true,
+                },
+            ],
+            artifact: None,
+            session_id: None,
+            workspace: None,
+            agent_route: Some("acp:grok".into()),
+            last_route: Some("acp:opencode".into()),
+            usage: None,
+        }
+    }
+
+    #[test]
+    fn migrated_prompt_contains_prior_turns_not_current_turn() {
+        let prompt = migrated_prompt(&task_with_turns(), "current question");
+        assert!(prompt.contains("first question"));
+        assert!(prompt.contains("first answer"));
+        assert!(!prompt.contains("User: current question"));
+        assert!(prompt.ends_with("New request:\ncurrent question"));
+    }
+
+    #[test]
+    fn migrated_prompt_bounds_very_long_context() {
+        let mut task = task_with_turns();
+        task.turns[1] = crate::model::Turn::Agent {
+            name: "ACP".into(),
+            status: None,
+            blocks: vec![crate::model::Block::Text("x".repeat(40_000))],
+            streaming: false,
+        };
+        let prompt = migrated_prompt(&task, "next");
+        assert!(prompt.len() < 30_000);
+        assert!(prompt.contains("earlier context omitted"));
+    }
 }

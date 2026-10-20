@@ -205,7 +205,7 @@ fn build_ui(application: &gtk::Application) {
             let mut app = store.borrow_mut();
             app.tasks = tasks
                 .into_iter()
-                .map(|(title, session_id, workspace, agent_route)| model::Task {
+                .map(|(title, session_id, workspace, agent_route, last_route)| model::Task {
                     title,
                     meta: String::new(),
                     turns: Vec::new(),
@@ -213,6 +213,7 @@ fn build_ui(application: &gtk::Application) {
                     session_id,
                     workspace,
                     agent_route,
+                    last_route,
                     usage: None,
                 })
                 .collect();
@@ -278,6 +279,7 @@ fn build_ui(application: &gtk::Application) {
                     },
                 ],
                 agent_route: None,
+                last_route: None,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),
