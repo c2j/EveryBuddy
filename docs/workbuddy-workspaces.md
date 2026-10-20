@@ -52,8 +52,13 @@ $HOME/.evobuddy/workspaces/<task-slug>-<timestamp>/
   relaunches the ACP agent with that `cwd` (and sends it in `session/new`).
 - The sidebar shows `Tasks` for unassigned tasks and `Workspaces` with workspace
   headers and their child tasks.
-- The welcome composer's workspace picker lists real workspaces, can assign one
-  to the new task, and "Add workspace…" creates a Temporary one.
+- The workspace picker lists real workspaces in both the landing footer and the
+  chat toolbar. It can assign/unassign the current task, create a Temporary
+  workspace, or explicitly leave a new task unassigned.
+- A workspace header menu provides New task here, Rename/Keep, and Delete.
+- Deleting a workspace confirms first, unassigns its tasks, and removes its
+  managed root.
+- Empty Temporary workspaces are cleaned at startup and after detaching a task.
 - Legacy `workspace` paths migrate to `Kept` workspaces; existing tasks reopen
   the same root after restart.
 

@@ -313,13 +313,15 @@ impl Runner {
         // new task. Otherwise the first prompt creates a Temporary one below.
         {
             let mut app = self.store.borrow_mut();
-            if app.tasks.get(task).is_some_and(|task| task.workspace_id.is_none())
-                && app.workspace > 0
-                && app.workspace <= app.workspaces.len()
-            {
-                let id = app.workspaces[app.workspace - 1].id.clone();
-                if let Some(task) = app.tasks.get_mut(task) {
-                    task.workspace_id = Some(id);
+            if app.tasks.get(task).is_some_and(|task| task.workspace_id.is_none()) {
+                let selected = app.workspace;
+                if selected >= 2 && selected <= app.workspaces.len() + 1 {
+                    let id = app.workspaces[selected - 2].id.clone();
+                    if let Some(task) = app.tasks.get_mut(task) {
+                        task.workspace_id = Some(id);
+                    }
+                } else if selected == 1 {
+                    // Explicitly unassigned: do not auto-create a workspace.
                 }
             }
         }
@@ -344,6 +346,7 @@ impl Runner {
         });
         let workspace = match existing_root {
             Some(root) => Some(std::path::PathBuf::from(root)),
+            None if self.store.borrow().workspace == 1 => None,
             None => {
                 let created = crate::workspace::create(&title);
                 if let Some(workspace) = &created {

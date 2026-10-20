@@ -14,11 +14,20 @@ use std::collections::BTreeMap;
 use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
-use eb_api::model::Workspace;
+use eb_api::model::{Workspace, WorkspaceState};
 use crate::spec;
 use crate::widgets::*;
 
 /// Callbacks the sidebar raises.
+#[derive(Clone, Copy)]
+pub enum WorkspaceAction {
+    NewTask,
+    Keep,
+    Rename,
+    Delete,
+    NewUnassigned,
+}
+
 #[derive(Clone)]
 pub struct Wiring {
     /// A nav row was chosen.
@@ -29,6 +38,8 @@ pub struct Wiring {
     pub filter: std::rc::Rc<dyn Fn(usize)>,
     /// A row of the account menu was chosen (0 = Settings).
     pub account: std::rc::Rc<dyn Fn(usize)>,
+    /// Workspace header menu action; the id is empty for NewUnassigned.
+    pub workspace_action: std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
 }
 
 pub struct Sidebar {
@@ -236,6 +247,7 @@ pub fn fill_content(
     collapsed: [bool; 2],
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     section_toggle: &std::rc::Rc<dyn Fn(usize)>,
+    workspace_action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
 ) {
     clear(content);
 
@@ -252,6 +264,7 @@ pub fn fill_content(
         empty.pack_start(&body, false, false, 0);
 
         content.pack_start(&empty, false, false, 0);
+        content.pack_start(&new_unassigned_button(workspace_action), false, false, 0);
         content.show_all();
         return;
     }
@@ -272,6 +285,7 @@ pub fn fill_content(
     }
 
     let list = vbox(2);
+    list.pack_start(&new_unassigned_button(workspace_action), false, false, 0);
     if standalone.is_empty() {
         list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
     } else {
@@ -294,15 +308,7 @@ pub fn fill_content(
         workspaces_list.pack_start(&text("No workspaces", "eb-task-placeholder"), false, false, 0);
     } else {
         for workspace in workspaces {
-            let header = hbox(8);
-            class(&header, "eb-workspace");
-            header.pack_start(&glyph("▱"), false, false, 0);
-            header.pack_start(
-                &ellipsized(&crate::workspace::display_name(workspace), "eb-workspace-title"),
-                true,
-                true,
-                0,
-            );
+            let header = workspace_header(workspace, workspace_action);
             workspaces_list.pack_start(&header, false, false, 0);
             if let Some(tasks_in_group) = grouped.get(&workspace.id) {
                 for row in tasks_in_group {
@@ -368,6 +374,68 @@ fn section(
     block.pack_start(&head, false, false, 0);
     block.pack_start(&body, false, false, 0);
     (block, body)
+}
+
+fn new_unassigned_button(
+    action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+) -> gtk::Button {
+    let button = flat_button("eb-task eb-task-new");
+    let row = hbox(8);
+    row.pack_start(&glyph("+"), false, false, 0);
+    row.pack_start(&text("New unassigned task", "eb-task-title"), true, true, 0);
+    button.add(&row);
+    let action = action.clone();
+    button.connect_clicked(move |_| action(WorkspaceAction::NewUnassigned, String::new()));
+    button
+}
+
+fn workspace_header(
+    workspace: &Workspace,
+    action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+) -> gtk::Button {
+    let button = flat_button("eb-workspace");
+    button.set_tooltip_text(Some("Workspace actions"));
+    let row = hbox(8);
+    row.pack_start(&glyph("▱"), false, false, 0);
+    row.pack_start(
+        &ellipsized(&crate::workspace::display_name(workspace), "eb-workspace-title"),
+        true,
+        true,
+        0,
+    );
+    row.pack_end(&glyph("⋯"), false, false, 0);
+    button.add(&row);
+
+    let popover = gtk::Popover::new(Some(&button));
+    popover.set_position(gtk::PositionType::Bottom);
+    class(&popover, "eb-menu");
+    let column = vbox(0);
+    let mut rows = Vec::new();
+    rows.push(("New task here", WorkspaceAction::NewTask));
+    rows.push(("Rename…", WorkspaceAction::Rename));
+    if workspace.state == WorkspaceState::Temporary {
+        rows.push(("Keep workspace…", WorkspaceAction::Keep));
+    }
+    rows.push(("Delete…", WorkspaceAction::Delete));
+    for (label, kind) in rows {
+        let row = flat_button("eb-menu-item");
+        row.add(&text(label, "eb-menu-item-label"));
+        let id = workspace.id.clone();
+        let action = action.clone();
+        let popover = popover.clone();
+        row.connect_clicked(move |_| {
+            popover.popdown();
+            action(kind, id.clone());
+        });
+        column.pack_start(&row, false, false, 0);
+    }
+    popover.add(&column);
+    hide_from_show_all(&popover);
+    button.connect_clicked({
+        let popover = popover.clone();
+        move |_| popover.popup()
+    });
+    button
 }
 
 /// Measured: 255x31, radius 8px, `padding: 0 12px`; the active row is #ebebeb.

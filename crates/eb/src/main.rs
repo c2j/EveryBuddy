@@ -54,6 +54,7 @@ mod sidebar;
 mod spec;
 mod state;
 mod workspace;
+mod workspace_ui;
 mod welcome;
 mod widgets;
 
@@ -226,11 +227,21 @@ fn build_ui(application: &gtk::Application) {
                 .first()
                 .and_then(|task| task.workspace_id.as_deref())
                 .and_then(|id| app.workspaces.iter().position(|workspace| workspace.id == id))
-                .map(|position| position + 1)
+                .map(|position| position + 2)
                 .unwrap_or(0);
         }
         drop(app);
-        if !store.borrow().tasks.is_empty() {
+        let cleaned = {
+            let mut app = store.borrow_mut();
+            let model::App { workspaces, tasks, .. } = &mut *app;
+            let removed = workspace::cleanup_temporary(workspaces, tasks);
+            if removed > 0 {
+                app.workspace = 0;
+            }
+            removed
+        };
+        drop(cleaned);
+        if cleaned > 0 || !store.borrow().tasks.is_empty() {
             // Persist the workspace migration immediately.
             state::save(&store);
         }

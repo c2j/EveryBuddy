@@ -2,7 +2,7 @@
  "bomFormat": "CycloneDX",
  "components": [
   {
-   "bom-ref": "pkg:cargo/evobuddy@0.6.1",
+   "bom-ref": "pkg:cargo/evobuddy@0.7.0",
    "licenses": [
     {
      "license": {
@@ -11,9 +11,9 @@
     }
    ],
    "name": "evobuddy",
-   "purl": "pkg:cargo/evobuddy@0.6.1",
+   "purl": "pkg:cargo/evobuddy@0.7.0",
    "type": "application",
-   "version": "0.6.1"
+   "version": "0.7.0"
   },
   {
    "bom-ref": "pkg:cargo/atk@0.19.0",
@@ -1358,7 +1358,7 @@
  ],
  "metadata": {
   "component": {
-   "bom-ref": "pkg:cargo/evobuddy@0.6.1",
+   "bom-ref": "pkg:cargo/evobuddy@0.7.0",
    "licenses": [
     {
      "license": {
@@ -1367,9 +1367,9 @@
     }
    ],
    "name": "evobuddy",
-   "purl": "pkg:cargo/evobuddy@0.6.1",
+   "purl": "pkg:cargo/evobuddy@0.7.0",
    "type": "application",
-   "version": "0.6.1"
+   "version": "0.7.0"
   },
   "properties": [
    {
