@@ -732,18 +732,11 @@ impl Views {
             .set_workspace_selection(workspace_index, &workspace_name);
         self.chat_composer
             .set_workspace_selection(workspace_index, &workspace_name);
-        // WorkBuddy hides the picker while a workspace-assigned task is open.
-        // The landing composer keeps it: there the choice still drives where
-        // the next task lands.
-        let task_in_workspace = match app.route {
-            Route::Task(index) => app
-                .tasks
-                .get(index)
-                .and_then(|task| task.workspace_id.as_deref())
-                .is_some_and(|id| app.workspaces.iter().any(|workspace| workspace.id == id)),
-            _ => false,
-        };
-        self.chat_composer.set_workspace_visible(!task_in_workspace);
+        // WorkBuddy hides the picker whenever an existing task is open
+        // (assigned or not); the landing composer keeps it: there the choice
+        // still drives where the next task lands.
+        let task_open = matches!(app.route, Route::Task(_));
+        self.chat_composer.set_workspace_visible(!task_open);
 
         let usage = match &app.route {
             Route::Task(index) => app.tasks.get(*index).and_then(|task| task.usage),

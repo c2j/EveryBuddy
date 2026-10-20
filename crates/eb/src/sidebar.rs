@@ -504,24 +504,22 @@ fn attach_task_menu(
     class(&popover, "eb-menu");
     let column = vbox(0);
     class(&column, "eb-menu-body");
-    // WorkBuddy's menu groups: identity (Pin/Rename/Save-or-Share), window and
-    // folder access, then the destructive Archive/Delete group. Unassigned
-    // tasks get "Save to Workspace…" where assigned ones get "Share Task" and
-    // "Open Folder".
+    // WorkBuddy's menu groups: identity (Pin/Rename/Share Task), window and
+    // folder access ("Save to Workspace…" replaces "Open Folder" for
+    // unassigned tasks, which have no backing folder), then the destructive
+    // Archive/Delete group.
     let mut groups: Vec<Vec<(&str, TaskAction)>> = vec![vec![
         (
             if row.pinned { "Unpin" } else { "Pin" },
             TaskAction::Pin,
         ),
         ("Rename…", TaskAction::Rename),
+        ("Share Task", TaskAction::ShareTask),
     ]];
-    if row.workspace_id.is_none() {
-        groups[0].push(("Save to Workspace…", TaskAction::SaveToWorkspace));
-    } else {
-        groups[0].push(("Share Task", TaskAction::ShareTask));
-    }
     let mut window_group = vec![("Open in a separate window", TaskAction::OpenWindow)];
-    if row.workspace_id.is_some() {
+    if row.workspace_id.is_none() {
+        window_group.push(("Save to Workspace…", TaskAction::SaveToWorkspace));
+    } else {
         window_group.push(("Open Folder", TaskAction::OpenFolder));
     }
     groups.push(window_group);
