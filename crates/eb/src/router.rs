@@ -245,7 +245,7 @@ impl AgentRouter {
                         .unwrap_or(false),
                     name: choice.label().into(),
                     debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
-                    env: Vec::new(),
+                    env: crate::agents::external_env(),
                     auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
                 }))
             })

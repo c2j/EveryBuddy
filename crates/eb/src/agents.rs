@@ -33,13 +33,30 @@ impl AcpAgent {
         }
     }
 
+    /// The binary to spawn. `EVOBUDDY_OPENCODE_BIN` / `EVOBUDDY_GROK_BIN`
+    /// override the default location; a bare command name is resolved on PATH.
     pub fn program(self) -> PathBuf {
+        let env_key = match self {
+            Self::Opencode => "EVOBUDDY_OPENCODE_BIN",
+            Self::Grok => "EVOBUDDY_GROK_BIN",
+        };
+        if let Some(value) = std::env::var_os(env_key) {
+            let path = PathBuf::from(value);
+            if !path.as_os_str().is_empty() {
+                return resolve_command(path);
+            }
+        }
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        match self {
+        let default = match self {
             Self::Opencode => home.join(".opencode/bin/opencode"),
             Self::Grok => home.join(".grok/bin/grok"),
+        };
+        if default.is_file() {
+            default
+        } else {
+            resolve_command(PathBuf::from(self.id()))
         }
     }
 
@@ -57,6 +74,33 @@ impl AcpAgent {
     pub fn command(self) -> String {
         format!("{} {}", self.program().display(), self.args().join(" "))
     }
+}
+
+/// Environment overrides for a spawned external agent. The AppImage puts its
+/// own libraries first in `LD_LIBRARY_PATH`; a host-installed opencode/Grok
+/// must not inherit them. The launcher records the host value before prepending
+/// the bundle.
+pub fn external_env() -> Vec<(String, String)> {
+    match std::env::var("EVOBUDDY_HOST_LD_LIBRARY_PATH") {
+        Ok(value) => vec![("LD_LIBRARY_PATH".to_string(), value)],
+        Err(_) => Vec::new(),
+    }
+}
+
+fn resolve_command(path: PathBuf) -> PathBuf {
+    if path.is_absolute() || path.components().count() > 1 || path.is_file() {
+        return path;
+    }
+    let name = path.as_os_str().to_string_lossy().to_string();
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join(&name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    path
 }
 
 fn config_path() -> PathBuf {

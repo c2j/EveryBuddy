@@ -34,7 +34,7 @@ fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option
         auto_approve,
         name: name.into(),
         debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
-        env: Vec::new(),
+        env: crate::agents::external_env(),
         auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
     }))
 }
