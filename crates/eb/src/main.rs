@@ -40,6 +40,7 @@ mod dsh_agent;
 mod host;
 mod markdown;
 mod icons;
+mod agents;
 mod model;
 mod models;
 mod selftest;

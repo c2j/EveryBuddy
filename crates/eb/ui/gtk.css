@@ -1444,3 +1444,31 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: #b42318;
   font-size: 12px;
 }
+
+.eb-settings-sidebar {
+  background: @bg_sidebar;
+  border-right: 1px solid @border_strong;
+  padding: 20px 14px;
+}
+.eb-settings-content {
+  padding: 24px 28px;
+}
+.eb-settings-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-settings-nav,
+.eb-settings-nav-active {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: @eb_text_secondary;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.eb-settings-nav-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  font-weight: 600;
+}

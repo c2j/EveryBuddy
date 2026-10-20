@@ -42,14 +42,19 @@ fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option
 /// Locally installed ACP agents. Explicit `EVOBUDDY_ACP_AGENT` wins; otherwise
 /// opencode remains the default and Grok Build is the fallback.
 fn default_acp_agent() -> Option<eb_plugin_acp_agent::AcpAgent> {
-    let home = std::env::var("HOME").ok()?;
-    let home = std::path::PathBuf::from(home);
-    let opencode = || acp_command(home.join(".opencode/bin/opencode"), &["acp"], "opencode");
-    let grok = || acp_command(home.join(".grok/bin/grok"), &["agent", "stdio"], "Grok build");
-    match std::env::var("EVOBUDDY_ACP_AGENT").as_deref() {
-        Ok("grok") => grok(),
-        Ok("opencode") => opencode(),
-        _ => opencode().or_else(grok),
+    let selected = crate::agents::selected();
+    let build = |agent: crate::agents::AcpAgent| {
+        acp_command(agent.program(), &agent.args(), agent.label())
+    };
+    match selected {
+        crate::agents::AcpAgent::Grok => build(selected),
+        crate::agents::AcpAgent::Opencode => build(selected).or_else(|| {
+            acp_command(
+                crate::agents::AcpAgent::Grok.program(),
+                &crate::agents::AcpAgent::Grok.args(),
+                "Grok build",
+            )
+        }),
     }
 }
 

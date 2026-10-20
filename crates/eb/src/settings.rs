@@ -480,7 +480,7 @@ fn model_section() -> gtk::Box {
     let page = vbox(8);
     class(&page, "eb-settings-model-page");
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    header.pack_start(&text("Models", "eb-settings-title"), false, false, 0);
+    header.pack_start(&text("Provider keys", "eb-settings-title-small"), false, false, 0);
     let open_config = flat_button("eb-settings-preview");
     open_config.add(&text("Open config file", "eb-settings-preview-label"));
     open_config.connect_clicked(move |_| {
@@ -509,7 +509,7 @@ fn model_section() -> gtk::Box {
     page.pack_start(&header, false, false, 0);
     page.pack_start(
         &text(
-            "Fill in a provider's API key to use its models. Keys are write-only and stored under ~/.evobuddy. Open dsh Models uses the real dsh web client plugin when the dsh web host is running (EVOBUDDY_DSH_WEB_URL, default http://127.0.0.1:3080).",
+            "Fill in a provider's API key to use its models. Keys are write-only and stored under ~/.evobuddy. Open dsh Models uses the real dsh web plugin when the dsh web host is running.",
             "eb-settings-subtitle",
         ),
         false,
@@ -671,33 +671,102 @@ fn open_model_editor(page: &gtk::Box, list: &gtk::Box, existing: Option<crate::m
 }
 
 
-/// Open the Settings window. The window owns the controller; closing it stops
-/// the sidecar so the experiment leaves no process behind.
-pub fn open() {
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Settings");
-    window.set_default_size(900, 680);
-    let root = vbox(0);
-    class(&root, "eb-settings");
-    window.add(&root);
-
-    let header = vbox(4);
-    class(&header, "eb-settings-header");
-    header.pack_start(&text("Settings", "eb-settings-title"), false, false, 0);
-    header.pack_start(
+fn acp_page() -> gtk::Box {
+    let page = vbox(8);
+    page.pack_start(&text("ACP agents", "eb-settings-title-small"), false, false, 0);
+    page.pack_start(
         &text(
-            "Model configuration for the dsh path, plus runtime dsh host plugins via rutis-loader. Model saves restart the bridge; plugin Apply rewrites rutis.json without a rebuild.",
-            "eb-settings-subtitle",
+            "Choose the external ACP agent used for new conversations. This is mounted at app startup; changing it takes effect after restart.",
+            "eb-settings-description",
         ),
         false,
         false,
         0,
     );
-    root.pack_start(&header, false, false, 0);
-    root.pack_start(&model_section(), false, false, 0);
-    root.pack_start(&text("Runtime plugins", "eb-settings-title-small"), false, false, 0);
+    let selected = crate::agents::selected();
+    let mut group: Option<gtk::RadioButton> = None;
+    for agent in crate::agents::all() {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        class(&row, "eb-settings-row");
+        let radio = if let Some(first) = &group {
+            gtk::RadioButton::from_widget(first)
+        } else {
+            let first = gtk::RadioButton::new();
+            group = Some(first.clone());
+            first
+        };
+        radio.set_active(agent == selected);
+        row.pack_start(&radio, false, false, 0);
+        let copy = vbox(2);
+        copy.pack_start(&text(agent.label(), "eb-settings-name"), false, false, 0);
+        copy.pack_start(&text(agent.description(), "eb-settings-description"), false, false, 0);
+        copy.pack_start(&text(&agent.command(), "eb-settings-status"), false, false, 0);
+        row.pack_start(&copy, true, true, 0);
+        let state = if agent.installed() { "installed" } else { "not found" };
+        row.pack_end(&text(state, "eb-settings-status"), false, false, 0);
+        page.pack_start(&row, false, false, 0);
+    }
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let save = flat_button("eb-settings-apply");
+    save.add(&text("Save ACP agent", "eb-settings-apply-label"));
+    let status = text("", "eb-settings-status");
+    actions.pack_start(&save, false, false, 0);
+    actions.pack_start(&status, true, true, 0);
+    page.pack_start(&actions, false, false, 0);
+    let group_for_save = group;
+    save.connect_clicked(move |_| {
+        let Some(group) = &group_for_save else { return };
+        let agent = if group.is_active() {
+            crate::agents::AcpAgent::Opencode
+        } else {
+            crate::agents::AcpAgent::Grok
+        };
+        match crate::agents::save(agent) {
+            Ok(()) => status.set_text("Saved. Restart EvoBuddy to mount this ACP agent."),
+            Err(error) => status.set_text(&format!("Save failed: {error}")),
+        }
+    });
+    page
+}
 
-    let controller = Controller::new();
+fn models_page() -> gtk::Box {
+    let page = vbox(8);
+    let tabs = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let stack = gtk::Stack::new();
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    let acp = acp_page();
+    let custom = model_section();
+    stack.add_named(&acp, "acp");
+    stack.add_named(&custom, "custom");
+    stack.set_visible_child_name("acp");
+    let buttons = Rc::new(RefCell::new(Vec::<gtk::Button>::new()));
+    for (name, label) in [("acp", "ACP agents"), ("custom", "Custom Model")] {
+        let button = gtk::Button::with_label(label);
+        class(&button, if name == "acp" { "eb-chip-active" } else { "eb-chip" });
+        let buttons_for_click = buttons.clone();
+        let stack = stack.clone();
+        let name = name.to_string();
+        button.connect_clicked(move |_| {
+            stack.set_visible_child_name(&name);
+            for (index, button) in buttons_for_click.borrow().iter().enumerate() {
+                class(button, if (name == "acp" && index == 0) || (name == "custom" && index == 1) {
+                    "eb-chip-active"
+                } else {
+                    "eb-chip"
+                });
+            }
+        });
+        buttons.borrow_mut().push(button.clone());
+        tabs.pack_start(&button, false, false, 0);
+    }
+    page.pack_start(&tabs, false, false, 0);
+    stack.set_vexpand(true);
+    page.pack_start(&stack, true, true, 0);
+    page
+}
+
+fn plugins_page(controller: Rc<Controller>) -> gtk::Box {
+    let page = vbox(8);
     let rows = vbox(2);
     class(&rows, "eb-settings-rows");
     let mut status_labels: Vec<(&'static str, gtk::Label)> = Vec::new();
@@ -708,163 +777,19 @@ pub fn open() {
         let check = gtk::CheckButton::new();
         let id = plugin.id;
         let controller_for_toggle = controller.clone();
-        check.connect_toggled(move |check| {
-            controller_for_toggle.toggle(id, check.is_active());
-        });
+        check.connect_toggled(move |check| controller_for_toggle.toggle(id, check.is_active()));
         check.set_active(auto_select.split(',').any(|value| value.trim() == plugin.id));
         row.pack_start(&check, false, false, 0);
-
         let copy = vbox(2);
         copy.pack_start(&text(plugin.title, "eb-settings-name"), false, false, 0);
-        copy.pack_start(
-            &text(plugin.description, "eb-settings-description"),
-            false,
-            false,
-            0,
-        );
+        copy.pack_start(&text(plugin.description, "eb-settings-description"), false, false, 0);
         row.pack_start(&copy, true, true, 0);
-
         let status = text("not loaded", "eb-settings-status");
         row.pack_end(&status, false, false, 0);
         status_labels.push((plugin.id, status));
         rows.pack_start(&row, false, false, 0);
     }
-    root.pack_start(&rows, false, false, 0);
-
-    let ui_header = vbox(2);
-    class(&ui_header, "eb-settings-ui-header");
-    ui_header.pack_start(
-        &text("UI plugin previews", "eb-settings-title-small"),
-        false,
-        false,
-        0,
-    );
-    ui_header.pack_start(
-        &text(
-            "Client bundles rendered in a WebKit component host. These are previews, not in-app panes yet.",
-            "eb-settings-description",
-        ),
-        false,
-        false,
-        0,
-    );
-    root.pack_start(&ui_header, false, false, 0);
-
-    let ui_rows = vbox(2);
-    class(&ui_rows, "eb-settings-rows");
-    for (id, title, description, index) in [
-        (
-            "ui-theme",
-            "Theme",
-            "Real ui-theme bundle: Appearance and text size",
-            "experiments/ui-theme-webview/index.html",
-        ),
-        (
-            "ui-message-feedback",
-            "Message feedback",
-            "Real ui-message-feedback bundle: Like/Dislike and dialog",
-            "experiments/ui-feedback-webview/index.html",
-        ),
-    ] {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-        class(&row, "eb-settings-row");
-        let copy = vbox(2);
-        copy.pack_start(&text(title, "eb-settings-name"), false, false, 0);
-        copy.pack_start(&text(description, "eb-settings-description"), false, false, 0);
-        row.pack_start(&copy, true, true, 0);
-        let open = flat_button("eb-settings-preview");
-        open.add(&text("Open preview", "eb-settings-preview-label"));
-        #[cfg(target_os = "macos")]
-        {
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../..")
-                .join(index);
-            open.connect_clicked(move |_| {
-                if id == "ui-message-feedback" {
-                    crate::bridge::ensure();
-                    crate::preview_server::ensure();
-                    crate::theme_view::open(crate::preview_server::url());
-                } else {
-                    crate::theme_view::open(&path.display().to_string());
-                }
-            });
-        }
-        row.pack_end(&open, false, false, 0);
-        if std::env::var("EB_SETTINGS_UI_PREVIEW").ok().as_deref() == Some(id) {
-            let open = open.clone();
-            gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || {
-                open.clicked();
-            });
-        }
-        ui_rows.pack_start(&row, false, false, 0);
-    }
-    root.pack_start(&ui_rows, false, false, 0);
-
-    let bridge_header = vbox(2);
-    class(&bridge_header, "eb-settings-ui-header");
-    bridge_header.pack_start(
-        &text("Live dsh bridge", "eb-settings-title-small"),
-        false,
-        false,
-        0,
-    );
-    bridge_header.pack_start(
-        &text(
-            "Run rutis 0.12's real agent + messageFeedback service on 127.0.0.1:39472.",
-            "eb-settings-description",
-        ),
-        false,
-        false,
-        0,
-    );
-    root.pack_start(&bridge_header, false, false, 0);
-
-    let bridge_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    class(&bridge_row, "eb-settings-row");
-    let bridge_status = text("stopped", "eb-settings-description");
-    bridge_row.pack_start(&bridge_status, true, true, 0);
-    let bridge_button = flat_button("eb-settings-preview");
-    bridge_button.add(&text("Start bridge", "eb-settings-preview-label"));
-    bridge_row.pack_end(&bridge_button, false, false, 0);
-    root.pack_start(&bridge_row, false, false, 0);
-
-    {
-        let bridge_status = bridge_status.clone();
-        let bridge_button_for_click = bridge_button.clone();
-        bridge_button.connect_clicked(move |_| {
-            if crate::bridge::healthy() {
-                crate::bridge::stop();
-                bridge_status.set_text("stopped");
-                if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
-                    label.set_text("Start bridge");
-                }
-            } else {
-                match crate::bridge::start() {
-                    Ok(_) => {
-                        bridge_status.set_text(crate::bridge::status());
-                        if let Some(label) = bridge_button_for_click.child().and_downcast::<gtk::Label>() {
-                            label.set_text("Stop bridge");
-                        }
-                    }
-                    Err(error) => bridge_status.set_text(&error),
-                }
-            }
-        });
-    }
-    {
-        let bridge_status = bridge_status.clone();
-        gtk::glib::timeout_add_seconds_local(1, move || {
-            bridge_status.set_text(crate::bridge::status());
-            gtk::glib::ControlFlow::Continue
-        });
-    }
-    if std::env::var_os("EB_BRIDGE_AUTOSTART").is_some() {
-        let bridge_button = bridge_button.clone();
-        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(1), move || {
-            bridge_button.clicked();
-        });
-    }
-
+    page.pack_start(&rows, false, false, 0);
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     class(&actions, "eb-settings-actions");
     let apply = flat_button("eb-settings-apply");
@@ -877,39 +802,33 @@ pub fn open() {
     files.add(&text("Open Files", "eb-settings-files-label"));
     files.set_visible(false);
     actions.pack_start(&files, false, false, 0);
-    root.pack_start(&actions, false, false, 0);
-
+    page.pack_start(&actions, false, false, 0);
     let log_view = text("", "eb-settings-log");
     log_view.set_xalign(0.0);
     log_view.set_selectable(true);
-    log_view.set_line_wrap(false);
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_min_content_height(150);
     scroll.add(&log_view);
-    root.pack_start(&scroll, true, true, 0);
+    page.pack_start(&scroll, true, true, 0);
 
     {
         let controller = controller.clone();
         let status_labels = status_labels.clone();
         let log_view = log_view.clone();
         let files = files.clone();
-        apply.connect_clicked(move |_| {
-            match controller.apply() {
-                Ok(()) => {
-                    for (id, label) in &status_labels {
-                        let selected = controller.selected.borrow().contains(id);
-                        label.set_text(if selected { "starting…" } else { "disabled" });
-                    }
-                    files.set_visible(controller.selected.borrow().contains("fs"));
+        apply.connect_clicked(move |_| match controller.apply() {
+            Ok(()) => {
+                for (id, label) in &status_labels {
+                    label.set_text(if controller.selected.borrow().contains(id) {
+                        "starting…"
+                    } else {
+                        "disabled"
+                    });
                 }
-                Err(error) => {
-                    if std::env::var_os("EB_SETTINGS_DEBUG").is_some() {
-                        eprintln!("settings: apply error: {error}");
-                    }
-                    log_view.set_text(&format!("error: {error}"));
-                }
+                files.set_visible(controller.selected.borrow().contains("fs"));
             }
+            Err(error) => log_view.set_text(&format!("error: {error}")),
         });
     }
     {
@@ -924,7 +843,6 @@ pub fn open() {
             files.set_visible(false);
         });
     }
-
     {
         let files = files.clone();
         let controller = controller.clone();
@@ -932,10 +850,147 @@ pub fn open() {
     }
     if std::env::var_os("EB_SETTINGS_FILES").is_some() {
         let files = files.clone();
-        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
-            files.clicked();
-        });
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || files.clicked());
     }
+    let controller_for_timer = controller.clone();
+    let log_for_timer = log_view.clone();
+    let labels_for_timer = status_labels.clone();
+    let files_for_timer = files.clone();
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+        let lines = controller_for_timer.drain_log();
+        if !lines.is_empty() {
+            let mut text = log_for_timer.text().to_string();
+            for line in lines {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&line);
+                for (id, label) in &labels_for_timer {
+                    if let Some(rest) = line.strip_prefix(&format!("{id}: ")) {
+                        label.set_text(rest);
+                    }
+                }
+            }
+            log_for_timer.set_text(&text);
+        }
+        files_for_timer.set_visible(controller_for_timer.fs_running.get());
+        gtk::glib::ControlFlow::Continue
+    });
+    page
+}
+
+fn simple_page(_title: &str, body: &str) -> gtk::Box {
+    let page = vbox(8);
+    let label = text(body, "eb-settings-description");
+    label.set_line_wrap(true);
+    label.set_xalign(0.0);
+    page.pack_start(&label, false, false, 0);
+    page
+}
+
+/// Open the Settings window. The window owns the controller; closing it stops
+/// the sidecar so the experiment leaves no process behind.
+pub fn open() {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title("Settings");
+    window.set_default_size(1040, 760);
+    let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    class(&root, "eb-settings");
+    window.add(&root);
+
+    let sidebar = vbox(4);
+    sidebar.set_size_request(240, -1);
+    class(&sidebar, "eb-settings-sidebar");
+    let brand = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    brand.pack_start(&text("Settings", "eb-settings-title"), false, false, 0);
+    let close = gtk::Button::with_label("×");
+    class(&close, "eb-skill-detail-close");
+    let window_for_close = window.clone();
+    close.connect_clicked(move |_| window_for_close.close());
+    brand.pack_end(&close, false, false, 0);
+    sidebar.pack_start(&brand, false, false, 0);
+    let search = gtk::Entry::new();
+    search.set_placeholder_text(Some("Search settings"));
+    sidebar.pack_start(&search, false, false, 0);
+
+    let content = vbox(6);
+    class(&content, "eb-settings-content");
+    let page_title = text("General", "eb-settings-page-title");
+    let page_subtitle = text("", "eb-settings-subtitle");
+    content.pack_start(&page_title, false, false, 0);
+    content.pack_start(&page_subtitle, false, false, 0);
+    let stack = gtk::Stack::new();
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    stack.set_vexpand(true);
+
+    let controller = Controller::new();
+    stack.add_named(
+        &simple_page(
+            "General",
+            "EvoBuddy is a GTK host for external ACP agents and the dsh runtime. Use Models to choose an ACP agent or a custom model provider.",
+        ),
+        "general",
+    );
+    stack.add_named(&models_page(), "models");
+    stack.add_named(&plugins_page(controller.clone()), "plugins");
+    stack.add_named(
+        &simple_page(
+            "Agent presets",
+            "Experts and skills live in the main window under Experts · Skills · Connectors. Active expert and enabled skills are applied to the next prompt.",
+        ),
+        "presets",
+    );
+    stack.add_named(
+        &simple_page("About", "EvoBuddy 0.1.0 — WorkBuddy-style GTK client."),
+        "about",
+    );
+    content.pack_start(&stack, true, true, 0);
+    root.pack_start(&sidebar, false, false, 0);
+    root.pack_start(&content, true, true, 0);
+
+    let entries = [
+        ("general", "General", "Settings", "Overview"),
+        ("models", "Models", "Models", "ACP agents or custom dsh providers"),
+        ("plugins", "Built-in plugins", "Built-in plugins", "Runtime dsh host plugins"),
+        ("presets", "Agent presets", "Agent presets", "Experts and skills"),
+        ("about", "About", "About", "Application information"),
+    ];
+    let nav_buttons: Rc<RefCell<Vec<gtk::Button>>> = Rc::new(RefCell::new(Vec::new()));
+    for (index, (page, label, title, subtitle)) in entries.iter().enumerate() {
+        let button = gtk::Button::with_label(label);
+        class(&button, if index == 0 { "eb-settings-nav-active" } else { "eb-settings-nav" });
+        let stack = stack.clone();
+        let page = page.to_string();
+        let title = title.to_string();
+        let subtitle = subtitle.to_string();
+        let title_label = page_title.clone();
+        let subtitle_label = page_subtitle.clone();
+        let buttons = nav_buttons.clone();
+        button.connect_clicked(move |_| {
+            stack.set_visible_child_name(&page);
+            title_label.set_text(&title);
+            subtitle_label.set_text(&subtitle);
+            for button in buttons.borrow().iter() {
+                class(button, "eb-settings-nav");
+            }
+            for button in buttons.borrow().iter() {
+                if button.label().as_deref() == Some(&title) {
+                    class(button, "eb-settings-nav-active");
+                }
+            }
+        });
+        sidebar.pack_start(&button, false, false, 0);
+        nav_buttons.borrow_mut().push(button);
+    }
+    let search_for_filter = search.clone();
+    let buttons_for_filter = nav_buttons.clone();
+    search.connect_changed(move |entry| {
+        let needle = entry.text().to_ascii_lowercase();
+        for button in buttons_for_filter.borrow().iter() {
+            let label = button.label().unwrap_or_default().to_ascii_lowercase();
+            button.set_visible(needle.is_empty() || label.contains(&needle));
+        }
+    });
 
     let alive = Rc::new(Cell::new(true));
     {
@@ -946,73 +1001,12 @@ pub fn open() {
             controller.stop();
         });
     }
-    let timer = gtk::glib::timeout_add_local(std::time::Duration::from_millis(500), {
-        let controller = controller.clone();
-        let log_view = log_view.clone();
-        let status_labels = status_labels.clone();
-        let files = files.clone();
-        let alive = alive.clone();
-        move || {
-            if !alive.get() {
-                return gtk::glib::ControlFlow::Break;
-            }
-            let lines = controller.drain_log();
-            if !lines.is_empty() {
-                let mut text = log_view.text().to_string();
-                for line in lines {
-                    if std::env::var_os("EB_SETTINGS_DEBUG").is_some() {
-                        eprintln!("settings: {line}");
-                    }
-                    if !text.is_empty() {
-                        text.push('\n');
-                    }
-                    text.push_str(&line);
-                    if let Some(rest) = line.strip_prefix("fs: ") {
-                        controller.set_fs_running(rest == "running");
-                    }
-                    for (id, label) in &status_labels {
-                        if let Some(rest) = line.strip_prefix(&format!("{id}: ")) {
-                            label.set_text(rest);
-                        }
-                    }
-                }
-                log_view.set_text(&text);
-            }
-            files.set_visible(controller.fs_running.get());
-            gtk::glib::ControlFlow::Continue
-        }
-    });
-    let _ = timer;
-
+    let _ = alive;
     window.show_all();
     if let Ok(path) = std::env::var("EB_SETTINGS_SHOT") {
         let window = window.clone();
         gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(4), move || {
-            window.size_allocate(&window.allocation());
-            let allocation = window.allocation();
-            let (width, height) = (allocation.width(), allocation.height());
-            let Ok(surface) = gtk::cairo::ImageSurface::create(
-                gtk::cairo::Format::ARgb32,
-                width,
-                height,
-            ) else {
-                return;
-            };
-            let Ok(context) = gtk::cairo::Context::new(&surface) else {
-                return;
-            };
-            let widget: gtk::Widget = window.clone().upcast();
-            let _ = widget.draw(&context);
-            if let Ok(mut file) = std::fs::File::create(&path) {
-                let _ = surface.write_to_png(&mut file);
-                eprintln!("settings: wrote {path}");
-            }
-        });
-    }
-    if !auto_select.is_empty() {
-        let apply = apply.clone();
-        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(700), move || {
-            apply.clicked();
+            capture_window(&window, &path);
         });
     }
 }
