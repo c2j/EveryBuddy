@@ -19,10 +19,11 @@ use crate::spec;
 use crate::widgets::*;
 
 /// Callbacks the sidebar raises.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TaskAction {
     Pin,
     Rename,
+    SaveToWorkspace,
     OpenFolder,
     Delete,
 }
@@ -33,7 +34,6 @@ pub enum WorkspaceAction {
     Keep,
     Rename,
     Delete,
-    NewUnassigned,
 }
 
 #[derive(Clone)]
@@ -276,7 +276,6 @@ pub fn fill_content(
         empty.pack_start(&body, false, false, 0);
 
         content.pack_start(&empty, false, false, 0);
-        content.pack_start(&new_unassigned_button(workspace_action), false, false, 0);
         content.show_all();
         return;
     }
@@ -297,7 +296,6 @@ pub fn fill_content(
     }
 
     let list = vbox(2);
-    list.pack_start(&new_unassigned_button(workspace_action), false, false, 0);
     if standalone.is_empty() {
         list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
     } else {
@@ -391,19 +389,6 @@ fn section(
     block.pack_start(&head, false, false, 0);
     block.pack_start(&body, false, false, 0);
     (block, body)
-}
-
-fn new_unassigned_button(
-    action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
-) -> gtk::Button {
-    let button = flat_button("eb-task eb-task-new");
-    let row = hbox(8);
-    row.pack_start(&glyph("+"), false, false, 0);
-    row.pack_start(&text("New unassigned task", "eb-task-title"), true, true, 0);
-    button.add(&row);
-    let action = action.clone();
-    button.connect_clicked(move |_| action(WorkspaceAction::NewUnassigned, String::new()));
-    button
 }
 
 fn workspace_header(
@@ -512,6 +497,10 @@ fn attach_task_menu(
     class(&popover, "eb-menu");
     let column = vbox(0);
     class(&column, "eb-menu-body");
+    // WorkBuddy groups the menu: identity (Pin/Rename/Save), workspace
+    // (Open Folder), then the destructive Archive/Delete group. Only the
+    // actions EvoBuddy implements are listed; unassigned tasks gain
+    // "Save to Workspace…" because that is how they move into one.
     let mut rows: Vec<(&str, TaskAction)> = vec![
         (
             if row.pinned { "Unpin" } else { "Pin" },
@@ -519,14 +508,27 @@ fn attach_task_menu(
         ),
         ("Rename…", TaskAction::Rename),
     ];
+    if row.workspace_id.is_none() {
+        rows.push(("Save to Workspace…", TaskAction::SaveToWorkspace));
+    }
     if row.workspace_id.is_some() {
         rows.push(("Open Folder", TaskAction::OpenFolder));
     }
     rows.push(("Delete Task", TaskAction::Delete));
-    for (label, kind) in rows {
+    let group_breaks = [2usize, 3usize];
+    for (position, (label, kind)) in rows.iter().enumerate() {
+        if group_breaks.contains(&position) && position > 0 {
+            let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+            class(&separator, "eb-menu-separator");
+            column.pack_start(&separator, false, false, 4);
+        }
         let menu_row = flat_button("eb-menu-item");
+        if *kind == TaskAction::Delete {
+            class(&menu_row, "eb-menu-item-danger");
+        }
         menu_row.add(&text(label, "eb-menu-item-label"));
         let index = row.index;
+        let kind = *kind;
         let action = action.clone();
         let popover = popover.clone();
         menu_row.connect_clicked(move |_| {

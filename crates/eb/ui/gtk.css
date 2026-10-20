@@ -26,6 +26,8 @@
 @define-color eb_diff_add_bg    #e7f9ef;
 @define-color eb_diff_remove_bg #fef0f0;
 
+@define-color eb_error           #c0392b;
+
 /* ---------------------------------------------------------------- window */
 
 window.eb-window {
@@ -1046,6 +1048,17 @@ button.eb-menu-item:hover {
 
 button.eb-menu-item.eb-menu-item-active {
   background-color: @bg_tertiary;
+}
+
+/* Thin divider between the task menu's action groups (WorkBuddy parity). */
+separator.eb-menu-separator {
+  background-color: @border_strong;
+  min-height: 1px;
+}
+
+/* Destructive rows (Delete Task). */
+button.eb-menu-item.eb-menu-item-danger .eb-menu-item-label {
+  color: @eb_error;
 }
 
 .eb-menu-item-label {
