@@ -25,21 +25,22 @@ export GSETTINGS_SCHEMA_DIR="$here/share/glib-2.0/schemas"
 # The host may export GTK_MODULES=ukuireload-gtk-module (Kylin/UKUI), a module
 # this bundle does not ship. Loading it only produces a warning.
 unset GTK_MODULES GTK3_MODULES
-# Use only bundled GIO modules. Otherwise a host libgvfsdbus.so compiled
-# against a newer glib is loaded into this older bundled glib and fails with
-# an undefined g_date_time_format_iso8601 symbol.
-export GIO_MODULE_DIR="$here/lib/gio/modules"
-unset GIO_EXTRA_MODULES
-mkdir -p "$GIO_MODULE_DIR"
-
-: "${LC_ALL:=C.UTF-8}"
-export LC_ALL
-
 # Caches that hold absolute paths (gdk-pixbuf loaders, GTK input-method modules)
 # and configs that need one (fontconfig) are rendered into a writable directory
 # on first run, because the bundle's location is not knowable at build time.
 cache="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/evobuddy"
 mkdir -p "$cache/fontconfig"
+
+# Use only bundled GIO modules. Otherwise a host libgvfsdbus.so compiled
+# against a newer glib is loaded into this older bundled glib and fails with
+# an undefined g_date_time_format_iso8601 symbol. Point at a writable empty
+# directory: an AppImage's mount is read-only, so mkdir under $here fails.
+export GIO_MODULE_DIR="$cache/gio/modules"
+unset GIO_EXTRA_MODULES
+mkdir -p "$GIO_MODULE_DIR"
+
+: "${LC_ALL:=C.UTF-8}"
+export LC_ALL
 
 if [ -f "$here/etc/fonts.conf.template" ]; then
   sed "s|@FONTS@|$here/share/fonts|; s|@CACHE@|$cache/fontconfig|" \
