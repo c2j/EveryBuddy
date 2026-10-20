@@ -26,6 +26,7 @@ pub fn save(store: &Store) {
             "workspace": task.workspace,
             "agent_route": task.agent_route,
             "last_route": task.last_route,
+            "updated_at": task.updated_at,
             "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
         }))
         .collect();
@@ -43,6 +44,7 @@ pub fn load() -> Vec<(
     Option<String>,
     Option<String>,
     Vec<Turn>,
+    Option<u64>,
 )> {
     let Ok(text) = std::fs::read_to_string(path()) else { return Vec::new() };
     let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return Vec::new() };
@@ -56,6 +58,7 @@ pub fn load() -> Vec<(
                 value["agent_route"].as_str().map(str::to_string),
                 value["last_route"].as_str().map(str::to_string),
                 serde_json::from_value(value["turns"].clone()).unwrap_or_default(),
+                value["updated_at"].as_u64(),
             ))
         })
         .collect()

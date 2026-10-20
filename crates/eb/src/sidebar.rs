@@ -9,6 +9,8 @@
 //! needs: the content box to refill, and the nav buttons whose active class it
 //! repaints.
 
+use std::collections::BTreeMap;
+
 use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
@@ -252,14 +254,29 @@ pub fn fill_content(
         return;
     }
 
-    // Measured: the Tasks section is 114 tall = 30 label + 64 list + 20 padding,
-    // and the Workspaces section below it is 64.5 = 30 + 30.5 + 4.
+    // WorkBuddy separates unassigned tasks from tasks grouped under a
+    // workspace. Preserve that structure instead of listing every task twice.
+    // Keep every task selectable under Tasks. A task's auto-created sandbox is
+    // an implementation detail, not a user workspace.
+    let standalone: Vec<&TaskRow> = rows.iter().collect();
+    let mut grouped: BTreeMap<String, Vec<&TaskRow>> = BTreeMap::new();
+    for row in rows.iter().filter(|row| row.workspace.is_some()) {
+        grouped
+            .entry(row.workspace.clone().unwrap_or_default())
+            .or_default()
+            .push(row);
+    }
+
     let list = vbox(2);
-    for row in rows {
-        list.pack_start(&task_row(row, open_task), false, false, 0);
+    if standalone.is_empty() {
+        list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
+    } else {
+        for row in &standalone {
+            list.pack_start(&task_row(row, open_task, false), false, false, 0);
+        }
     }
     let (tasks, tasks_body) = section(
-        &format!("Tasks ({})", rows.len()),
+        &format!("Tasks ({})", standalone.len()),
         20,
         list,
         collapsed[0],
@@ -268,24 +285,25 @@ pub fn fill_content(
     );
     content.pack_start(&tasks, false, false, 0);
 
-    let workspace_rows: Vec<&str> = rows
-        .iter()
-        .filter_map(|row| row.workspace.as_deref())
-        .collect();
     let workspaces_list = vbox(2);
-    if workspace_rows.is_empty() {
-        workspaces_list.pack_start(&text("No tasks", "eb-task-placeholder"), false, false, 0);
+    if grouped.is_empty() {
+        workspaces_list.pack_start(&text("No workspaces", "eb-task-placeholder"), false, false, 0);
     } else {
-        for path in &workspace_rows {
+        for (path, tasks_in_group) in &grouped {
             let name = std::path::Path::new(path)
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| (*path).to_string());
-            workspaces_list.pack_start(&ellipsized(&name, "eb-task-title"), false, false, 0);
+                .unwrap_or_else(|| path.clone());
+            let header = hbox(8);
+            class(&header, "eb-workspace");
+            header.pack_start(&glyph("▱"), false, false, 0);
+            header.pack_start(&ellipsized(&name, "eb-workspace-title"), true, true, 0);
+            workspaces_list.pack_start(&header, false, false, 0);
+            let _ = tasks_in_group;
         }
     }
     let (workspaces, workspaces_body) = section(
-        &format!("Workspaces ({})", workspace_rows.len()),
+        &format!("Workspaces ({})", grouped.len()),
         4,
         workspaces_list,
         collapsed[1],
@@ -344,10 +362,17 @@ fn section(
 }
 
 /// Measured: 255x31, radius 8px, `padding: 0 12px`; the active row is #ebebeb.
-fn task_row(row: &TaskRow, open_task: &std::rc::Rc<dyn Fn(usize)>) -> gtk::Button {
+fn task_row(
+    row: &TaskRow,
+    open_task: &std::rc::Rc<dyn Fn(usize)>,
+    in_workspace: bool,
+) -> gtk::Button {
     let button = flat_button("eb-task");
     if row.active {
         class(&button, "eb-task-active");
+    }
+    if in_workspace {
+        class(&button, "eb-task-child");
     }
 
     let line = hbox(8);

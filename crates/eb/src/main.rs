@@ -205,7 +205,7 @@ fn build_ui(application: &gtk::Application) {
             let mut app = store.borrow_mut();
             app.tasks = tasks
                 .into_iter()
-                .map(|(title, session_id, workspace, agent_route, last_route, mut turns)| {
+                .map(|(title, session_id, workspace, agent_route, last_route, mut turns, updated_at)| {
                     for turn in &mut turns {
                         if let model::Turn::Agent { streaming, .. } = turn {
                             *streaming = false;
@@ -222,6 +222,7 @@ fn build_ui(application: &gtk::Application) {
                     last_route,
                     usage: None,
                     started_at: None,
+                    updated_at,
                     }
                 })
                 .collect();
@@ -289,6 +290,7 @@ fn build_ui(application: &gtk::Application) {
                 agent_route: None,
                 last_route: None,
                 started_at: None,
+                updated_at: None,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

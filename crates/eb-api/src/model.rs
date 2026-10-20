@@ -67,6 +67,9 @@ pub struct Task {
     pub usage: Option<(u32, u32)>,
     /// When the current streaming turn began, for elapsed-time feedback.
     pub started_at: Option<std::time::Instant>,
+    /// Last time the task changed, as Unix seconds for the sidebar's relative
+    /// date (3d, 2d) across restarts.
+    pub updated_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -265,6 +268,7 @@ impl App {
             last_route: None,
             usage: None,
             started_at: Some(std::time::Instant::now()),
+            updated_at: Some(unix_now()),
         });
 
         self.nav = None;
@@ -295,6 +299,7 @@ impl App {
             streaming: true,
         });
         task.started_at = Some(std::time::Instant::now());
+        task.updated_at = Some(unix_now());
         self.nav = None;
         self.route = Route::Task(index);
         Some(index)
@@ -389,6 +394,13 @@ impl App {
 }
 
 /// A task's sidebar label is its first line, clipped to something that fits.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0)
+}
+
 fn summarize(text: &str) -> String {
     let first = text.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
     let mut title: String = first.chars().take(60).collect();

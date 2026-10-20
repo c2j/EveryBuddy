@@ -61,6 +61,13 @@ def calendar():
     return im
 
 
+def folder():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((12, 28, 84, 80), radius=8, outline=BLACK, width=6)
+    d.line((12, 42, 44, 42), fill=BLACK, width=6)
+    return im
+
+
 def library():
     im = canvas(); d = ImageDraw.Draw(im)
     for x in (20, 38, 56):
@@ -218,7 +225,7 @@ def main():
     (HERE / "icons").mkdir(exist_ok=True)
     icons = {
         "plus": plus(), "assistant": assistant(), "grid": grid(), "calendar": calendar(),
-        "library": library(), "search": search(), "share": share(), "copy": copy(),
+        "library": library(), "folder": folder(), "search": search(), "share": share(), "copy": copy(),
         "expand": expand(), "collapse": collapse(), "close": close(), "code": code(),
         "send": send(), "stop": stop(), "menu": menu(), "filter": filter(),
         "user": user(), "chevron-down": chevron_down(), "chevron-right": chevron_right(),

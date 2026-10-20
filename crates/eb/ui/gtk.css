@@ -478,6 +478,23 @@ button.eb-task-active .eb-task-title {
 
 /* Trailing meta: 11px/400 at rgba(0,0,0,.5). Running tasks show a spinner
  * instead, which is an animation and is not reproduced. */
+/* Workspace group header: folder glyph + workspace name. */
+.eb-workspace {
+  padding: 0 12px;
+  min-height: 31px;
+}
+
+.eb-workspace-title {
+  color: @eb_text_primary;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* A task nested under a workspace is indented like WorkBuddy's child row. */
+button.eb-task.eb-task-child {
+  margin-left: 20px;
+}
+
 .eb-task-meta {
   color: @eb_text_tertiary;
   font-size: 11px;

@@ -443,6 +443,28 @@ pub fn build(
 /// Keep the 1440x868 design size when the desktop has room, but never open
 /// larger than the monitor workarea. Kylin desktops are often 1366x768; a
 /// 1440x868 window there hangs off the screen and clips the composer.
+fn session_timestamp(session_id: &str) -> Option<u64> {
+    let raw = session_id.rsplit('-').next()?.parse::<u64>().ok()?;
+    Some(if raw > 1_000_000_000_000 { raw / 1_000 } else { raw })
+}
+
+fn relative_age(updated_at: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0);
+    let seconds = now.saturating_sub(updated_at);
+    if seconds < 60 {
+        "now".to_string()
+    } else if seconds < 3_600 {
+        format!("{}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h", seconds / 3_600)
+    } else {
+        format!("{}d", seconds / 86_400)
+    }
+}
+
 fn fit_to_workarea(window: &gtk::ApplicationWindow) {
     let area = gtk::gdk::Display::default()
         .and_then(|display| display.primary_monitor().or_else(|| display.monitor(0)))
@@ -591,7 +613,11 @@ impl Views {
             .rev()
             .map(|(index, task)| TaskRow {
                 title: task.title.clone(),
-                meta: task.meta.clone(),
+                meta: task
+                    .updated_at
+                    .or_else(|| task.session_id.as_deref().and_then(session_timestamp))
+                    .map(relative_age)
+                    .unwrap_or_else(|| task.meta.clone()),
                 active: matches!(app.route, Route::Task(active) if active == index),
                 index,
                 workspace: task.workspace.clone(),
