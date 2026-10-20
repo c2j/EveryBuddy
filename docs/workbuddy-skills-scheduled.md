@@ -92,10 +92,21 @@ The task state was written with a new workspace:
 `{"mcpServers": {...}}` wrapper are accepted; stdio uses
 `command`/`args`/`env`, remote uses `url`/`headers`.
 
+The Connectors screen also validates config (`args` array, `env` object, http(s)
+url, missing transport) and exposes a `Test` button. The test performs an MCP
+`initialize` handshake: stdio by spawning the command, HTTP by a bounded curl
+POST. Results are shown on the card.
+
 Verified with a fake ACP server:
 
 ```text
 acp: session/new with 1 MCP server(s)
+```
+
+and with an MCP fixture:
+
+```text
+MCP initialize ok
 ```
 
 ## Limits
