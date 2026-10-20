@@ -250,8 +250,8 @@ fn expected_click(label: &str) -> &'static [&'static str] {
         "artifact panel close (header)" => &["detail visible=false"],
         "task row (reopens panel)" => &["detail visible=true"],
         "copy message" => &["Copied"],
-        "section label (Tasks)" => &["GtkButton:hidden"],
-        "section label (expand again)" => &["GtkButton:shown"],
+        "section label (Workspaces)" => &["GtkButton:hidden"],
+        "section label (Workspaces expand again)" => &["GtkButton:shown"],
         "user row menu" => &["4 of 4 menu rows visible"],
         "send button (empty input)" => &["route=conversation"],
         _ => &[],
@@ -763,19 +763,19 @@ fn build_steps() -> Vec<Step> {
         }),
     });
     steps.push(Step {
-        label: "section label (Tasks)".into(),
+        label: "section label (Workspaces)".into(),
         activate: Rc::new(|views| {
             println!("click:   before: {}", task_row_state(views));
-            if let Some(button) = by_class(views, "eb-section-label") {
+            if let Some(button) = nth_class(views, "eb-section-label", 1) {
                 click(&button, &views.window);
             }
         }),
         observe: Rc::new(task_row_state),
     });
     steps.push(Step {
-        label: "section label (expand again)".into(),
+        label: "section label (Workspaces expand again)".into(),
         activate: Rc::new(|views| {
-            if let Some(button) = by_class(views, "eb-section-label") {
+            if let Some(button) = nth_class(views, "eb-section-label", 1) {
                 click(&button, &views.window);
             }
         }),
