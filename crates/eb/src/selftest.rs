@@ -1038,8 +1038,15 @@ fn assert_geometry(
         })
         .unwrap_or(false);
 
+    // A window manager may clamp the requested default even when the root
+    // window reports a larger screen (macOS menu bar/dock, for example).
+    // Accept a smaller allocation as clamped; only an oversize window is a
+    // real layout regression.
+    let clamped = allocation.width() < spec::WINDOW_WIDTH
+        || allocation.height() < spec::WINDOW_HEIGHT;
     check(
         !small_screen
+            || clamped
             || (allocation.width() == spec::WINDOW_WIDTH
                 && allocation.height() == spec::WINDOW_HEIGHT),
         format!(
