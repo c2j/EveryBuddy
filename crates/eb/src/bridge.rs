@@ -14,6 +14,10 @@ use std::time::Duration;
 const ADDR: &str = "127.0.0.1:39472";
 
 static CHILD: Mutex<Option<Child>> = Mutex::new(None);
+/// The one session the bridge is currently serving. Projection is global, so
+/// only this task may consume it; otherwise selecting an old task would
+/// overwrite its transcript with the live session's messages.
+static ACTIVE_SESSION: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn healthy() -> bool {
     TcpStream::connect_timeout(
@@ -162,6 +166,7 @@ pub fn create_session(session_id: &str) -> Result<(), String> {
     use std::io::Read;
     stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        *ACTIVE_SESSION.lock().unwrap() = Some(session_id.to_string());
         Ok(())
     } else {
         Err(response)
@@ -242,6 +247,11 @@ pub fn session_turns() -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// The session currently served by the bridge, if any.
+pub fn active_session() -> Option<String> {
+    ACTIVE_SESSION.lock().unwrap().clone()
+}
+
 /// Resume a persisted task session after an app restart.
 pub fn resume_session(session_id: &str) -> Result<(), String> {
     let body = serde_json::json!({ "sessionId": session_id }).to_string();
@@ -256,6 +266,7 @@ pub fn resume_session(session_id: &str) -> Result<(), String> {
     use std::io::Read;
     stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
+        *ACTIVE_SESSION.lock().unwrap() = Some(session_id.to_string());
         Ok(())
     } else {
         Err(response)
