@@ -9,6 +9,7 @@ use gtk::prelude::*;
 
 fn bytes(name: &str) -> Option<&'static [u8]> {
     Some(match name {
+        "pin" => include_bytes!("../assets/icons/pin.png"),
         "plus" => include_bytes!("../assets/icons/plus.png"),
         "assistant" => include_bytes!("../assets/icons/assistant.png"),
         "grid" => include_bytes!("../assets/icons/grid.png"),
@@ -23,7 +24,9 @@ fn bytes(name: &str) -> Option<&'static [u8]> {
         "close" => include_bytes!("../assets/icons/close.png"),
         "code" => include_bytes!("../assets/icons/code.png"),
         "send" => include_bytes!("../assets/icons/send.png"),
+        "send-light" => include_bytes!("../assets/icons/send-light.png"),
         "stop" => include_bytes!("../assets/icons/stop.png"),
+        "stop-light" => include_bytes!("../assets/icons/stop-light.png"),
         "menu" => include_bytes!("../assets/icons/menu.png"),
         "filter" => include_bytes!("../assets/icons/filter.png"),
         "user" => include_bytes!("../assets/icons/user.png"),

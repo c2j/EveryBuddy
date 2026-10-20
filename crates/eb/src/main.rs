@@ -304,6 +304,7 @@ fn build_ui(application: &gtk::Application) {
                 last_route: None,
                 started_at: None,
                 updated_at: None,
+                pinned: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

@@ -144,6 +144,30 @@ def stop():
     return im
 
 
+def pin():
+    im = canvas(); d = ImageDraw.Draw(im)
+    line(d, [(48, 16), (48, 46)], width=6)
+    d.ellipse((30, 34, 66, 70), outline=BLACK, width=6)
+    return im
+
+
+def send_light():
+    im = canvas(); d = ImageDraw.Draw(im)
+    white = (255, 255, 255, 235)
+    d.line((48, 76, 48, 20), fill=white, width=7, joint="curve")
+    d.line((28, 40, 48, 20, 68, 40), fill=white, width=7, joint="curve")
+    r = 3.5
+    for x, y in ((48, 76), (48, 20), (28, 40), (68, 40)):
+        d.ellipse((x - r, y - r, x + r, y + r), fill=white)
+    return im
+
+
+def stop_light():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((28, 28, 68, 68), radius=8, fill=(255, 255, 255, 235))
+    return im
+
+
 def menu():
     im = canvas(); d = ImageDraw.Draw(im)
     for y in (28, 48, 68):
@@ -227,7 +251,7 @@ def main():
         "plus": plus(), "assistant": assistant(), "grid": grid(), "calendar": calendar(),
         "library": library(), "folder": folder(), "search": search(), "share": share(), "copy": copy(),
         "expand": expand(), "collapse": collapse(), "close": close(), "code": code(),
-        "send": send(), "stop": stop(), "menu": menu(), "filter": filter(),
+        "pin": pin(), "send": send(), "send-light": send_light(), "stop": stop(), "stop-light": stop_light(), "menu": menu(), "filter": filter(),
         "user": user(), "chevron-down": chevron_down(), "chevron-right": chevron_right(),
         "check": check(), "ring": ring(), "logo": logo(), "agent": agent(),
     }

@@ -114,6 +114,7 @@ pub struct Views {
     /// A sidebar section header was clicked.
     section_toggle: Rc<dyn Fn(usize)>,
     workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)>,
+    task_action: Rc<dyn Fn(crate::sidebar::TaskAction, usize)>,
     /// The last `(sidebar_visible, artifact_open, artifact_maximised)` triple
     /// that positioned the panes. Tracking it keeps a repaint from undoing a
     /// sash the user dragged.
@@ -352,6 +353,14 @@ pub fn build(
     };
 
     // ---- panes ----------------------------------------------------------
+    let task_action: Rc<dyn Fn(crate::sidebar::TaskAction, usize)> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        let window = window.clone();
+        Rc::new(move |action, index| {
+            crate::workspace_ui::run_task(&window, &store, &refresher, action, index);
+        })
+    };
     let workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)> = {
         let store = store.clone();
         let refresher = refresher.clone();
@@ -371,6 +380,14 @@ pub fn build(
                 }
             }),
             workspace_action: workspace_action.clone(),
+            task_action: {
+                let store = store.clone();
+                let refresher = refresher.clone();
+                let window = window.clone();
+                Rc::new(move |action, index| {
+                    crate::workspace_ui::run_task(&window, &store, &refresher, action, index);
+                })
+            },
         },
         contribs,
     );
@@ -516,6 +533,7 @@ pub fn build(
         open_task,
         section_toggle: section,
         workspace_action,
+        task_action,
         laid_out: Cell::new(None),
     };
 
@@ -738,8 +756,13 @@ impl Views {
                 active: matches!(app.route, Route::Task(active) if active == index),
                 index,
                 workspace_id: task.workspace_id.clone(),
+                pinned: task.pinned,
             })
             .collect();
+        // Pinned tasks float to the top of their section; the stable sort
+        // keeps the newest-first order within each group.
+        let mut rows = rows;
+        rows.sort_by(|a, b| b.pinned.cmp(&a.pinned));
         sidebar::fill_content(
             &self.sidebar.content,
             &rows,
@@ -748,6 +771,7 @@ impl Views {
             &self.open_task,
             &self.section_toggle,
             &self.workspace_action,
+            &self.task_action,
         );
 
         // ---- content pane ------------------------------------------------
