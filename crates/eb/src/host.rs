@@ -87,8 +87,15 @@ impl Host {
         // between ACP, dsh, and a custom model without remounting the host.
         let router = Arc::new(crate::router::AgentRouter::new(crate::router::load()));
         crate::router::install(router.clone());
-        eb_api::provide_answer(&ctx, router.clone())
-            .expect("provide the agent router");
+        // The fake-agent harness is a test double, not a routable provider:
+        // keep it as the sole answer source so route defaults cannot bypass it.
+        if std::env::var_os("EB_FAKE_AGENT").is_some() {
+            eb_api::provide_answer(&ctx, Arc::new(eb_plugin_demo_agent::FakeAgent::from_env()))
+                .expect("provide the fake agent");
+        } else {
+            eb_api::provide_answer(&ctx, router.clone())
+                .expect("provide the agent router");
+        }
         ACP_ACTIVE.store(
             crate::router::load().default == crate::router::DefaultRoute::Acp,
             Ordering::SeqCst,
