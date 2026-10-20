@@ -309,6 +309,19 @@ impl Runner {
             self.refresher.request();
             return;
         };
+        // Carry the composer's model choice into a brand-new task. Without
+        // this, the first turn falls back to the global default while the
+        // picker still shows the model the user picked.
+        {
+            let model_choice = self.store.borrow().model;
+            let mut app = self.store.borrow_mut();
+            if let Some(task_ref) = app.tasks.get_mut(task) {
+                if task_ref.agent_route.is_none() {
+                    task_ref.agent_route =
+                        crate::router::route_for_menu(model_choice).map(str::to_string);
+                }
+            }
+        }
         // A workspace selected on the welcome page is the destination for the
         // new task. Otherwise the first prompt creates a Temporary one below.
         {
