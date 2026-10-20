@@ -1,6 +1,21 @@
 # Native model settings
 
-EvoBuddy Settings now has a **Models** section for the dsh path:
+EvoBuddy Settings now has a sidebar and a **Models** page.
+
+### ACP agents
+
+Choose the external agent mounted at startup:
+
+- `opencode` (`opencode acp`)
+- `Grok Build` (`grok agent stdio`)
+
+Installed state and the resolved command are shown. Saving writes
+`~/.evobuddy/acp.json`; the host reads it at startup (or
+`EVOBUDDY_ACP_AGENT` overrides it).
+
+### Custom Model
+
+For the dsh path:
 
 - provider id (`AIMUX_PROVIDER`)
 - model id (`AIMUX_MODEL`)
@@ -17,7 +32,10 @@ The composer model menu is generated from the saved model
 that menu, so the selector text refreshes on the next app start; the dsh turn
 itself uses the saved env immediately.
 
-![Settings Models](/tmp/settings-model3.png)
+Settings now has a sidebar with General / Models / Built-in plugins / Agent presets
+/ About. Models has an **ACP agents** mode and a **Custom Model** mode.
+
+![Settings Models](/tmp/settings-custom-tab.png)
 
 ## Why not mount the dsh Models plugin directly?
 
