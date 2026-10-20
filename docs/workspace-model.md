@@ -221,8 +221,12 @@ Still open:
 - Temporary cleanup: empty Temporary workspaces are removed at startup and
   when a task is detached.
 - Workspace picker: present in both the landing footer and chat toolbar.
-- Explicit unassigned entry: `New unassigned task` under Tasks, and the
-  `No workspace` picker choice.
+- Unassigned tasks: a new task falls into `Tasks` when the workspace picker
+  says `No workspace`; there is no separate "new unassigned task" button. A
+  task holds many turns, and `Save to Workspace…` on its `...` menu later
+  moves an unassigned task into a Kept workspace (timestamp-named by default)
+  without losing its conversation. Workspace-assigned tasks instead show
+  `Open Folder`.
 - Default workspace storage path: user-configurable in Settings → General
   (`~/.evobuddy/workspace-settings.json`), defaulting to `~/EvoBuddy`. Auto
   workspaces and `New Workspace…` are created under it.

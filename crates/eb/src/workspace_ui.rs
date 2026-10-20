@@ -3,6 +3,7 @@
 use gtk::prelude::*;
 
 use crate::model::{Store, WorkspaceState};
+use crate::widgets::{class, text};
 use crate::sidebar::WorkspaceAction;
 use crate::shell::Refresher;
 
@@ -98,6 +99,120 @@ fn select_new(workspace: crate::model::Workspace, store: &Store, refresher: &Ref
     refresher.request();
 }
 
+/// Local-time workspace name used as the Save-to-Workspace prefill, e.g.
+/// `2026-10-20-20-11-39`. Shells out to `date`; falls back to Unix seconds.
+fn timestamp_name() -> String {
+    #[cfg(unix)]
+    {
+        if let Ok(output) = std::process::Command::new("date")
+            .arg("+%Y-%m-%d-%H-%M-%S")
+            .output()
+        {
+            if output.status.success() {
+                let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !name.is_empty() {
+                    return name;
+                }
+            }
+        }
+    }
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .unwrap_or(0);
+    format!("workspace-{seconds}")
+}
+
+/// WorkBuddy's "Save to Workspace": move an unassigned task into a Kept
+/// workspace created under the default storage path.
+fn save_task_to_workspace(
+    window: &gtk::ApplicationWindow,
+    store: &Store,
+    refresher: &Refresher,
+    index: usize,
+) {
+    let unassigned = ({
+        let app = store.borrow();
+        app.tasks
+            .get(index)
+            .is_some_and(|task| task.workspace_id.is_none())
+    });
+    if !unassigned {
+        return;
+    }
+    let dialog = gtk::Dialog::with_buttons(
+        Some("Save to Workspace"),
+        Some(window),
+        gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
+        &[
+            ("Cancel", gtk::ResponseType::Cancel),
+            ("Save", gtk::ResponseType::Accept),
+        ],
+    );
+    dialog.set_default_response(gtk::ResponseType::Accept);
+    let content = dialog.content_area();
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(16);
+    content.set_margin_end(16);
+    let title = text("After Saving to Workspace", "eb-settings-name");
+    content.pack_start(&title, false, false, 0);
+    let bullets = gtk::Label::new(Some(
+        "• Run multiple tasks at the same time without interference
+         • Conversations and files are saved automatically
+         • Come back anytime and continue where you left off",
+    ));
+    bullets.set_line_wrap(true);
+    bullets.set_xalign(0.0);
+    class(&bullets, "eb-settings-description");
+    content.pack_start(&bullets, false, false, 8);
+    let name_label = text("Workspace name", "eb-settings-description");
+    content.pack_start(&name_label, false, false, 8);
+    let entry = gtk::Entry::new();
+    entry.set_text(&timestamp_name());
+    entry.set_activates_default(true);
+    content.pack_start(&entry, false, false, 4);
+    dialog.show_all();
+    let response = dialog.run();
+    let name = entry.text().to_string();
+    dialog.close();
+    if response != gtk::ResponseType::Accept {
+        return;
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return;
+    }
+    let Some(workspace) = crate::workspace::create_named(name) else {
+        return;
+    };
+    let mut app = store.borrow_mut();
+    // One entity per root: reselect an existing workspace if the directory
+    // already hosts one.
+    let position = match app
+        .workspaces
+        .iter()
+        .position(|existing| existing.root == workspace.root)
+    {
+        Some(position) => position,
+        None => {
+            app.workspaces.push(workspace);
+            app.workspaces.len() - 1
+        }
+    };
+    let id = app.workspaces[position].id.clone();
+    if let Some(task) = app.tasks.get_mut(index) {
+        task.workspace_id = Some(id);
+        task.updated_at = Some(now());
+    }
+    if app.route == crate::model::Route::Task(index) {
+        app.workspace = position + 2;
+    }
+    drop(app);
+    crate::state::save(store);
+    refresher.request();
+}
+
 /// Task row `...` menu actions (WorkBuddy parity subset).
 pub fn run_task(
     window: &gtk::ApplicationWindow,
@@ -118,6 +233,9 @@ pub fn run_task(
             refresher.request();
         }
         crate::sidebar::TaskAction::Rename => rename_task(window, store, refresher, index),
+        crate::sidebar::TaskAction::SaveToWorkspace => {
+            save_task_to_workspace(window, store, refresher, index);
+        }
         crate::sidebar::TaskAction::OpenFolder => open_task_folder(store, index),
         crate::sidebar::TaskAction::Delete => delete_task(window, store, refresher, index),
     }
@@ -255,13 +373,6 @@ pub fn run(
     id: &str,
 ) {
     match action {
-        WorkspaceAction::NewUnassigned => {
-            let mut app = store.borrow_mut();
-            app.workspace = 1;
-            app.new_task();
-            drop(app);
-            refresher.request();
-        }
         WorkspaceAction::NewTask => {
             let mut app = store.borrow_mut();
             if let Some(position) = app.workspaces.iter().position(|workspace| workspace.id == id) {
