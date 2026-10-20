@@ -606,7 +606,9 @@ impl Views {
             Route::Unbuilt(name) => {
                 self.unbuilt_title.set_text(name);
                 clear_children(&self.unbuilt_info);
-                let specialized = *name == "Experts · Skills · Connectors" || *name == "Scheduled";
+                let specialized = *name == "Experts · Skills · Connectors"
+                    || *name == "Scheduled"
+                    || *name == "Library";
                 self.unbuilt_note.set_visible(!specialized);
                 self.unbuilt_title.set_visible(!specialized);
                 self.unbuilt_body.set_valign(if specialized {
@@ -626,6 +628,8 @@ impl Views {
                     fill_catalog(&self.unbuilt_info, &self.refresher, store);
                 } else if *name == "Scheduled" {
                     fill_scheduled(&self.unbuilt_info, &self.refresher);
+                } else if *name == "Library" {
+                    fill_library(&self.unbuilt_info, &self.refresher, store);
                 }
                 self.unbuilt_info.show_all();
                 shown = "unbuilt";
@@ -950,7 +954,11 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     header.pack_start(&spacer, true, true, 0);
     let search = gtk::Entry::new();
     search.set_width_chars(20);
-    search.set_placeholder_text(Some("Search skills"));
+    search.set_placeholder_text(Some(match tab {
+        0 => "Search experts",
+        2 => "Search connectors",
+        _ => "Search skills",
+    }));
     search.set_text(&query);
     let store_for_search = store.clone();
     let refresher_for_search = refresher.clone();
@@ -958,15 +966,35 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
         store_for_search.borrow_mut().catalog_query = entry.text().to_string();
         refresher_for_search.request();
     });
-    let add = gtk::Button::with_label("+ Add Skill");
-    class(&add, "eb-add-skill");
-    let store_for_add = store.clone();
-    let refresher_for_add = refresher.clone();
-    add.connect_clicked(move |_| open_add_skill(&store_for_add, &refresher_for_add));
-    header.pack_end(&add, false, false, 0);
-    let installed = gtk::Label::new(Some(&format!("Installed ({})", crate::catalog::skills().len())));
-    class(&installed, "eb-catalog-count");
-    header.pack_end(&installed, false, false, 0);
+    if tab == 2 {
+        let custom = gtk::Button::with_label("Custom connectors");
+        class(&custom, "eb-add-skill");
+        let store = store.clone();
+        let refresher = refresher.clone();
+        custom.connect_clicked(move |_| open_add_connector(&store, &refresher, ""));
+        header.pack_end(&custom, false, false, 0);
+    } else if tab == 0 {
+        let mine = gtk::Button::with_label("My Experts");
+        class(&mine, "eb-add-skill");
+        let store = store.clone();
+        let refresher = refresher.clone();
+        mine.connect_clicked(move |_| {
+            let active = crate::catalog::active_expert().unwrap_or("").to_string();
+            store.borrow_mut().catalog_query = active;
+            refresher.request();
+        });
+        header.pack_end(&mine, false, false, 0);
+    } else {
+        let add = gtk::Button::with_label("+ Add Skill");
+        class(&add, "eb-add-skill");
+        let store_for_add = store.clone();
+        let refresher_for_add = refresher.clone();
+        add.connect_clicked(move |_| open_add_skill(&store_for_add, &refresher_for_add));
+        header.pack_end(&add, false, false, 0);
+        let installed = gtk::Label::new(Some(&format!("Installed ({})", crate::catalog::skills().len())));
+        class(&installed, "eb-catalog-count");
+        header.pack_end(&installed, false, false, 0);
+    }
     header.pack_end(&search, false, false, 0);
     container.pack_start(&header, false, false, 0);
 
@@ -976,50 +1004,178 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     container.pack_start(&divider, false, false, 0);
 
     match tab {
-        0 => fill_experts(container, store, refresher),
-        2 => fill_connectors(container),
+        0 => fill_experts(container, store, refresher, &query),
+        2 => fill_connectors(container, store, refresher, &query),
         _ => fill_skills(container, store, refresher, &query, filter),
     }
 }
 
-fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher) {
-    let intro = gtk::Label::new(Some(
-        "Experts are prompt profiles that shape how the agent approaches a task.",
-    ));
-    intro.set_xalign(0.0);
-    class(&intro, "eb-catalog-intro");
-    container.pack_start(&intro, false, false, 0);
+fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, query: &str) {
+    let (category, teams, sort) = {
+        let app = store.borrow();
+        (app.expert_category, app.expert_teams, app.catalog_filter)
+    };
+    let categories = [
+        "All",
+        "Engineering",
+        "Data & AI",
+        "Product Design",
+        "Content & Creative",
+        "Sales & Business",
+        "Operations",
+        "Marketing & Growth",
+    ];
+    let section = hbox(10);
+    let experts_tab = gtk::Button::with_label("Experts");
+    class(&experts_tab, if teams { "eb-catalog-tab" } else { "eb-catalog-tab-active" });
+    let teams_tab = gtk::Button::with_label("Expert Teams");
+    class(&teams_tab, if teams { "eb-catalog-tab-active" } else { "eb-catalog-tab" });
+    for (active, set) in [(false, false), (true, true)] {
+        let button = if active { teams_tab.clone() } else { experts_tab.clone() };
+        let store = store.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            store.borrow_mut().expert_teams = set;
+            refresher.request();
+        });
+    }
+    section.pack_start(&experts_tab, false, false, 0);
+    section.pack_start(&teams_tab, false, false, 0);
+    let spacer = gtk::Label::new(None);
+    spacer.set_hexpand(true);
+    section.pack_start(&spacer, true, true, 0);
+    let sort_box = hbox(6);
+    for (index, label) in ["Recommended", "Hottest", "Newest"].iter().enumerate() {
+        let button = gtk::Button::with_label(label);
+        class(&button, if index == sort { "eb-chip-active" } else { "eb-chip" });
+        let store = store.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            store.borrow_mut().catalog_filter = index;
+            refresher.request();
+        });
+        sort_box.pack_start(&button, false, false, 0);
+    }
+    section.pack_end(&sort_box, false, false, 0);
+    container.pack_start(&section, false, false, 0);
+    if teams {
+        let empty = gtk::Label::new(Some("No expert teams yet. Teams will appear here."));
+        empty.set_xalign(0.0);
+        class(&empty, "eb-skill-meta");
+        container.pack_start(&empty, false, false, 0);
+        return;
+    }
+
+    let hero_row = gtk::Grid::new();
+    hero_row.set_column_spacing(10);
+    hero_row.set_row_spacing(10);
+    hero_row.set_column_homogeneous(true);
+    let heroes = [
+        ("Content Creation", "content", "Content Creator"),
+        ("Investment Analysis", "data", "Data Analytics Reporter"),
+        ("Small Business", "business", "Project Manager"),
+        ("E-commerce Operations", "ecommerce", "Frontend Developer"),
+    ];
+    for (index, (title, class_name, expert)) in heroes.iter().enumerate() {
+        let card = vbox(4);
+        class(&card, "eb-expert-hero");
+        class(&card, class_name);
+        let title = gtk::Label::new(Some(title));
+        title.set_xalign(0.0);
+        class(&title, "eb-expert-hero-title");
+        card.pack_start(&title, false, false, 0);
+        let name = gtk::Label::new(Some(*expert));
+        name.set_xalign(0.0);
+        class(&name, "eb-skill-meta");
+        card.pack_start(&name, false, false, 0);
+        let button = gtk::Button::with_label("Explore");
+        button.set_halign(gtk::Align::Start);
+        let target = match *class_name {
+            "content" => 4,
+            "data" => 2,
+            "business" => 6,
+            _ => 5,
+        };
+        let store = store.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            store.borrow_mut().expert_category = target;
+            store.borrow_mut().expert_teams = false;
+            refresher.request();
+        });
+        card.pack_start(&button, false, false, 0);
+        hero_row.attach(&card, index as i32, 0, 1, 1);
+    }
+    container.pack_start(&hero_row, false, false, 0);
+
+    let chips = hbox(6);
+    for (index, label) in categories.iter().enumerate() {
+        let button = gtk::Button::with_label(label);
+        class(&button, if index == category { "eb-chip-active" } else { "eb-chip" });
+        let store = store.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            store.borrow_mut().expert_category = index;
+            refresher.request();
+        });
+        chips.pack_start(&button, false, false, 0);
+    }
+    container.pack_start(&chips, false, false, 0);
+
+    let query = query.to_ascii_lowercase();
+    let mut experts: Vec<_> = crate::catalog::expert_cards()
+        .iter()
+        .filter(|expert| {
+            let matches_category = category == 0 || expert.category == categories[category];
+            let haystack = format!("{} {} {}", expert.name, expert.description, expert.tags.join(" ")).to_ascii_lowercase();
+            matches_category && (query.is_empty() || haystack.contains(&query))
+        })
+        .collect();
+    if sort == 2 {
+        experts.sort_by(|a, b| b.name.cmp(a.name));
+    }
     let grid = gtk::Grid::new();
     grid.set_column_spacing(12);
     grid.set_row_spacing(12);
     grid.set_column_homogeneous(true);
     let active = crate::catalog::active_expert();
-    for (index, (name, description)) in crate::catalog::experts().into_iter().enumerate() {
+    for (index, expert) in experts.into_iter().enumerate() {
         let card = vbox(4);
         class(&card, "eb-skill-card");
-        let title = gtk::Label::new(Some(name));
-        title.set_xalign(0.0);
-        class(&title, "eb-skill-title");
-        card.pack_start(&title, false, false, 0);
-        let body = gtk::Label::new(Some(description));
-        body.set_xalign(0.0);
-        body.set_line_wrap(true);
-        class(&body, "eb-skill-meta");
-        card.pack_start(&body, false, false, 0);
-        let selected = active == Some(name);
-        let button = gtk::Button::with_label(if selected { "Clear" } else { "Use" });
+        let head = hbox(8);
+        let avatar = gtk::Label::new(Some(expert.avatar));
+        class(&avatar, "eb-skill-icon");
+        head.pack_start(&avatar, false, false, 0);
+        let name = gtk::Label::new(Some(expert.name));
+        name.set_xalign(0.0);
+        class(&name, "eb-skill-title");
+        head.pack_start(&name, true, true, 0);
+        let selected = active == Some(expert.name);
+        let use_button = gtk::Button::with_label(if selected { "Clear" } else { "Use" });
         let store = store.clone();
         let refresher = refresher.clone();
-        button.connect_clicked(move |_| {
+        use_button.connect_clicked(move |_| {
             if selected {
                 crate::catalog::set_expert(None);
             } else {
-                crate::catalog::set_expert(Some(name));
+                crate::catalog::set_expert(Some(expert.name));
             }
-            store.borrow_mut().catalog_tab = 0;
             refresher.request();
         });
-        card.pack_start(&button, false, false, 0);
+        head.pack_end(&use_button, false, false, 0);
+        card.pack_start(&head, false, false, 0);
+        let description = gtk::Label::new(Some(expert.description));
+        description.set_xalign(0.0);
+        description.set_line_wrap(true);
+        class(&description, "eb-skill-meta");
+        card.pack_start(&description, false, false, 0);
+        let tags = hbox(4);
+        for tag in expert.tags {
+            let label = gtk::Label::new(Some(tag));
+            class(&label, "eb-expert-tag");
+            tags.pack_start(&label, false, false, 0);
+        }
+        card.pack_start(&tags, false, false, 0);
         grid.attach(&card, (index % 3) as i32, (index / 3) as i32, 1, 1);
     }
     container.pack_start(&grid, false, false, 0);
@@ -1157,30 +1313,66 @@ fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refreshe
     card
 }
 
-fn fill_connectors(container: &gtk::Box) {
+fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, query: &str) {
+    let configured: Vec<String> = crate::catalog::connectors().into_iter().map(|(name, _)| name).collect();
+    let query = query.to_ascii_lowercase();
+    let mut cards: Vec<(String, String, String)> = crate::catalog::connector_cards()
+        .iter()
+        .filter(|card| {
+            query.is_empty()
+                || card.name.to_ascii_lowercase().contains(&query)
+                || card.description.to_ascii_lowercase().contains(&query)
+        })
+        .map(|card| (card.name.into(), card.description.into(), card.icon.into()))
+        .collect();
+    for (name, _) in &crate::catalog::connectors() {
+        if !cards.iter().any(|(existing, _, _)| existing == name)
+            && (query.is_empty() || name.to_ascii_lowercase().contains(&query))
+        {
+            cards.push((name.clone(), "Configured MCP connector".into(), "⚙".into()));
+        }
+    }
     let intro = gtk::Label::new(Some(
-        "Connectors are passed to ACP as mcpServers. Add ~/.evobuddy/connectors/<name>.json.",
+        "Connect tools and data sources. Connectors are passed to ACP as mcpServers.",
     ));
     intro.set_xalign(0.0);
-    intro.set_line_wrap(true);
     class(&intro, "eb-catalog-intro");
     container.pack_start(&intro, false, false, 0);
     let grid = gtk::Grid::new();
     grid.set_column_spacing(12);
     grid.set_row_spacing(12);
     grid.set_column_homogeneous(true);
-    for (index, (name, state)) in crate::catalog::connectors().into_iter().enumerate() {
-        let card = vbox(4);
-        class(&card, "eb-skill-card");
-        let title = gtk::Label::new(Some(&name));
-        title.set_xalign(0.0);
-        class(&title, "eb-skill-title");
-        card.pack_start(&title, false, false, 0);
-        let kind = gtk::Label::new(Some(&state));
-        kind.set_xalign(0.0);
-        class(&kind, "eb-skill-meta");
-        card.pack_start(&kind, false, false, 0);
-        grid.attach(&card, (index % 3) as i32, (index / 3) as i32, 1, 1);
+    for (index, (card_name, card_description, card_icon)) in cards.iter().enumerate() {
+        let item = vbox(4);
+        class(&item, "eb-skill-card");
+        let head = hbox(8);
+        let icon = gtk::Label::new(Some(card_icon));
+        class(&icon, "eb-skill-icon");
+        head.pack_start(&icon, false, false, 0);
+        let name = gtk::Label::new(Some(card_name));
+        name.set_xalign(0.0);
+        class(&name, "eb-skill-title");
+        head.pack_start(&name, true, true, 0);
+        if configured.iter().any(|name| name == card_name) {
+            let done = gtk::Label::new(Some("Configured"));
+            class(&done, "eb-skill-source");
+            head.pack_end(&done, false, false, 0);
+        } else {
+            let add = gtk::Button::with_label("+");
+            class(&add, "eb-skill-add");
+            let store = store.clone();
+            let refresher = refresher.clone();
+            let name = card_name.clone();
+            add.connect_clicked(move |_| open_add_connector(&store, &refresher, &name));
+            head.pack_end(&add, false, false, 0);
+        }
+        item.pack_start(&head, false, false, 0);
+        let description = gtk::Label::new(Some(card_description));
+        description.set_xalign(0.0);
+        description.set_line_wrap(true);
+        class(&description, "eb-skill-meta");
+        item.pack_start(&description, false, false, 0);
+        grid.attach(&item, (index % 3) as i32, (index / 3) as i32, 1, 1);
     }
     container.pack_start(&grid, false, false, 0);
 }
@@ -1198,6 +1390,59 @@ fn open_skill_view(title: &str, body: &str) {
     let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
     scroll.add(&view);
     window.add(&scroll);
+    window.show_all();
+}
+
+fn open_add_connector(store: &Store, refresher: &Refresher, preset: &str) {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title("Add Connector");
+    window.set_default_size(480, 280);
+    window.set_modal(true);
+    let root = vbox(8);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+    let name = gtk::Entry::new();
+    name.set_placeholder_text(Some("Connector name"));
+    name.set_text(preset);
+    root.pack_start(&name, false, false, 0);
+    let command = gtk::Entry::new();
+    command.set_placeholder_text(Some("Command, e.g. npx"));
+    root.pack_start(&command, false, false, 0);
+    let args = gtk::Entry::new();
+    args.set_placeholder_text(Some("Arguments, space separated"));
+    root.pack_start(&args, false, false, 0);
+    let error = gtk::Label::new(None);
+    error.set_xalign(0.0);
+    class(&error, "eb-skill-error");
+    root.pack_start(&error, false, false, 0);
+    let actions = hbox(8);
+    let cancel = gtk::Button::with_label("Cancel");
+    let create = gtk::Button::with_label("Add");
+    actions.pack_end(&create, false, false, 0);
+    actions.pack_end(&cancel, false, false, 0);
+    root.pack_start(&actions, false, false, 0);
+    window.add(&root);
+    let window_for_cancel = window.clone();
+    cancel.connect_clicked(move |_| window_for_cancel.close());
+    let window_for_create = window.clone();
+    let store = store.clone();
+    let refresher = refresher.clone();
+    create.connect_clicked(move |_| {
+        match crate::catalog::create_connector(
+            &name.text().to_string(),
+            &command.text().to_string(),
+            &args.text().to_string(),
+        ) {
+            Ok(_) => {
+                store.borrow_mut().catalog_tab = 2;
+                refresher.request();
+                window_for_create.close();
+            }
+            Err(message) => error.set_text(&message),
+        }
+    });
     window.show_all();
 }
 
@@ -1242,75 +1487,148 @@ fn open_add_skill(store: &Store, refresher: &Refresher) {
 }
 
 fn fill_scheduled(container: &gtk::Box, refresher: &Refresher) {
-    let intro = gtk::Label::new(Some(
-        "Scheduled prompts run through the normal task, workspace, session, and ACP path.",
-    ));
-    intro.set_xalign(0.0);
-    intro.set_line_wrap(true);
-    class(&intro, "eb-catalog-intro");
-    container.pack_start(&intro, false, false, 0);
-
-    let entry = gtk::Entry::new();
-    entry.set_placeholder_text(Some("Prompt to run in one minute"));
-    container.pack_start(&entry, false, false, 0);
-    let add = gtk::Button::with_label("Schedule +1m");
-    let refresher_for_add = refresher.clone();
-    let entry_for_add = entry.clone();
-    add.connect_clicked(move |_| {
-        let prompt = entry_for_add.text().to_string();
-        if !prompt.trim().is_empty() {
-            crate::catalog::add_scheduled(&prompt, &prompt, 60);
-            entry_for_add.set_text("");
-            refresher_for_add.request();
-        }
-    });
-    container.pack_start(&add, false, false, 0);
+    let header = hbox(8);
+    let title = gtk::Label::new(Some("Scheduled Tasks"));
+    title.set_xalign(0.0);
+    class(&title, "eb-page-title");
+    header.pack_start(&title, false, false, 0);
+    let spacer = gtk::Label::new(None);
+    spacer.set_hexpand(true);
+    header.pack_start(&spacer, true, true, 0);
+    let new = gtk::Button::with_label("+ New");
+    class(&new, "eb-add-skill");
+    let refresher_for_new = refresher.clone();
+    new.connect_clicked(move |_| open_add_scheduled(&refresher_for_new));
+    header.pack_end(&new, false, false, 0);
+    container.pack_start(&header, false, false, 0);
 
     let jobs = crate::catalog::scheduled();
-    let header = gtk::Label::new(Some(&format!("Queue · {} job(s)", jobs.len())));
-    header.set_xalign(0.0);
-    class(&header, "eb-catalog-section");
-    container.pack_start(&header, false, false, 0);
     if jobs.is_empty() {
-        let empty = gtk::Label::new(Some("Nothing scheduled."));
-        empty.set_xalign(0.0);
-        class(&empty, "eb-skill-meta");
+        let empty = vbox(4);
+        empty.set_valign(gtk::Align::Center);
+        let icon = gtk::Label::new(Some("⏱"));
+        class(&icon, "eb-empty-icon");
+        empty.pack_start(&icon, false, false, 0);
+        let text = gtk::Label::new(Some("No scheduled tasks found."));
+        class(&text, "eb-skill-meta");
+        empty.pack_start(&text, false, false, 0);
         container.pack_start(&empty, false, false, 0);
-        return;
+    } else {
+        for (index, (title, prompt, due)) in jobs.into_iter().enumerate() {
+            let card = vbox(3);
+            class(&card, "eb-skill-card");
+            let head = hbox(8);
+            let name = gtk::Label::new(Some(&title));
+            name.set_xalign(0.0);
+            class(&name, "eb-skill-title");
+            head.pack_start(&name, false, false, 0);
+            let when = gtk::Label::new(Some(&due_label(&due)));
+            class(&when, "eb-skill-source");
+            head.pack_start(&when, false, false, 0);
+            let run = gtk::Button::with_label("Run now");
+            let refresher_run = refresher.clone();
+            run.connect_clicked(move |_| {
+                crate::catalog::run_scheduled(index);
+                refresher_run.request();
+            });
+            head.pack_end(&run, false, false, 0);
+            let delete = gtk::Button::with_label("Delete");
+            let refresher_delete = refresher.clone();
+            delete.connect_clicked(move |_| {
+                crate::catalog::remove_scheduled(index);
+                refresher_delete.request();
+            });
+            head.pack_end(&delete, false, false, 0);
+            card.pack_start(&head, false, false, 0);
+            let body = gtk::Label::new(Some(&prompt));
+            body.set_xalign(0.0);
+            body.set_line_wrap(true);
+            class(&body, "eb-skill-meta");
+            card.pack_start(&body, false, false, 0);
+            container.pack_start(&card, false, false, 0);
+        }
     }
-    for (index, (title, prompt, due)) in jobs.into_iter().enumerate() {
+
+    let popular = gtk::Label::new(Some("Try these popular tasks"));
+    popular.set_xalign(0.0);
+    class(&popular, "eb-catalog-section");
+    container.pack_start(&popular, false, false, 0);
+    let grid = gtk::Grid::new();
+    grid.set_column_spacing(12);
+    grid.set_row_spacing(12);
+    grid.set_column_homogeneous(true);
+    let templates = [
+        ("Daily AI News Briefing", "Track key AI updates with a short daily brief."),
+        ("Daily 5 English Words", "Recommend five practical words each day."),
+        ("Weekly Work Report", "Review weekly PR and issue activity."),
+        ("On This Day", "Pick one interesting historical event."),
+        ("Daily Why", "Ask one fun why-question, then explain."),
+        ("Pre-meeting Preparation", "Prepare a short agenda before a meeting."),
+        ("Health Checkup Reminder", "Remind me to take a break and stretch."),
+        ("Daily Bedtime Story", "Write a gentle 3-minute bedtime story."),
+        ("Classic Movie Pick", "Recommend one highly acclaimed classic movie."),
+    ];
+    for (index, (name, description)) in templates.iter().enumerate() {
+        let name = (*name).to_string();
+        let description = (*description).to_string();
         let card = vbox(3);
         class(&card, "eb-skill-card");
-        let head = hbox(8);
-        let name = gtk::Label::new(Some(&title));
-        name.set_xalign(0.0);
-        class(&name, "eb-skill-title");
-        head.pack_start(&name, false, false, 0);
-        let when = gtk::Label::new(Some(&due_label(&due)));
-        class(&when, "eb-skill-source");
-        head.pack_start(&when, false, false, 0);
-        let run = gtk::Button::with_label("Run now");
-        let refresher_run = refresher.clone();
-        run.connect_clicked(move |_| {
-            crate::catalog::run_scheduled(index);
-            refresher_run.request();
-        });
-        head.pack_end(&run, false, false, 0);
-        let delete = gtk::Button::with_label("Delete");
-        let refresher_delete = refresher.clone();
-        delete.connect_clicked(move |_| {
-            crate::catalog::remove_scheduled(index);
-            refresher_delete.request();
-        });
-        head.pack_end(&delete, false, false, 0);
-        card.pack_start(&head, false, false, 0);
-        let body = gtk::Label::new(Some(&prompt));
+        let title = gtk::Label::new(Some(&name));
+        title.set_xalign(0.0);
+        class(&title, "eb-skill-title");
+        card.pack_start(&title, false, false, 0);
+        let body = gtk::Label::new(Some(&description));
         body.set_xalign(0.0);
         body.set_line_wrap(true);
         class(&body, "eb-skill-meta");
         card.pack_start(&body, false, false, 0);
-        container.pack_start(&card, false, false, 0);
+        let add = gtk::Button::with_label("Schedule +1m");
+        add.set_halign(gtk::Align::Start);
+        let refresher = refresher.clone();
+        add.connect_clicked(move |_| {
+            crate::catalog::add_scheduled(&name, &description, 60);
+            refresher.request();
+        });
+        card.pack_start(&add, false, false, 0);
+        grid.attach(&card, (index % 3) as i32, (index / 3) as i32, 1, 1);
     }
+
+    container.pack_start(&grid, false, false, 0);
+}
+
+fn open_add_scheduled(refresher: &Refresher) {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title("New Scheduled Task");
+    window.set_default_size(480, 220);
+    window.set_modal(true);
+    let root = vbox(8);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+    let prompt = gtk::Entry::new();
+    prompt.set_placeholder_text(Some("Prompt to run in one minute"));
+    root.pack_start(&prompt, false, false, 0);
+    let actions = hbox(8);
+    let cancel = gtk::Button::with_label("Cancel");
+    let create = gtk::Button::with_label("Schedule +1m");
+    actions.pack_end(&create, false, false, 0);
+    actions.pack_end(&cancel, false, false, 0);
+    root.pack_start(&actions, false, false, 0);
+    window.add(&root);
+    let window_for_cancel = window.clone();
+    cancel.connect_clicked(move |_| window_for_cancel.close());
+    let window_for_create = window.clone();
+    let refresher = refresher.clone();
+    create.connect_clicked(move |_| {
+        let text = prompt.text().to_string();
+        if !text.trim().is_empty() {
+            crate::catalog::add_scheduled(&text, &text, 60);
+            refresher.request();
+            window_for_create.close();
+        }
+    });
+    window.show_all();
 }
 
 fn due_label(due: &str) -> String {
@@ -1323,4 +1641,101 @@ fn due_label(due: &str) -> String {
         Ok(at) => format!("in {}s", at - now),
         Err(_) => due.to_string(),
     }
+}
+
+fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
+    let section = store.borrow().library_section;
+    let row = hbox(16);
+    let sidebar = vbox(3);
+    sidebar.set_size_request(210, -1);
+    let search = gtk::Entry::new();
+    search.set_placeholder_text(Some("Search library"));
+    sidebar.pack_start(&search, false, false, 0);
+    for (index, label) in ["Recent", "Local artifacts", "My Materials"].iter().enumerate() {
+        let button = gtk::Button::with_label(label);
+        class(&button, if index == section { "eb-library-nav-active" } else { "eb-library-nav" });
+        let store = store.clone();
+        let refresher = refresher.clone();
+        button.connect_clicked(move |_| {
+            store.borrow_mut().library_section = index;
+            refresher.request();
+        });
+        sidebar.pack_start(&button, false, false, 0);
+    }
+    row.pack_start(&sidebar, false, false, 0);
+
+    let main = vbox(6);
+    let title = gtk::Label::new(Some(match section {
+        1 => "Local artifacts",
+        2 => "My Materials",
+        _ => "Recent",
+    }));
+    title.set_xalign(0.0);
+    class(&title, "eb-page-title");
+    main.pack_start(&title, false, false, 0);
+    let tabs = hbox(8);
+    for label in ["Recent visit", "Shared by me", "Shared with me"] {
+        let label = gtk::Label::new(Some(label));
+        class(&label, "eb-skill-source");
+        tabs.pack_start(&label, false, false, 0);
+    }
+    main.pack_start(&tabs, false, false, 0);
+    let header = hbox(0);
+    for (label, width) in [("Name", 360), ("Owner", 180), ("Location", 180), ("Recent visit", 140)] {
+        let label = gtk::Label::new(Some(label));
+        label.set_xalign(0.0);
+        label.set_size_request(width, -1);
+        class(&label, "eb-skill-stats");
+        header.pack_start(&label, false, false, 0);
+    }
+    main.pack_start(&header, false, false, 0);
+    main.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+
+    let tasks = store.borrow();
+    let mut added = 0;
+    for task in &tasks.tasks {
+        let (name, location) = if let Some(artifact) = &task.artifact {
+            (artifact.name.clone(), "Local artifacts")
+        } else if let Some(workspace) = &task.workspace {
+            (
+                std::path::Path::new(workspace)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| workspace.clone()),
+                "My Materials",
+            )
+        } else {
+            continue;
+        };
+        if section == 1 && location != "Local artifacts" {
+            continue;
+        }
+        if section == 2 && location != "My Materials" {
+            continue;
+        }
+        let line = hbox(0);
+        for (value, width) in [
+            (name, 360),
+            ("you@evobuddy.local".to_string(), 180),
+            (location.to_string(), 180),
+            ("just now".to_string(), 140),
+        ] {
+            let label = gtk::Label::new(Some(&value));
+            label.set_xalign(0.0);
+            label.set_size_request(width, -1);
+            class(&label, "eb-skill-meta");
+            line.pack_start(&label, false, false, 0);
+        }
+        main.pack_start(&line, false, false, 0);
+        main.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+        added += 1;
+    }
+    if added == 0 {
+        let empty = gtk::Label::new(Some("Nothing here yet."));
+        empty.set_xalign(0.0);
+        class(&empty, "eb-skill-meta");
+        main.pack_start(&empty, false, false, 0);
+    }
+    row.pack_start(&main, true, true, 0);
+    container.pack_start(&row, false, false, 0);
 }

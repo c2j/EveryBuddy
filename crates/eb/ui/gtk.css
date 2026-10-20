@@ -1314,3 +1314,48 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   padding: 2px 5px;
   margin-bottom: 3px;
 }
+.eb-expert-hero {
+  border-radius: 12px;
+  padding: 14px;
+  min-height: 110px;
+  border: 1px solid @border_strong;
+}
+.eb-expert-hero.content { background: #e8f3ec; }
+.eb-expert-hero.data { background: #e8eef8; }
+.eb-expert-hero.business { background: #edf0e8; }
+.eb-expert-hero.ecommerce { background: #f0e8f5; }
+.eb-expert-hero-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-expert-tag {
+  background: @bg_secondary;
+  border-radius: 5px;
+  color: @eb_text_secondary;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.eb-page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: @eb_text_primary;
+}
+.eb-empty-icon {
+  color: @eb_text_tertiary;
+  font-size: 44px;
+}
+.eb-library-nav,
+.eb-library-nav-active {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: @eb_text_secondary;
+  padding: 7px 10px;
+  text-align: left;
+}
+.eb-library-nav-active {
+  background: @bg_secondary;
+  color: @eb_text_primary;
+  font-weight: 600;
+}

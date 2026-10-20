@@ -157,6 +157,11 @@ pub struct App {
     pub catalog_query: String,
     /// Catalog category: 0 = all, 1 = built-in, 2 = user, 3 = enabled.
     pub catalog_filter: usize,
+    /// Experts category index and Experts/Expert Teams section.
+    pub expert_category: usize,
+    pub expert_teams: bool,
+    /// Library section: 0 recent, 1 local artifacts, 2 my materials.
+    pub library_section: usize,
 }
 
 impl App {
@@ -176,6 +181,9 @@ impl App {
             catalog_tab: 1,
             catalog_query: String::new(),
             catalog_filter: 0,
+            expert_category: 0,
+            expert_teams: false,
+            library_section: 0,
         }
     }
 

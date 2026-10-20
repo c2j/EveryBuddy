@@ -29,11 +29,29 @@ const BUILTIN: &[(&str, &str)] = &[
     ),
 ];
 
-const EXPERTS: &[(&str, &str)] = &[
-    ("Code reviewer", "Prioritise correctness, regressions, and missing tests."),
-    ("Researcher", "Gather evidence first, distinguish observation from inference."),
-    ("Writer", "Produce concise, structured prose with explicit assumptions."),
+pub struct Expert {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub category: &'static str,
+    pub tags: &'static [&'static str],
+    pub avatar: &'static str,
+}
+
+const EXPERTS: &[Expert] = &[
+    Expert { name: "Code Review Expert", description: "Examines changes for correctness, regressions, and missing tests.", category: "Engineering", tags: &["Code Review", "Quality Gate"], avatar: "🧑‍💻" },
+    Expert { name: "Data Analytics Reporter", description: "Transforms complex data into clear reports and visual explanations.", category: "Data & AI", tags: &["Data Analysis", "Visualization"], avatar: "📊" },
+    Expert { name: "UI Designer", description: "Designs component systems, layouts, and interaction details.", category: "Product Design", tags: &["UI Design", "Components"], avatar: "🎨" },
+    Expert { name: "Frontend Developer", description: "Builds and reviews accessible desktop and web interfaces.", category: "Engineering", tags: &["Frontend", "Accessibility"], avatar: "🖥️" },
+    Expert { name: "Content Creator", description: "Turns source material into structured, publishable content.", category: "Content & Creative", tags: &["Writing", "Content"], avatar: "✍️" },
+    Expert { name: "Brand Strategist", description: "Clarifies positioning, voice, and brand consistency.", category: "Marketing & Growth", tags: &["Brand", "Strategy"], avatar: "💡" },
+    Expert { name: "Research Analyst", description: "Gathers evidence first and separates observation from inference.", category: "Data & AI", tags: &["Research", "Evidence"], avatar: "🔎" },
+    Expert { name: "Project Manager", description: "Breaks work into milestones, owners, and verifiable outcomes.", category: "Operations", tags: &["Planning", "Delivery"], avatar: "📋" },
+    Expert { name: "Career Coach", description: "Helps tailor resumes, interviews, and career narratives.", category: "Sales & Business", tags: &["Career", "Interview"], avatar: "🧭" },
 ];
+
+pub fn expert_cards() -> &'static [Expert] {
+    EXPERTS
+}
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
@@ -57,15 +75,15 @@ fn enabled_names() -> Vec<String> {
 }
 
 pub fn experts() -> Vec<(&'static str, &'static str)> {
-    EXPERTS.to_vec()
+    EXPERTS.iter().map(|expert| (expert.name, expert.description)).collect()
 }
 
 pub fn active_expert() -> Option<&'static str> {
     let name = std::fs::read_to_string(home().join(".evobuddy/expert")).ok()?;
     EXPERTS
         .iter()
-        .find(|(expert, _)| *expert == name.trim())
-        .map(|(expert, _)| *expert)
+        .find(|expert| expert.name == name.trim())
+        .map(|expert| expert.name)
 }
 
 pub fn set_expert(name: Option<&str>) {
@@ -233,8 +251,8 @@ pub fn toggle(name: &str) {
 fn compose_prompt(user: &str, expert: Option<&str>, skills: &[Skill]) -> String {
     let mut prompt = String::new();
     if let Some(expert) = expert {
-        if let Some((_, description)) = EXPERTS.iter().find(|(name, _)| *name == expert) {
-            prompt.push_str(&format!("Act as the {expert} expert. {description}\n\n"));
+        if let Some(profile) = EXPERTS.iter().find(|profile| profile.name == expert) {
+            prompt.push_str(&format!("Act as the {expert} expert. {}\n\n", profile.description));
         }
     }
     let active: Vec<_> = skills
@@ -268,6 +286,58 @@ fn compose_prompt(user: &str, expert: Option<&str>, skills: &[Skill]) -> String 
 
 pub fn prompt_for(user: &str) -> String {
     compose_prompt(user, active_expert(), &skills())
+}
+
+pub struct ConnectorCard {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub icon: &'static str,
+}
+
+const CONNECTORS: &[ConnectorCard] = &[
+    ConnectorCard { name: "Gmail", description: "Search, read, draft, send, and reply to mail.", icon: "✉" },
+    ConnectorCard { name: "GitHub", description: "Clone, push, and manage repositories and issues.", icon: "◆" },
+    ConnectorCard { name: "Notion", description: "Create, search, and manage Notion pages.", icon: "N" },
+    ConnectorCard { name: "Linear", description: "Manage issues, projects, and documents.", icon: "L" },
+    ConnectorCard { name: "Feishu", description: "Manage Feishu documents and messages via CLI.", icon: "F" },
+    ConnectorCard { name: "WeCom", description: "Official CLI suite for WeChat Work.", icon: "W" },
+    ConnectorCard { name: "DingTalk", description: "Manage DingTalk documents and conversations.", icon: "D" },
+    ConnectorCard { name: "Tencent Meeting", description: "Create and query Tencent Meeting rooms.", icon: "▣" },
+    ConnectorCard { name: "Microsoft 365", description: "Work with Outlook mail, calendar, and files.", icon: "O" },
+];
+
+pub fn connector_cards() -> &'static [ConnectorCard] {
+    CONNECTORS
+}
+
+pub fn create_connector(name: &str, command: &str, args: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() || command.trim().is_empty() {
+        return Err("name and command are required".into());
+    }
+    let slug: String = name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let root = home().join(".evobuddy/connectors");
+    std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let path = root.join(format!("{slug}.json"));
+    if path.exists() {
+        return Err(format!("connector '{slug}' already exists"));
+    }
+    let args: Vec<&str> = args.split_whitespace().collect();
+    let value = serde_json::json!({
+        "name": name,
+        "command": command.trim(),
+        "args": args,
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap_or_default())
+        .map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 fn transport(config: &serde_json::Value) -> String {
