@@ -106,17 +106,10 @@ pub fn build(composer: &Rc<Composer>, wiring: &Wiring, contribs: &Contribs) -> W
 
     body.pack_start(&column, false, false, 0);
 
-    // A small, original mascot placeholder anchored to the input area's right
-    // side. It is an overlay so the measured column/hero geometry is unchanged.
+    // Keep the measured column free of floating decorations; the product
+    // capture has no mascot overlay next to the composer.
     let stage = gtk::Overlay::new();
     stage.add(&body);
-    if let Some(mascot) = crate::icons::image("mascot", 120) {
-        mascot.set_halign(gtk::Align::End);
-        mascot.set_valign(gtk::Align::Start);
-        mascot.set_margin_top(220);
-        mascot.set_margin_end(40);
-        stage.add_overlay(&mascot);
-    }
     // On a 1366x768 Kylin desktop the measured 1440x868 column is taller than
     // the workarea. Keep the column intact, but let it scroll vertically
     // instead of forcing the whole window past the bottom of the screen.
