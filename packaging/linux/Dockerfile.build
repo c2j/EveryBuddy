@@ -52,6 +52,7 @@ COPY docs/lgpl-source-offer.md /src/docs/
 # The workspace: the GTK host (with its ui/ resource), the plugin surface, and
 # the built-in plugins.
 COPY crates/ /src/crates/
+COPY experiments/ /src/experiments/
 COPY vendor/ /src/vendor/
 COPY docs/ui-spec/gtk/ /src/docs/ui-spec/gtk/
 COPY packaging/linux/ /src/packaging/linux/
