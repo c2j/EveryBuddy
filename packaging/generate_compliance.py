@@ -42,11 +42,11 @@ def main():
 
     components = [{
         "type": "application",
-        "bom-ref": "pkg:cargo/evobuddy@0.4.1",
+        "bom-ref": "pkg:cargo/evobuddy@0.4.2",
         "name": "evobuddy",
-        "version": "0.4.1",
+        "version": "0.4.2",
         "licenses": [{"license": {"id": "MIT"}}],
-        "purl": "pkg:cargo/evobuddy@0.4.1",
+        "purl": "pkg:cargo/evobuddy@0.4.2",
     }]
     for package in packages:
         licenses = package.get("license") or "NOASSERTION"
