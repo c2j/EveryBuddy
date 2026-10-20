@@ -38,3 +38,31 @@ cd packaging/linux
 ./package.sh
 ./verify.sh
 ```
+
+
+## Chinese input / fcitx
+
+The AppImage ships GTK's XIM immodule (`im-xim.so`), but not the host's
+`im-fcitx.so` / `im-fcitx5.so` / `im-ibus.so`. The launcher therefore:
+
+- preserves the user's locale instead of forcing `LC_ALL=C.UTF-8`;
+- maps a requested `GTK_IM_MODULE=fcitx`, `fcitx5`, or `ibus` to `xim`, because
+  XIM is the only GTK input-method backend inside the bundle.
+
+Fcitx still serves XIM when its XIM frontend is running. The desktop normally
+exports:
+
+```sh
+GTK_IM_MODULE=fcitx
+XMODIFIERS=@im=fcitx
+LANG=zh_CN.UTF-8
+```
+
+For the already-released 0.4.3, the same can be tested without rebuilding:
+
+```sh
+GTK_IM_MODULE=xim XMODIFIERS=@im=fcitx LC_ALL=zh_CN.UTF-8 ./evobuddy-0.4.3-linux-aarch64.AppImage
+```
+
+If that still does not work, check that the fcitx XIM server is running and that
+the locale is installed (`locale -a` contains `zh_CN.utf8`).

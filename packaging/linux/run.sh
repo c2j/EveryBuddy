@@ -41,8 +41,12 @@ export GIO_MODULE_DIR="$cache/gio/modules"
 unset GIO_EXTRA_MODULES
 mkdir -p "$GIO_MODULE_DIR"
 
-: "${LC_ALL:=C.UTF-8}"
-export LC_ALL
+# Preserve the desktop locale. Forcing LC_ALL=C.UTF-8 hides the Chinese locale
+# from GTK/XIM and is a common reason CJK input silently stops working.
+if [ -z "${LC_ALL:-}" ] && [ -z "${LANG:-}" ] && [ -z "${LC_CTYPE:-}" ]; then
+  LC_ALL=C.UTF-8
+  export LC_ALL
+fi
 
 if [ -f "$here/etc/fonts.conf.template" ]; then
   sed "s|@FONTS@|$here/share/fonts|; s|@CACHE@|$cache/fontconfig|" \
@@ -62,5 +66,15 @@ do
   sed "s|@BUNDLE@|$here|g" "$template" > "$target"
   export "$variable=$target"
 done
+
+# This bundle ships GTK's XIM immodule, not the host's fcitx/ibus GTK module.
+# If the desktop requested one of those, ask GTK for XIM instead; fcitx still
+# serves XIM through XMODIFIERS=@im=fcitx.
+case "${GTK_IM_MODULE:-}" in
+  fcitx|fcitx5|ibus)
+    GTK_IM_MODULE=xim
+    export GTK_IM_MODULE
+    ;;
+esac
 
 exec "$here/bin/$app" "$@"
