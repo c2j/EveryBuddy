@@ -477,75 +477,199 @@ fn open_files(controller: Rc<Controller>) {
 }
 
 fn model_section() -> gtk::Box {
-    let section = vbox(6);
-    class(&section, "eb-settings-model-section");
+    let page = vbox(8);
+    class(&page, "eb-settings-model-page");
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    header.pack_start(&text("Models", "eb-settings-title-small"), false, false, 0);
-    let active = text(&format!("Active: {}", crate::models::active_label()), "eb-settings-status");
-    header.pack_end(&active, false, false, 0);
-    section.pack_start(&header, false, false, 0);
-    section.pack_start(
+    header.pack_start(&text("Models", "eb-settings-title"), false, false, 0);
+    let open_config = flat_button("eb-settings-preview");
+    open_config.add(&text("Open config file", "eb-settings-preview-label"));
+    open_config.connect_clicked(move |_| {
+        let path = crate::models::config_path_display();
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(&path).spawn();
+        #[cfg(not(target_os = "macos"))]
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    });
+    header.pack_end(&open_config, false, false, 0);
+    let dsh_web = flat_button("eb-settings-preview");
+    dsh_web.add(&text("Open dsh Models", "eb-settings-preview-label"));
+    dsh_web.connect_clicked(move |_| {
+        let url = std::env::var("EVOBUDDY_DSH_WEB_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:3080".into());
+        #[cfg(target_os = "macos")]
+        {
+            crate::theme_view::open(&url);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+        }
+    });
+    header.pack_end(&dsh_web, false, false, 0);
+    page.pack_start(&header, false, false, 0);
+    page.pack_start(
         &text(
-            "Native model configuration for the dsh path. The dsh React Models plugin cannot be mounted in GTK; this applies the same provider/model concept to AIMUX_* and restarts the bridge on save.",
-            "eb-settings-description",
+            "Fill in a provider's API key to use its models. Keys are write-only and stored under ~/.evobuddy. Open dsh Models uses the real dsh web client plugin when the dsh web host is running (EVOBUDDY_DSH_WEB_URL, default http://127.0.0.1:3080).",
+            "eb-settings-subtitle",
         ),
         false,
         false,
         0,
     );
+    let list = vbox(6);
+    page.pack_start(&list, false, false, 0);
+    fill_model_rows(&page, &list);
+    page
+}
 
+fn clear_children(container: &gtk::Box) {
+    for child in container.children() {
+        container.remove(&child);
+    }
+}
+
+fn fill_model_rows(page: &gtk::Box, list: &gtk::Box) {
+    clear_children(list);
     let config = crate::models::load();
-    let provider = gtk::Entry::new();
-    provider.set_text(&config.provider);
-    provider.set_placeholder_text(Some("Provider, e.g. aihubmix or deepseek"));
-    let model = gtk::Entry::new();
-    model.set_text(&config.model);
-    model.set_placeholder_text(Some("Model id, e.g. deepseek-v4.1-flash"));
-    let api_key = gtk::Entry::new();
-    api_key.set_visibility(false);
-    api_key.set_placeholder_text(Some(if config.api_key.is_empty() {
-        "API key (write-only)"
-    } else {
-        "API key saved; leave blank to keep it"
-    }));
-    for (label, entry) in [
-        ("Provider", &provider),
-        ("Model", &model),
-        ("API key", &api_key),
-    ] {
+    for provider in &config.providers {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        class(&row, "eb-settings-provider-row");
+        let name = text(&provider.id, "eb-settings-provider-name");
+        row.pack_start(&name, false, false, 0);
+        if provider.custom {
+            let badge = text("custom", "eb-settings-provider-badge");
+            row.pack_start(&badge, false, false, 0);
+        }
+        let dot = text(if crate::models::has_key(&provider.id) { "●" } else { "○" }, if crate::models::has_key(&provider.id) { "eb-settings-dot-on" } else { "eb-settings-dot-off" });
+        row.pack_start(&dot, false, false, 0);
+        let spacer = gtk::Label::new(None);
+        spacer.set_hexpand(true);
+        row.pack_start(&spacer, true, true, 0);
+        let edit = flat_button("eb-settings-preview");
+        edit.add(&text("Edit", "eb-settings-preview-label"));
+        let page_for_edit = page.clone();
+        let list_for_edit = list.clone();
+        let provider_for_edit = provider.clone();
+        edit.connect_clicked(move |_| {
+            open_model_editor(&page_for_edit, &list_for_edit, Some(provider_for_edit.clone()));
+        });
+        row.pack_end(&edit, false, false, 0);
+        let delete = flat_button("eb-settings-stop");
+        delete.add(&text("Delete", "eb-settings-stop-label"));
+        let page_for_delete = page.clone();
+        let list_for_delete = list.clone();
+        let id = provider.id.clone();
+        delete.connect_clicked(move |_| {
+            let mut config = crate::models::load();
+            if crate::models::delete_provider(&mut config, &id).is_ok() {
+                crate::bridge::stop();
+                fill_model_rows(&page_for_delete, &list_for_delete);
+            }
+        });
+        row.pack_end(&delete, false, false, 0);
+        list.pack_start(&row, false, false, 0);
+    }
+    let add = flat_button("eb-settings-add-provider");
+    add.add(&text("+ Add model provider", "eb-settings-add-provider-label"));
+    let page_for_add = page.clone();
+    let list_for_add = list.clone();
+    add.connect_clicked(move |_| {
+        open_model_editor(&page_for_add, &list_for_add, None);
+    });
+    list.pack_start(&add, false, false, 0);
+}
+
+fn open_model_editor(page: &gtk::Box, list: &gtk::Box, existing: Option<crate::models::Provider>) {
+    let window = gtk::Window::new(gtk::WindowType::Toplevel);
+    window.set_title(if existing.is_some() { "Edit model provider" } else { "Add model provider" });
+    window.set_default_size(480, 300);
+    window.set_modal(true);
+    let root = vbox(8);
+    root.set_margin_top(16);
+    root.set_margin_bottom(16);
+    root.set_margin_start(16);
+    root.set_margin_end(16);
+
+    let id = gtk::Entry::new();
+    id.set_placeholder_text(Some("Provider id, e.g. aihubmix"));
+    let models = gtk::Entry::new();
+    models.set_placeholder_text(Some("Model ids, comma separated"));
+    let key = gtk::Entry::new();
+    key.set_visibility(false);
+    key.set_placeholder_text(Some("API key (write-only; blank keeps saved key)"));
+    if let Some(provider) = &existing {
+        id.set_text(&provider.id);
+        id.set_sensitive(false);
+        models.set_text(&provider.models.join(", "));
+        if crate::models::has_key(&provider.id) {
+            key.set_placeholder_text(Some("API key saved; leave blank to keep it"));
+        }
+    }
+    for (label, entry) in [("Provider", &id), ("Models", &models), ("API key", &key)] {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         let label = text(label, "eb-settings-model-label");
-        label.set_size_request(90, -1);
+        label.set_size_request(80, -1);
         row.pack_start(&label, false, false, 0);
         row.pack_start(entry, true, true, 0);
-        section.pack_start(&row, false, false, 0);
+        root.pack_start(&row, false, false, 0);
     }
+    let error = text("", "eb-settings-model-error");
+    root.pack_start(&error, false, false, 0);
     let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let cancel = flat_button("eb-settings-preview");
+    cancel.add(&text("Cancel", "eb-settings-preview-label"));
     let save = flat_button("eb-settings-apply");
-    save.add(&text("Save & Apply", "eb-settings-apply-label"));
-    let status = text("", "eb-settings-status");
-    actions.pack_start(&save, false, false, 0);
-    actions.pack_start(&status, true, true, 0);
-    section.pack_start(&actions, false, false, 0);
+    save.add(&text("Save", "eb-settings-apply-label"));
+    actions.pack_end(&save, false, false, 0);
+    actions.pack_end(&cancel, false, false, 0);
+    root.pack_start(&actions, false, false, 0);
+    window.add(&root);
+    let window_for_cancel = window.clone();
+    cancel.connect_clicked(move |_| window_for_cancel.close());
+
+    let page = page.clone();
+    let list = list.clone();
+    let window_for_save = window.clone();
     save.connect_clicked(move |_| {
-        let config = crate::models::ModelConfig {
-            provider: provider.text().to_string(),
-            model: model.text().to_string(),
-            base_url: config.base_url.clone(),
-            api_key: api_key.text().to_string(),
-        };
+        let provider_id = id.text().to_string().trim().to_string();
+        let models: Vec<String> = models
+            .text()
+            .split(',')
+            .map(|model| model.trim().to_string())
+            .filter(|model| !model.is_empty())
+            .collect();
+        if provider_id.is_empty() || models.is_empty() {
+            error.set_text("Provider and at least one model are required");
+            return;
+        }
+        let mut config = crate::models::load();
+        let custom = !matches!(provider_id.as_str(), "deepseek" | "zai-coding-cn" | "aihubmix");
+        if let Some(existing) = &existing {
+            if let Some(row) = config.providers.iter_mut().find(|row| row.id == existing.id) {
+                row.models = models.clone();
+            }
+        } else {
+            config.providers.push(crate::models::Provider {
+                id: provider_id.clone(),
+                models: models.clone(),
+                custom,
+            });
+        }
+        config.provider = provider_id.clone();
+        config.model = models[0].clone();
+        config.api_key = key.text().to_string();
         match crate::models::save(&config) {
             Ok(()) => {
-                // The bridge captures env at spawn; stop it so the next turn
-                // starts with the selected model.
                 crate::bridge::stop();
-                status.set_text("Saved. Next dsh turn uses the new model.");
+                fill_model_rows(&page, &list);
+                window_for_save.close();
             }
-            Err(error) => status.set_text(&format!("Save failed: {error}")),
+            Err(message) => error.set_text(&message),
         }
     });
-    section
+    window.show_all();
 }
+
 
 /// Open the Settings window. The window owns the controller; closing it stops
 /// the sidecar so the experiment leaves no process behind.

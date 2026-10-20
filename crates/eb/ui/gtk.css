@@ -1400,3 +1400,47 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   color: @eb_text_secondary;
   font-size: 12px;
 }
+
+.eb-settings-model-page {
+  background: @bg_card;
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 16px;
+}
+.eb-settings-provider-row {
+  border: 1px solid @border_strong;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.eb-settings-provider-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.eb-settings-provider-badge {
+  background: @bg_secondary;
+  border-radius: 4px;
+  color: @eb_text_secondary;
+  font-size: 10px;
+  padding: 2px 5px;
+}
+.eb-settings-dot-on {
+  color: #1f9d55;
+  font-size: 12px;
+}
+.eb-settings-dot-off {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+}
+.eb-settings-add-provider {
+  border: 1px dashed @border_strong;
+  border-radius: 10px;
+  padding: 12px;
+}
+.eb-settings-add-provider-label {
+  color: @eb_text_secondary;
+  font-size: 14px;
+}
+.eb-settings-model-error {
+  color: #b42318;
+  font-size: 12px;
+}
