@@ -25,7 +25,7 @@ members = [
 exclude = ["vendor", "prototype"]
 
 [workspace.package]
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 license = "MIT"
 

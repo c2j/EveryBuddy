@@ -157,7 +157,13 @@ impl AcpAgent {
         });
 
         let mut slot = lock(&self.session);
-        if slot.as_ref().is_some_and(|session| session.cwd != workspace) {
+        let exited = slot
+            .as_mut()
+            .and_then(|session| session.child.try_wait().ok().flatten())
+            .is_some();
+        if exited || slot.as_ref().is_some_and(|session| session.cwd != workspace) {
+            // A previous turn can leave a dead child (agent crash or a stale
+            // session); relaunch rather than writing into a closed pipe.
             *slot = None;
         }
         if slot.is_none() {
@@ -506,8 +512,23 @@ impl AcpSession {
         if config.debug {
             eprintln!("acp: session/new with {} MCP server(s)", servers.len());
         }
-        let new_session =
-            session.request("session/new", json!({ "cwd": cwd, "mcpServers": servers }))?;
+        let new_session = match session.request(
+            "session/new",
+            json!({ "cwd": cwd, "mcpServers": servers }),
+        ) {
+            Ok(value) => value,
+            Err(error) if !servers.is_empty() => {
+                // Some ACP agents (notably Grok Build) reject stdio MCP servers
+                // in session/new. Retry with no MCP servers so the conversation
+                // still starts; connectors remain available on agents that
+                // accept them.
+                if config.debug {
+                    eprintln!("acp: session/new rejected MCP servers: {error}; retrying without them");
+                }
+                session.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))?
+            }
+            Err(error) => return Err(error),
+        };
         let session_id = new_session
             .get("sessionId")
             .and_then(Value::as_str)

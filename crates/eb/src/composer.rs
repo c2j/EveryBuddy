@@ -194,6 +194,14 @@ impl Composer {
 
         let (host, view, pristine) = editor(hint, editor_height, on_change);
 
+        let composing = Rc::new(Cell::new(false));
+        {
+            let composing = composing.clone();
+            view.connect_preedit_changed(move |_, preedit| {
+                composing.set(!preedit.is_empty());
+            });
+        }
+
         let usage = usage_widget();
 
         // ---- the card ------------------------------------------------------
@@ -302,6 +310,7 @@ impl Composer {
 
         view.connect_key_press_event({
             let submit = submit.clone();
+            let composing = composing.clone();
             move |view, event| {
                 let enter = event.keyval() == gtk::gdk::keys::constants::Return
                     || event.keyval() == gtk::gdk::keys::constants::KP_Enter;
@@ -317,7 +326,10 @@ impl Composer {
                 // as "send" and a half-composed message would go out. Offer the
                 // key to the input method first; it returns true only when it
                 // consumed the event, and then the composition continues.
-                if view.im_context_filter_keypress(event) {
+                // Only offer Enter to the IME while a preedit is active. XIM
+                // can consume a bare Return even with no composition, which
+                // made the second Enter look like it did nothing.
+                if composing.get() && view.im_context_filter_keypress(event) {
                     return gtk::glib::Propagation::Stop;
                 }
                 submit();
