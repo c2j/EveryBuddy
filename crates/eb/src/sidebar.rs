@@ -281,7 +281,7 @@ pub fn fill_content(
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_else(|| (*path).to_string());
-            workspaces_list.pack_start(&text(&name, "eb-task-title"), false, false, 0);
+            workspaces_list.pack_start(&ellipsized(&name, "eb-task-title"), false, false, 0);
         }
     }
     let (workspaces, workspaces_body) = section(

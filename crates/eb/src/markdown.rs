@@ -46,7 +46,6 @@ pub fn render(value: &str) -> gtk::Box {
             label.set_xalign(0.0);
             let class_name = if level <= 2 { "eb-md-h1" } else { "eb-md-h2" };
             class(&label, class_name);
-            line_height(&label, 1.35);
             root.pack_start(&label, false, false, 0);
             continue;
         }
@@ -68,18 +67,6 @@ pub fn render(value: &str) -> gtk::Box {
     }
     flush_paragraph(&root, &mut paragraph);
     root
-}
-
-fn line_height(label: &gtk::Label, factor: f64) {
-    let attrs = gtk::pango::AttrList::new();
-    attrs.insert(gtk::pango::AttrFloat::new_line_height(factor));
-    label.set_attributes(Some(&attrs));
-}
-
-fn absolute_line_height(label: &gtk::Label, height: i32) {
-    let attrs = gtk::pango::AttrList::new();
-    attrs.insert(gtk::pango::AttrInt::new_line_height_absolute(height));
-    label.set_attributes(Some(&attrs));
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {
@@ -112,7 +99,6 @@ fn flush_paragraph(root: &gtk::Box, lines: &mut Vec<String>) {
     label.set_width_chars(1);
     label.set_xalign(0.0);
     class(&label, "eb-md-text");
-    line_height(&label, 1.6);
     root.pack_start(&label, false, false, 0);
 }
 
@@ -128,7 +114,6 @@ fn bullet(marker: &str, value: &str) -> gtk::Box {
     label.set_width_chars(1);
     label.set_xalign(0.0);
     class(&label, "eb-md-text");
-    line_height(&label, 1.6);
     row.pack_start(&label, true, true, 0);
     row
 }
@@ -168,7 +153,6 @@ fn code_block(language: &str, code: &str) -> gtk::Box {
     label.set_margin_start(16);
     label.set_margin_end(16);
     class(&label, "eb-code");
-    absolute_line_height(&label, 20 * 1024);
 
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
