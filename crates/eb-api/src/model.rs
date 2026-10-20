@@ -9,6 +9,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 /// Shared, mutated state. GTK signal handlers are `'static`, so anything a
 /// handler needs to read or write lives behind this handle rather than in a
 /// builder's stack frame.
@@ -67,7 +69,7 @@ pub struct Task {
     pub started_at: Option<std::time::Instant>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Turn {
     User {
         text: String,
@@ -85,14 +87,14 @@ pub enum Turn {
 }
 
 /// One entry in an agent plan.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanEntry {
     pub content: String,
     pub status: String,
 }
 
 /// One line of a file-diff block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffLine {
     Add(String),
     Remove(String),
@@ -100,7 +102,7 @@ pub enum DiffLine {
 }
 
 /// The block types the message body renders.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Block {
     Text(String),
     /// A tool call. `detail` is the muted secondary text (duration, target).

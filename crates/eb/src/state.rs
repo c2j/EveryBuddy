@@ -1,8 +1,10 @@
-//! Minimal Phase 1 task persistence: task title + retained dsh session id.
+//! Task persistence: title, retained dsh session id, route, and the visible
+//! conversation turns. The dsh session is the agent's source of truth; the
+//! turns are the projection the sidebar needs after a restart.
 
 use std::path::PathBuf;
 
-use crate::model::Store;
+use crate::model::{Store, Turn};
 
 fn path() -> PathBuf {
     std::env::var("EB_STATE")
@@ -24,6 +26,7 @@ pub fn save(store: &Store) {
             "workspace": task.workspace,
             "agent_route": task.agent_route,
             "last_route": task.last_route,
+            "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
         }))
         .collect();
     let path = path();
@@ -33,7 +36,14 @@ pub fn save(store: &Store) {
     let _ = std::fs::write(path, serde_json::to_string_pretty(&tasks).unwrap_or_default());
 }
 
-pub fn load() -> Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> {
+pub fn load() -> Vec<(
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Vec<Turn>,
+)> {
     let Ok(text) = std::fs::read_to_string(path()) else { return Vec::new() };
     let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else { return Vec::new() };
     values
@@ -45,7 +55,37 @@ pub fn load() -> Vec<(String, Option<String>, Option<String>, Option<String>, Op
                 value["workspace"].as_str().map(str::to_string),
                 value["agent_route"].as_str().map(str::to_string),
                 value["last_route"].as_str().map(str::to_string),
+                serde_json::from_value(value["turns"].clone()).unwrap_or_default(),
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persisted_turns_round_trip() {
+        let turns = vec![
+            Turn::User { text: "hello".into(), time: "now".into() },
+            Turn::Agent {
+                name: "EvoBuddy".into(),
+                status: Some("Finished".into()),
+                blocks: vec![crate::model::Block::Text("world".into())],
+                streaming: false,
+            },
+        ];
+        let value = serde_json::to_value(&turns).unwrap();
+        let loaded: Vec<Turn> = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            &loaded[0],
+            Turn::User { text, .. } if text == "hello"
+        ));
+        assert!(matches!(
+            &loaded[1],
+            Turn::Agent { blocks, .. }
+                if matches!(&blocks[0], crate::model::Block::Text(text) if text == "world")
+        ));
+    }
 }

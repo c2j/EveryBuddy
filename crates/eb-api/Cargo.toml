@@ -9,3 +9,6 @@ description = "EvoBuddy's plugin surface: the data vocabulary, contribution trai
 # The plugin runtime. Plugins see it only through `Ui`; the host is the embedder
 # and owns the runtime.
 rutis = { path = "../../vendor/rutis" }
+# Task turns are persisted by the host; this is the only derived data format the
+# API surface owns.
+serde = { version = "1", features = ["derive"] }
