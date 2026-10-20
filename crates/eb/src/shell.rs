@@ -539,7 +539,9 @@ impl Views {
     /// Regions are rebuilt rather than diffed. That is cheap at this scale and
     /// removes a whole class of "the widget and the state disagree" bugs.
     pub fn refresh(self: &Rc<Self>, store: &Store) {
-        sync_session_projection(store);
+        // The task's own `turns` are the source of truth. The dsh bridge
+        // projection is global (one live session), so consuming it here used
+        // to overwrite the selected task with another task's transcript.
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresh: enter {:?}", std::thread::current().id());
         }
@@ -865,116 +867,6 @@ fn unbuilt_pane(reveal: &Rc<dyn Fn()>) -> Unbuilt {
 
 /// Replace the active task's text turns with the retained dsh session's
 /// projection once the session has a completed assistant message.
-fn sync_session_projection(store: &Store) {
-    let (index, session_id) = {
-        let app = store.borrow();
-        let index = match app.route {
-            Route::Task(index) => index,
-            _ => return,
-        };
-        let Some(task) = app.tasks.get(index) else { return };
-        let Some(session_id) = task.session_id.clone() else { return };
-        if task.turns.iter().any(|turn| matches!(turn, Turn::Agent { streaming: true, .. })) {
-            return;
-        }
-        (index, session_id)
-    };
-    let _ = session_id;
-    let items = crate::bridge::session_projection();
-    if items.is_empty() {
-        return;
-    }
-    let mut projected = Vec::new();
-    let mut blocks: Vec<crate::model::Block> = Vec::new();
-    for item in items {
-        match item["kind"].as_str() {
-            Some("message") if item["role"] == "user" => {
-                if !blocks.is_empty() {
-                    projected.push(Turn::Agent {
-                        name: "EvoBuddy".into(),
-                        status: Some("Finished".into()),
-                        blocks: std::mem::take(&mut blocks),
-                        streaming: false,
-                    });
-                }
-                let text = item["content"]
-                    .as_array()
-                    .map(|parts| parts.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join(""))
-                    .unwrap_or_default();
-                projected.push(Turn::User { text, time: "now".into() });
-            }
-            Some("message") if item["role"] == "assistant" => {
-                let text = item["content"]
-                    .as_array()
-                    .map(|parts| parts.iter().filter_map(|block| block["text"].as_str()).collect::<Vec<_>>().join(""))
-                    .unwrap_or_default();
-                blocks.push(crate::model::Block::Text(text));
-            }
-            Some("tool") => {
-                let name = item["name"].as_str().unwrap_or("Tool").to_string();
-                let arguments = item["arguments"].as_str().unwrap_or("");
-                let result = item["result"].as_str().unwrap_or("");
-                if name == "exec" {
-                    let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
-                    let out: serde_json::Value = serde_json::from_str(result).unwrap_or_default();
-                    blocks.push(crate::model::Block::Exec {
-                        command: args["command"].as_str().unwrap_or("").to_string(),
-                        output: out["output"].as_str().unwrap_or("").to_string(),
-                        exit_code: out["exitCode"].as_i64().map(|code| code as i32),
-                    });
-                } else if name == "diff" {
-                    let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
-                    let out: serde_json::Value = serde_json::from_str(result).unwrap_or_default();
-                    let lines = out["lines"]
-                        .as_array()
-                        .map(|lines| {
-                            lines
-                                .iter()
-                                .filter_map(|line| {
-                                    let text = line["text"].as_str()?.to_string();
-                                    Some(match line["kind"].as_str()? {
-                                        "add" => crate::model::DiffLine::Add(text),
-                                        "remove" => crate::model::DiffLine::Remove(text),
-                                        _ => crate::model::DiffLine::Context(text),
-                                    })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    blocks.push(crate::model::Block::Diff {
-                        path: args["path"].as_str().unwrap_or("").to_string(),
-                        added: args["added"].as_u64().unwrap_or(0) as u32,
-                        removed: args["removed"].as_u64().unwrap_or(0) as u32,
-                        lines,
-                    });
-                } else {
-                    blocks.push(crate::model::Block::Tool {
-                        status: "Used".into(),
-                        primary: name,
-                        detail: (!result.is_empty()).then_some(result.to_string()),
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-    if !blocks.is_empty() {
-        projected.push(Turn::Agent {
-            name: "EvoBuddy".into(),
-            status: Some("Finished".into()),
-            blocks,
-            streaming: false,
-        });
-    }
-    if projected.is_empty() {
-        return;
-    }
-    let mut app = store.borrow_mut();
-    if let Some(task) = app.tasks.get_mut(index) {
-        task.turns = projected;
-    }
-}
-
 fn clear_children(container: &gtk::Box) {
     while let Some(child) = container.children().first() {
         container.remove(child);
