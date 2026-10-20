@@ -52,6 +52,10 @@ and would need Rust's own target support for anything older.
 
 - **The theme is free.** Adwaita is compiled into `libgtk-3-0` as a GResource,
   so it travels with the library. There is no theme directory to stage.
+- **Host GTK/GIO/font modules must not leak in.** `run.sh` unsets host
+  `GTK_MODULES`/`GIO_EXTRA_MODULES`, points `GIO_MODULE_DIR` at the bundle, and
+  uses only bundled fonts (Noto Sans + DejaVu + WenQuanYi). See
+  [`docs/linux-runtime-notes.md`](../../docs/linux-runtime-notes.md).
 - **GSettings schemas are not.** `libgtk-3-0` owns `org.gtk.Settings.*` and GTK
   refuses to start without them. They must be *compiled* with
   `glib-compile-schemas`, and every `*.xml` has to be copied, not just the

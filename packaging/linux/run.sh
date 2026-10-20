@@ -21,6 +21,17 @@ export GTK_DATA_PREFIX="$here"
 export GTK_EXE_PREFIX="$here"
 export GTK_PATH="$here/lib/gtk-3.0"
 export GSETTINGS_SCHEMA_DIR="$here/share/glib-2.0/schemas"
+
+# The host may export GTK_MODULES=ukuireload-gtk-module (Kylin/UKUI), a module
+# this bundle does not ship. Loading it only produces a warning.
+unset GTK_MODULES GTK3_MODULES
+# Use only bundled GIO modules. Otherwise a host libgvfsdbus.so compiled
+# against a newer glib is loaded into this older bundled glib and fails with
+# an undefined g_date_time_format_iso8601 symbol.
+export GIO_MODULE_DIR="$here/lib/gio/modules"
+unset GIO_EXTRA_MODULES
+mkdir -p "$GIO_MODULE_DIR"
+
 : "${LC_ALL:=C.UTF-8}"
 export LC_ALL
 

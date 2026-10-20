@@ -30,6 +30,10 @@
 
 window.eb-window {
   background-color: @color_bg_primary_default;   /* #f2f2f2 */
+  /* The bundle ships Noto Sans regular/bold; fall back to DejaVu then the CJK
+   * face. Keep this on the window so GTK's default "Sans 10" does not pick a
+   * host-dependent font. */
+  font-family: "Noto Sans", "DejaVu Sans", "WenQuanYi Micro Hei", sans-serif;
 }
 
 /* GtkPaned sash. The product's splitter is a 4px *transparent* overlay at

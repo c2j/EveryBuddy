@@ -76,11 +76,16 @@ query_immodules=$(find /usr/lib -name 'gtk-query-immodules-3.0' -type f | head -
 
 echo "== fonts =="
 # The bundle carries its own fonts, because the host is assumed to have none.
-# DejaVu covers Latin, WenQuanYi Micro Hei covers CJK. Both are freely
-# redistributable; the client's own fonts are not, and are not used.
+# Noto Sans is the primary UI face; DejaVu Sans is the fallback; WenQuanYi Micro
+# Hei covers CJK. Regular and bold are both shipped so GTK does not synthesize
+# ugly bold faces. All are freely redistributable.
+find /usr/share/fonts -name 'NotoSans-Regular.ttf' -exec cp {} "$prefix/share/fonts/" \;
+find /usr/share/fonts -name 'NotoSans-Bold.ttf' -exec cp {} "$prefix/share/fonts/" \;
 find /usr/share/fonts/truetype -name 'DejaVuSans.ttf' -exec cp {} "$prefix/share/fonts/" \;
+find /usr/share/fonts -name 'DejaVuSans-Bold.ttf' -exec cp {} "$prefix/share/fonts/" \;
 find /usr/share/fonts -name 'wqy-microhei*.ttc' -exec cp {} "$prefix/share/fonts/" \;
 mkdir -p "$prefix/share/fonts/licenses"
+cp /usr/share/doc/fonts-noto-core/copyright "$prefix/share/fonts/licenses/noto.txt" 2>/dev/null || true
 cp /usr/share/doc/fonts-dejavu-core/copyright "$prefix/share/fonts/licenses/dejavu.txt" 2>/dev/null || true
 cp /usr/share/doc/fonts-wqy-microhei/copyright "$prefix/share/fonts/licenses/wqy-microhei.txt" 2>/dev/null || true
 ls "$prefix/share/fonts" | sed 's/^/  /'

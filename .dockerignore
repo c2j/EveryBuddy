@@ -2,3 +2,6 @@ target/
 .git/
 dist/
 prototype/
+**/target/
+**/node_modules/
+experiments/*/target/
