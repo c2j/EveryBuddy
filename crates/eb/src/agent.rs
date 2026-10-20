@@ -876,6 +876,7 @@ mod tests {
             last_route: Some("acp:opencode".into()),
             usage: None,
             started_at: None,
+            updated_at: None,
         }
     }
 
