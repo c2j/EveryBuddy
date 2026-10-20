@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AcpAgent {
     Opencode,
     Grok,

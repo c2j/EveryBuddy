@@ -82,32 +82,22 @@ impl Host {
         let ctx = Ctx::root_with(runtime.handle().clone());
         let contribs = Arc::new(Mutex::new(Contribs::default()));
 
-        // One answer source, selected at mount time. An ACP command means a
-        // real external agent; otherwise the built-in demo keeps the UI
-        // runnable with no configuration.
-        let explicit_agent = std::env::var("EB_AGENT").ok();
-        let external = if explicit_agent.as_deref() == Some("demo")
-            || explicit_agent.as_deref() == Some("dsh")
-            || crate::selftest::requested()
-        {
-            None
-        } else {
-            eb_plugin_acp_agent::AcpAgent::from_env().or_else(default_acp_agent)
-        };
-        let answer: Arc<dyn EbPlugin> = if let Some(agent) = external {
-            ACP_ACTIVE.store(true, Ordering::SeqCst);
-            Arc::new(agent)
-        } else if explicit_agent.as_deref() == Some("demo") || crate::selftest::requested() {
-            Arc::new(eb_plugin_demo_agent::DemoAgent::new())
-        } else {
-            crate::dsh_agent::mark_enabled();
-            Arc::new(crate::dsh_agent::DshAgent)
-        };
+        // One router is the answer source for the process lifetime. It
+        // resolves the current default on every turn, so Settings can switch
+        // between ACP, dsh, and a custom model without remounting the host.
+        let router = Arc::new(crate::router::AgentRouter::new(crate::router::load()));
+        crate::router::install(router.clone());
+        eb_api::provide_answer(&ctx, router.clone())
+            .expect("provide the agent router");
+        ACP_ACTIVE.store(
+            crate::router::load().default == crate::router::DefaultRoute::Acp,
+            Ordering::SeqCst,
+        );
+        let _ = crate::dsh_agent::enabled();
         let builtins: Vec<Arc<dyn EbPlugin>> = vec![
             Arc::new(eb_plugin_nav::NavPlugin),
             Arc::new(eb_plugin_notices::NoticesPlugin),
             Arc::new(eb_plugin_composer::ComposerPlugin),
-            answer,
         ];
 
         let mut fibers = Vec::new();

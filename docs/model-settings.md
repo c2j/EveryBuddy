@@ -32,10 +32,22 @@ The composer model menu is generated from the saved model
 that menu, so the selector text refreshes on the next app start; the dsh turn
 itself uses the saved env immediately.
 
-Settings now has a sidebar with General / Models / Built-in plugins / Agent presets
-/ About. Models has an **ACP agents** mode and a **Custom Model** mode.
+Settings has a sidebar with General / Models / Built-in plugins / Agent presets /
+About. Models has a default-route selector and three tabs: **ACP agents**, **dsh**,
+and **Custom Model**.
 
-![Settings Models](/tmp/settings-custom-tab.png)
+![Settings Models](/tmp/settings-router.png)
+
+The host now mounts an `AgentRouter` as its single answer source. Every new turn
+resolves the current route, so switching ACP / dsh / custom model does not restart
+EvoBuddy. A running turn keeps its old source and finishes; the next message uses
+the new default.
+
+### Custom Model
+
+The custom route takes a display name, an OpenAI-compatible Base URL, model id,
+and write-only API key. It posts to `<base>/v1/chat/completions` through `curl`
+(one non-streaming request per turn).
 
 ## Why not mount the dsh Models plugin directly?
 

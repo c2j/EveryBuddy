@@ -519,6 +519,17 @@ fn model_section() -> gtk::Box {
     let list = vbox(6);
     page.pack_start(&list, false, false, 0);
     fill_model_rows(&page, &list);
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let use_dsh = flat_button("eb-settings-apply");
+    use_dsh.add(&text("Use dsh as default", "eb-settings-apply-label"));
+    let status = text("", "eb-settings-status");
+    actions.pack_start(&use_dsh, false, false, 0);
+    actions.pack_start(&status, true, true, 0);
+    page.pack_start(&actions, false, false, 0);
+    use_dsh.connect_clicked(move |_| match crate::router::set_default(crate::router::DefaultRoute::Dsh) {
+        Ok(()) => status.set_text("Saved. The next message uses the dsh runtime."),
+        Err(error) => status.set_text(&format!("Save failed: {error}")),
+    });
     page
 }
 
@@ -676,7 +687,7 @@ fn acp_page() -> gtk::Box {
     page.pack_start(&text("ACP agents", "eb-settings-title-small"), false, false, 0);
     page.pack_start(
         &text(
-            "Choose the external ACP agent used for new conversations. This is mounted at app startup; changing it takes effect after restart.",
+            "Choose the external ACP agent. The next message uses it; the current turn is not interrupted.",
             "eb-settings-description",
         ),
         false,
@@ -721,8 +732,72 @@ fn acp_page() -> gtk::Box {
         } else {
             crate::agents::AcpAgent::Grok
         };
-        match crate::agents::save(agent) {
-            Ok(()) => status.set_text("Saved. Restart EvoBuddy to mount this ACP agent."),
+        match crate::agents::save(agent).and_then(|_| crate::router::set_acp(agent)) {
+            Ok(()) => status.set_text("Saved. The next message uses this ACP agent."),
+            Err(error) => status.set_text(&format!("Save failed: {error}")),
+        }
+    });
+    page
+}
+
+fn custom_model_page() -> gtk::Box {
+    let page = vbox(8);
+    let config = crate::router::current().custom;
+    page.pack_start(&text("Custom Model", "eb-settings-title-small"), false, false, 0);
+    page.pack_start(
+        &text(
+            "An OpenAI-compatible endpoint. Requests go through curl against {base}/v1/chat/completions.",
+            "eb-settings-description",
+        ),
+        false,
+        false,
+        0,
+    );
+    let name = gtk::Entry::new();
+    name.set_text(&config.name);
+    name.set_placeholder_text(Some("Display name"));
+    let base_url = gtk::Entry::new();
+    base_url.set_text(&config.base_url);
+    base_url.set_placeholder_text(Some("Base URL, e.g. https://api.example.com/v1"));
+    let model = gtk::Entry::new();
+    model.set_text(&config.model);
+    model.set_placeholder_text(Some("Model id"));
+    let key = gtk::Entry::new();
+    key.set_visibility(false);
+    key.set_placeholder_text(Some(if config.api_key.is_empty() {
+        "API key (write-only)"
+    } else {
+        "API key saved; leave blank to keep it"
+    }));
+    for (label, entry) in [
+        ("Name", &name),
+        ("Base URL", &base_url),
+        ("Model", &model),
+        ("API key", &key),
+    ] {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let label = text(label, "eb-settings-model-label");
+        label.set_size_request(80, -1);
+        row.pack_start(&label, false, false, 0);
+        row.pack_start(entry, true, true, 0);
+        page.pack_start(&row, false, false, 0);
+    }
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let save = flat_button("eb-settings-apply");
+    save.add(&text("Save & Use", "eb-settings-apply-label"));
+    let status = text("", "eb-settings-status");
+    actions.pack_start(&save, false, false, 0);
+    actions.pack_start(&status, true, true, 0);
+    page.pack_start(&actions, false, false, 0);
+    save.connect_clicked(move |_| {
+        let custom = crate::custom_model::CustomConfig {
+            name: name.text().to_string(),
+            base_url: base_url.text().to_string(),
+            api_key: key.text().to_string(),
+            model: model.text().to_string(),
+        };
+        match crate::router::set_custom(custom) {
+            Ok(()) => status.set_text("Saved. The next message uses this custom model."),
             Err(error) => status.set_text(&format!("Save failed: {error}")),
         }
     });
@@ -731,32 +806,75 @@ fn acp_page() -> gtk::Box {
 
 fn models_page() -> gtk::Box {
     let page = vbox(8);
+    let default_row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    default_row.pack_start(&text("Default:", "eb-settings-model-label"), false, false, 0);
+    let route_buttons = Rc::new(RefCell::new(Vec::<(gtk::Button, crate::router::DefaultRoute)>::new()));
+    for route in [
+        crate::router::DefaultRoute::Acp,
+        crate::router::DefaultRoute::Dsh,
+        crate::router::DefaultRoute::Custom,
+    ] {
+        let button = gtk::Button::with_label(match route {
+            crate::router::DefaultRoute::Acp => "ACP",
+            crate::router::DefaultRoute::Dsh => "dsh",
+            _ => "Custom Model",
+        });
+        let active = crate::router::current().default == route;
+        class(&button, if active { "eb-chip-active" } else { "eb-chip" });
+        let buttons = route_buttons.clone();
+        let status = text("", "eb-settings-status");
+        let status_for_click = status.clone();
+        button.connect_clicked(move |_| {
+            match crate::router::set_default(route) {
+                Ok(()) => {
+                    for (button, candidate) in buttons.borrow().iter() {
+                        class(button, if *candidate == route { "eb-chip-active" } else { "eb-chip" });
+                    }
+                    status_for_click.set_text(&format!("Default: {}", crate::router::label()));
+                }
+                Err(error) => status_for_click.set_text(&format!("Default failed: {error}")),
+            }
+        });
+        default_row.pack_start(&button, false, false, 0);
+        route_buttons.borrow_mut().push((button, route));
+        if active {
+            default_row.pack_start(&status, false, false, 0);
+        }
+    }
+    page.pack_start(&default_row, false, false, 0);
+    page.pack_start(
+        &text(
+            "Use an external ACP agent, the dsh runtime, or a custom OpenAI-compatible model.",
+            "eb-settings-subtitle",
+        ),
+        false,
+        false,
+        0,
+    );
+
     let tabs = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    let acp = acp_page();
-    let custom = model_section();
-    stack.add_named(&acp, "acp");
-    stack.add_named(&custom, "custom");
+    stack.add_named(&acp_page(), "acp");
+    stack.add_named(&model_section(), "dsh");
+    stack.add_named(&custom_model_page(), "custom");
     stack.set_visible_child_name("acp");
-    let buttons = Rc::new(RefCell::new(Vec::<gtk::Button>::new()));
-    for (name, label) in [("acp", "ACP agents"), ("custom", "Custom Model")] {
+    let tab_buttons = Rc::new(RefCell::new(Vec::<gtk::Button>::new()));
+    for (index, (name, label)) in [("acp", "ACP agents"), ("dsh", "dsh"), ("custom", "Custom Model")].iter().enumerate() {
         let button = gtk::Button::with_label(label);
-        class(&button, if name == "acp" { "eb-chip-active" } else { "eb-chip" });
-        let buttons_for_click = buttons.clone();
+        class(&button, if index == 0 { "eb-chip-active" } else { "eb-chip" });
+        let buttons = tab_buttons.clone();
         let stack = stack.clone();
         let name = name.to_string();
         button.connect_clicked(move |_| {
             stack.set_visible_child_name(&name);
-            for (index, button) in buttons_for_click.borrow().iter().enumerate() {
-                class(button, if (name == "acp" && index == 0) || (name == "custom" && index == 1) {
+            for (i, button) in buttons.borrow().iter().enumerate() {
+                class(button, if (name == "acp" && i == 0) || (name == "dsh" && i == 1) || (name == "custom" && i == 2) {
                     "eb-chip-active"
-                } else {
-                    "eb-chip"
-                });
+                } else { "eb-chip" });
             }
         });
-        buttons.borrow_mut().push(button.clone());
+        tab_buttons.borrow_mut().push(button.clone());
         tabs.pack_start(&button, false, false, 0);
     }
     page.pack_start(&tabs, false, false, 0);
