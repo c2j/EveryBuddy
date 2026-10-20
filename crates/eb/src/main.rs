@@ -200,37 +200,39 @@ fn build_ui(application: &gtk::Application) {
 
     let store = model::store(model::App::new());
     if !selftest::requested() {
-        let tasks = state::load();
-        if !tasks.is_empty() {
-            let mut app = store.borrow_mut();
-            app.tasks = tasks
-                .into_iter()
-                .map(|(title, session_id, workspace, agent_route, last_route, mut turns, updated_at)| {
-                    for turn in &mut turns {
-                        if let model::Turn::Agent { streaming, .. } = turn {
-                            *streaming = false;
-                        }
+        let loaded = state::load();
+        let mut app = store.borrow_mut();
+        app.workspaces = loaded.workspaces;
+        app.tasks = loaded
+            .tasks
+            .into_iter()
+            .map(|mut task| {
+                for turn in &mut task.turns {
+                    if let model::Turn::Agent { streaming, .. } = turn {
+                        *streaming = false;
                     }
-                    model::Task {
-                    title,
-                    meta: String::new(),
-                    turns,
-                    artifact: None,
-                    session_id,
-                    workspace,
-                    agent_route,
-                    last_route,
-                    usage: None,
-                    started_at: None,
-                    updated_at,
-                    }
-                })
-                .collect();
+                }
+                task
+            })
+            .collect();
+        if !app.tasks.is_empty() {
             app.route = model::Route::Task(0);
             app.nav = None;
             app.model = crate::router::menu_index(
                 app.tasks.first().and_then(|task| task.agent_route.as_deref()),
             );
+            app.workspace = app
+                .tasks
+                .first()
+                .and_then(|task| task.workspace_id.as_deref())
+                .and_then(|id| app.workspaces.iter().position(|workspace| workspace.id == id))
+                .map(|position| position + 1)
+                .unwrap_or(0);
+        }
+        drop(app);
+        if !store.borrow().tasks.is_empty() {
+            // Persist the workspace migration immediately.
+            state::save(&store);
         }
     }
     let (views, probes) = shell::build(
@@ -296,7 +298,7 @@ fn build_ui(application: &gtk::Application) {
                     code: "print('hello')\n".into(),
                 }),
                 session_id: None,
-                workspace: None,
+                workspace_id: None,
                 usage: None,
             });
             app.route = model::Route::Task(0);

@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
+use eb_api::model::Workspace;
 use crate::spec;
 use crate::widgets::*;
 
@@ -46,7 +47,7 @@ pub struct TaskRow {
     pub meta: String,
     pub active: bool,
     pub index: usize,
-    pub workspace: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -231,13 +232,14 @@ fn footer(contribs: &Contribs, account: &std::rc::Rc<dyn Fn(usize)>) -> gtk::Box
 pub fn fill_content(
     content: &gtk::Box,
     rows: &[TaskRow],
+    workspaces: &[Workspace],
     collapsed: [bool; 2],
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     section_toggle: &std::rc::Rc<dyn Fn(usize)>,
 ) {
     clear(content);
 
-    if rows.is_empty() {
+    if rows.is_empty() && workspaces.is_empty() {
         let empty = vbox(2);
         class(&empty, "eb-empty");
 
@@ -255,14 +257,16 @@ pub fn fill_content(
     }
 
     // WorkBuddy separates unassigned tasks from tasks grouped under a
-    // workspace. Preserve that structure instead of listing every task twice.
-    // Keep every task selectable under Tasks. A task's auto-created sandbox is
-    // an implementation detail, not a user workspace.
-    let standalone: Vec<&TaskRow> = rows.iter().collect();
+    // workspace. A task appears exactly once: under Tasks or under its
+    // workspace. Workspace entities render even when they have no tasks.
+    let standalone: Vec<&TaskRow> = rows
+        .iter()
+        .filter(|row| row.workspace_id.is_none())
+        .collect();
     let mut grouped: BTreeMap<String, Vec<&TaskRow>> = BTreeMap::new();
-    for row in rows.iter().filter(|row| row.workspace.is_some()) {
+    for row in rows.iter().filter(|row| row.workspace_id.is_some()) {
         grouped
-            .entry(row.workspace.clone().unwrap_or_default())
+            .entry(row.workspace_id.clone().unwrap_or_default())
             .or_default()
             .push(row);
     }
@@ -286,31 +290,36 @@ pub fn fill_content(
     content.pack_start(&tasks, false, false, 0);
 
     let workspaces_list = vbox(2);
-    if grouped.is_empty() {
+    if workspaces.is_empty() {
         workspaces_list.pack_start(&text("No workspaces", "eb-task-placeholder"), false, false, 0);
     } else {
-        for (path, tasks_in_group) in &grouped {
-            let name = std::path::Path::new(path)
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.clone());
+        for workspace in workspaces {
             let header = hbox(8);
             class(&header, "eb-workspace");
             header.pack_start(&glyph("▱"), false, false, 0);
-            header.pack_start(&ellipsized(&name, "eb-workspace-title"), true, true, 0);
+            header.pack_start(
+                &ellipsized(&crate::workspace::display_name(workspace), "eb-workspace-title"),
+                true,
+                true,
+                0,
+            );
             workspaces_list.pack_start(&header, false, false, 0);
-            let _ = tasks_in_group;
+            if let Some(tasks_in_group) = grouped.get(&workspace.id) {
+                for row in tasks_in_group {
+                    workspaces_list.pack_start(&task_row(row, open_task, true), false, false, 0);
+                }
+            }
         }
     }
-    let (workspaces, workspaces_body) = section(
-        &format!("Workspaces ({})", grouped.len()),
+    let (workspaces_section, workspaces_body) = section(
+        &format!("Workspaces ({})", workspaces.len()),
         4,
         workspaces_list,
         collapsed[1],
         1,
         section_toggle,
     );
-    content.pack_start(&workspaces, false, false, 0);
+    content.pack_start(&workspaces_section, false, false, 0);
 
     // `show_all` shows every body, folded or not, so the fold has to be applied
     // *after* it. Opting a body out of `show_all` is not an option either:

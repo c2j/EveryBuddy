@@ -48,6 +48,8 @@ pub struct Wiring {
     pub cancel: Rc<dyn Fn()>,
     /// Called with the picker and the chosen index.
     pub pick: Rc<dyn Fn(Picker, usize)>,
+    /// Workspace menu labels: No workspace, every workspace name, Add.
+    pub workspace_items: Rc<dyn Fn() -> Vec<String>>,
 }
 
 impl Wiring {
@@ -149,6 +151,8 @@ pub struct Composer {
     pristine: Rc<Cell<bool>>,
     has_text: Rc<Cell<bool>>,
     streaming: Rc<Cell<bool>>,
+    workspace_label: Option<gtk::Label>,
+    workspace_choice: Rc<Cell<usize>>,
     usage: Option<UsageWidget>,
 }
 
@@ -156,7 +160,7 @@ impl Composer {
     pub fn new(
         variant: Variant,
         model: usize,
-        workspace: usize,
+        space_index: usize,
         permission: usize,
         wiring: Wiring,
         contribs: &Contribs,
@@ -224,13 +228,13 @@ impl Composer {
         // background — the grey visible there is the card's own shadow.
         let footer = hbox(4);
         class(&footer, "eb-composer-footer");
+        let mut workspace_label = None;
+        let mut workspace_choice = Rc::new(Cell::new(space_index));
         if matches!(variant, Variant::Welcome) {
-            footer.pack_start(
-                &pill("▦", contribs.menu("workspace"), workspace, Picker::Workspace, &wiring),
-                false,
-                false,
-                0,
-            );
+            let (button, label, choice) = workspace_pill(space_index, &wiring);
+            workspace_label = Some(label);
+            workspace_choice = choice;
+            footer.pack_start(&button, false, false, 0);
             footer.pack_start(
                 &pill("◇", contribs.menu("permission"), permission, Picker::Permission, &wiring),
                 false,
@@ -348,6 +352,8 @@ impl Composer {
             pristine,
             has_text,
             streaming,
+            workspace_label,
+            workspace_choice,
             usage: if matches!(variant, Variant::Chat) {
                 Some(usage)
             } else {
@@ -396,6 +402,14 @@ impl Composer {
     /// The Code scene adds a toolbar button the Work scene does not have.
     pub fn set_scene(&self, scene: Scene) {
         self.enhance.set_visible(matches!(scene, Scene::Code));
+    }
+
+    /// Keep the picker label in sync with the active task's workspace.
+    pub fn set_workspace_selection(&self, index: usize, name: &str) {
+        self.workspace_choice.set(index);
+        if let Some(label) = &self.workspace_label {
+            label.set_text(name);
+        }
     }
 
     /// While an answer streams, the send button becomes a stop button. The
@@ -616,6 +630,47 @@ fn model_selector(model: usize, wiring: &Wiring, contribs: &Contribs) -> gtk::Bu
 
     attach_menu(&button, &items, choice, gtk::PositionType::Top, on_pick);
     button
+}
+
+fn workspace_pill(
+    selected: usize,
+    wiring: &Wiring,
+) -> (gtk::Button, gtk::Label, Rc<Cell<usize>>) {
+    let button = flat_button("eb-pill");
+    button.set_valign(gtk::Align::Center);
+    let choice = Rc::new(Cell::new(selected));
+    let initial = (wiring.workspace_items)()
+        .get(selected)
+        .cloned()
+        .unwrap_or_else(|| "No workspace".into());
+    let label = gtk::Label::new(Some(&initial));
+
+    let row = hbox(4);
+    row.pack_start(&glyph("▦"), false, false, 0);
+    row.pack_start(&label, false, false, 0);
+    row.pack_start(&glyph("⌄"), false, false, 0);
+    button.add(&row);
+
+    let on_pick: Rc<dyn Fn(usize)> = {
+        let choice = choice.clone();
+        let label = label.clone();
+        let wiring = wiring.clone();
+        Rc::new(move |index| {
+            choice.set(index);
+            if let Some(name) = (wiring.workspace_items)().get(index) {
+                label.set_text(name);
+            }
+            (wiring.pick)(Picker::Workspace, index);
+        })
+    };
+    attach_dynamic_menu(
+        &button,
+        wiring.workspace_items.clone(),
+        choice.clone(),
+        gtk::PositionType::Top,
+        on_pick,
+    );
+    (button, label, choice)
 }
 
 /// Measured: 32px tall, radius 999px, `padding: 0 8px`, 4px gap, 13.33px at

@@ -37,17 +37,25 @@ user's project root; workspace lifecycle is separate from the task transcript.
 
 ## What EvoBuddy implements
 
-- Every new task gets a directory:
+- Workspaces are first-class entities with `id`, `name`, `root`, timestamps and
+  `Temporary`/`Kept` state.
+- `Task.workspace_id` references a workspace; the path is never a grouping key.
+- `~/.evobuddy/workspaces.json` stores the entities and `tasks.json` stores
+  `workspace_id`.
+- Every first prompt creates a Temporary workspace:
 
 ```text
 $HOME/.evobuddy/workspaces/<task-slug>-<timestamp>/
 ```
 
-- `Task.workspace` stores the path and is persisted in `~/.evobuddy/tasks.json`.
-- The ACP answer source receives the task workspace and launches/relaunches the
-  ACP agent with that `cwd` (and sends it in `session/new`).
-- The sidebar shows `Workspaces (n)` with one row per task workspace.
-- Existing tasks reopen the same workspace after restart.
+- The ACP answer source receives the resolved workspace root and launches or
+  relaunches the ACP agent with that `cwd` (and sends it in `session/new`).
+- The sidebar shows `Tasks` for unassigned tasks and `Workspaces` with workspace
+  headers and their child tasks.
+- The welcome composer's workspace picker lists real workspaces, can assign one
+  to the new task, and "Add workspace…" creates a Temporary one.
+- Legacy `workspace` paths migrate to `Kept` workspaces; existing tasks reopen
+  the same root after restart.
 
 Example verified from a fake ACP run:
 
