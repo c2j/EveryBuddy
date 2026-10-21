@@ -482,9 +482,22 @@ pub fn run(
             drop(app);
             refresher.request();
         }
-        WorkspaceAction::Keep | WorkspaceAction::Rename => {
-            rename(window, store, refresher, id, action);
+        WorkspaceAction::OpenFolder => {
+            let root = {
+                let app = store.borrow();
+                app.workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == id)
+                    .map(|workspace| workspace.root.clone())
+            };
+            if let Some(root) = root {
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&root).spawn();
+                #[cfg(not(target_os = "macos"))]
+                let _ = std::process::Command::new("xdg-open").arg(&root).spawn();
+            }
         }
+        WorkspaceAction::Rename => rename(window, store, refresher, id),
         WorkspaceAction::Delete => {
             delete(window, store, refresher, id);
         }
@@ -496,7 +509,6 @@ fn rename(
     store: &Store,
     refresher: &Refresher,
     id: &str,
-    action: WorkspaceAction,
 ) {
     let Some((current, temporary)) = ({
         let app = store.borrow();
@@ -507,11 +519,7 @@ fn rename(
     }) else {
         return;
     };
-    let title = if matches!(action, WorkspaceAction::Keep) {
-        "Keep workspace"
-    } else {
-        "Rename workspace"
-    };
+    let title = "Rename workspace";
     let dialog = gtk::Dialog::with_buttons(
         Some(title),
         Some(window),
@@ -549,8 +557,9 @@ fn rename(
     {
         workspace.name = name.to_string();
         workspace.updated_at = now();
-        // Renaming or keeping an explicit workspace makes it durable.
-        if temporary || matches!(action, WorkspaceAction::Keep | WorkspaceAction::Rename) {
+        // Renaming an explicit workspace makes it durable (WorkBuddy has no
+        // separate Keep action).
+        if temporary {
             workspace.state = WorkspaceState::Kept;
         }
     }
