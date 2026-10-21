@@ -12,13 +12,17 @@ pub fn render(value: &str) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 9);
     class(&root, "eb-markdown");
 
-    let mut paragraph: Vec<String> = Vec::new();
+    // Consecutive text lines (paragraphs, headings, list items) accumulate
+    // into one selectable TextView, so a drag can select across wrapped lines
+    // and paragraphs the way the product's web client does; per-widget labels
+    // confine a selection to a single line.
+    let mut segs: Vec<Seg> = Vec::new();
     let mut code: Option<(String, Vec<String>)> = None;
 
     for line in value.lines() {
         if let Some((_language, body)) = &mut code {
             if line.trim_start().starts_with("```") {
-                flush_paragraph(&root, &mut paragraph);
+                flush_segments(&root, &mut segs);
                 let (language, body) = code.take().unwrap();
                 root.pack_start(&code_block(&language, &body.join("\n")), false, false, 0);
             } else {
@@ -29,45 +33,76 @@ pub fn render(value: &str) -> gtk::Box {
 
         let trimmed = line.trim_end();
         if let Some(language) = trimmed.trim_start().strip_prefix("```") {
-            flush_paragraph(&root, &mut paragraph);
+            flush_segments(&root, &mut segs);
             code = Some((language.trim().to_string(), Vec::new()));
             continue;
         }
         if trimmed.trim().is_empty() {
-            flush_paragraph(&root, &mut paragraph);
+            flush_segments(&root, &mut segs);
             continue;
         }
         if let Some((level, rest)) = heading(trimmed) {
-            flush_paragraph(&root, &mut paragraph);
-            let label = gtk::Label::new(None);
-            label.set_selectable(true);
-    label.set_markup(&inline(rest));
-            label.set_line_wrap(true);
-            label.set_width_chars(1);
-            label.set_xalign(0.0);
-            let class_name = if level <= 2 { "eb-md-h1" } else { "eb-md-h2" };
-            class(&label, class_name);
-            root.pack_start(&label, false, false, 0);
+            flush_segments(&root, &mut segs);
+            segs.push(Seg::Heading(level, rest.trim().to_string()));
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-            flush_paragraph(&root, &mut paragraph);
-            root.pack_start(&bullet("*", rest), false, false, 0);
+            flush_segments(&root, &mut segs);
+            segs.push(Seg::Item("*".into(), rest.trim().to_string()));
             continue;
         }
         if let Some((number, rest)) = numbered(trimmed) {
-            flush_paragraph(&root, &mut paragraph);
-            root.pack_start(&bullet(&number, rest), false, false, 0);
+            flush_segments(&root, &mut segs);
+            segs.push(Seg::Item(number.trim().to_string(), rest.trim().to_string()));
             continue;
         }
-        paragraph.push(trimmed.trim().to_string());
+        segs.push(Seg::Para(trimmed.trim().to_string()));
     }
 
     if let Some((language, body)) = code {
         root.pack_start(&code_block(&language, &body.join("\n")), false, false, 0);
     }
-    flush_paragraph(&root, &mut paragraph);
+    flush_segments(&root, &mut segs);
     root
+}
+
+/// One run of consecutive markdown text lines.
+enum Seg {
+    Para(String),
+    Heading(usize, String),
+    Item(String, String),
+}
+
+fn flush_segments(root: &gtk::Box, segs: &mut Vec<Seg>) {
+    if segs.is_empty() {
+        return;
+    }
+    let markup = segs
+        .drain(..)
+        .map(|seg| match seg {
+            Seg::Para(value) => inline(&value),
+            Seg::Heading(level, value) => {
+                // Pango markup has no relative sizes, so headings differ by
+                // weight only; the product's size scale is a CSS concern.
+                let _ = level;
+                format!("<span weight=\"bold\">{}</span>", inline(&value))
+            }
+            Seg::Item(marker, value) => format!("{}  {}", escape(&marker), inline(&value)),
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let view = gtk::TextView::new();
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_wrap_mode(gtk::WrapMode::WordChar);
+    view.set_left_margin(2);
+    view.set_right_margin(2);
+    class(&view, "eb-md-view");
+    let buffer = view.buffer().expect("text view has a buffer");
+    let mut start = buffer.start_iter();
+    buffer.insert_markup(&mut start, &markup);
+    root.pack_start(&view, false, false, 0);
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {
@@ -102,23 +137,6 @@ fn flush_paragraph(root: &gtk::Box, lines: &mut Vec<String>) {
     label.set_xalign(0.0);
     class(&label, "eb-md-text");
     root.pack_start(&label, false, false, 0);
-}
-
-fn bullet(marker: &str, value: &str) -> gtk::Box {
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    class(&row, "eb-md-bullet");
-    let bullet = text(marker, "eb-md-marker");
-    bullet.set_valign(gtk::Align::Start);
-    row.pack_start(&bullet, false, false, 0);
-    let label = gtk::Label::new(None);
-    label.set_selectable(true);
-    label.set_markup(&inline(value));
-    label.set_line_wrap(true);
-    label.set_width_chars(1);
-    label.set_xalign(0.0);
-    class(&label, "eb-md-text");
-    row.pack_start(&label, true, true, 0);
-    row
 }
 
 fn code_block(language: &str, code: &str) -> gtk::Box {
