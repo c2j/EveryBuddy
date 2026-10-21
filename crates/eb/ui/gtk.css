@@ -318,10 +318,13 @@ button.eb-chip:hover {
   padding: 0 16px;
 }
 
-/* the text view inside: 766x74, 15px/400 at rgba(0,0,0,.9) */
+/* the text view inside: 766x74, 15px/400 at rgba(0,0,0,.9).
+ * The background is pinned to the card white: `background: none` lets dark
+ * themes (Kylin/UKUI among them) paint the theme's dark base under black
+ * text, making the input unreadable. */
 textview.eb-editor,
 textview.eb-editor text {
-  background: none;
+  background-color: @bg_card;
   color: @eb_text_primary;
   font-size: 15px;
 }
