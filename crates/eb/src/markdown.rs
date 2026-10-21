@@ -40,7 +40,8 @@ pub fn render(value: &str) -> gtk::Box {
         if let Some((level, rest)) = heading(trimmed) {
             flush_paragraph(&root, &mut paragraph);
             let label = gtk::Label::new(None);
-            label.set_markup(&inline(rest));
+            label.set_selectable(true);
+    label.set_markup(&inline(rest));
             label.set_line_wrap(true);
             label.set_width_chars(1);
             label.set_xalign(0.0);
@@ -94,6 +95,7 @@ fn flush_paragraph(root: &gtk::Box, lines: &mut Vec<String>) {
     let value = lines.join(" ");
     lines.clear();
     let label = gtk::Label::new(None);
+    label.set_selectable(true);
     label.set_markup(&inline(&value));
     label.set_line_wrap(true);
     label.set_width_chars(1);
@@ -109,6 +111,7 @@ fn bullet(marker: &str, value: &str) -> gtk::Box {
     bullet.set_valign(gtk::Align::Start);
     row.pack_start(&bullet, false, false, 0);
     let label = gtk::Label::new(None);
+    label.set_selectable(true);
     label.set_markup(&inline(value));
     label.set_line_wrap(true);
     label.set_width_chars(1);
