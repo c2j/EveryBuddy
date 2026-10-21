@@ -817,6 +817,22 @@ impl Runner {
             // clock even when the agent is silent. One repaint per ~0.5s is
             // enough; repainting every 16ms burns a full core while waiting.
             if ticks % 30 == 0 {
+                // EB_FAKE_STREAM=1 fabricates a Delta on every elapsed
+                // repaint, exercising the streaming render path (in-place
+                // text updates) without a live agent.
+                if std::env::var_os("EB_FAKE_STREAM").is_some() {
+                    let applied = if let Some(active) = runner.active.borrow().as_ref() {
+                        runner.store.borrow_mut().apply_agent_event(
+                            active.task,
+                            eb_api::AgentEvent::Delta { text: " tick".into() },
+                        )
+                    } else {
+                        false
+                    };
+                    if std::env::var_os("EB_DEBUG").is_some() {
+                        eprintln!("fake-stream: delta applied={applied}");
+                    }
+                }
                 runner.refresher.request();
             }
             if runner.active.borrow().is_some() {

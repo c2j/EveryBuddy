@@ -44,6 +44,10 @@ pub struct Conversation {
     pub scroll: gtk::ScrolledWindow,
     /// Repopulated on every refresh.
     pub messages: gtk::Box,
+    /// Render state per packed turn. A streaming refresh updates the last
+    /// turn's blocks in place; tearing the painted tree down per token is
+    /// what makes the message area flicker.
+    pub turns: std::cell::RefCell<Vec<TurnRender>>,
     pub reveal: gtk::Button,
 }
 
@@ -128,7 +132,23 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         scroll,
         messages,
         reveal,
+        turns: std::cell::RefCell::new(Vec::new()),
     }
+}
+
+/// What is currently packed for one turn, so a refresh can update widgets in
+/// place instead of rebuilding them.
+#[derive(Default)]
+struct TurnRender {
+    /// Header identity: user text/time, or agent name/status/streaming. A
+    /// change here rebuilds the turn frame.
+    sig: u64,
+    /// Per-block content signatures (agent turns only).
+    blocks: Vec<u64>,
+    /// The agent block container, kept for in-place block updates.
+    body: Option<gtk::Box>,
+    /// Packed block widgets, parallel to `blocks`.
+    widgets: Vec<gtk::Widget>,
 }
 
 /// Rebuild the message list for one task.
@@ -136,29 +156,263 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
 /// Rebuilding rather than appending keeps a single source of truth: the widgets
 /// always describe the current state of `App`, never an accumulation of deltas.
 pub fn fill_messages(conversation: &Conversation, task: &Task) {
-    clear(&conversation.messages);
-    for turn in &task.turns {
-        match turn {
-            Turn::User { text, time } => {
-                conversation.messages.pack_start(&user_turn(text, time), false, false, 0);
-            }
-            Turn::Agent {
-                name,
-                status,
-                blocks,
-                streaming,
-            } => {
-                let status = status
-                    .as_deref()
-                    .map(|status| status_with_elapsed(status, *streaming, task.started_at));
-                conversation
-                    .messages
-                    .pack_start(&agent_turn(name, status.as_deref(), blocks, *streaming), false, false, 0);
-            }
+    let fresh: Vec<TurnRender> = task.turns.iter().map(turn_state).collect();
+
+    // Everything already painted and unchanged: leave the widget tree alone.
+    // Rebuilding per streaming token is what makes the area flicker.
+    {
+        let packed = conversation.turns.borrow();
+        if packed.len() == fresh.len()
+            && packed
+                .iter()
+                .zip(fresh.iter())
+                .all(|(old, new)| old.sig == new.sig && old.blocks == new.blocks)
+        {
+            return;
         }
+    }
+
+    // Turns whose full state matches are reused as-is; the mismatch index is
+    // where the update starts.
+    let reuse = {
+        let packed = conversation.turns.borrow();
+        packed
+            .iter()
+            .zip(fresh.iter())
+            .take_while(|(old, new)| old.sig == new.sig && old.blocks == new.blocks)
+            .count()
+    };
+    let children = conversation.messages.children();
+    for child in children.iter().skip(reuse) {
+        conversation.messages.remove(child);
+    }
+    conversation.turns.borrow_mut().truncate(reuse);
+
+    // Fast path for the streaming tail: the turn's header (name, status,
+    // streaming) is unchanged, so only its blocks moved. Update the packed
+    // block widgets in place — for a growing text block that means rewriting
+    // the TextView buffer, not recreating the widget.
+    let in_place_body = {
+        let packed = conversation.turns.borrow();
+        let debug = std::env::var_os("EB_DEBUG").is_some();
+        if debug {
+            eprintln!(
+                "fill_messages: reuse={reuse} packed_len={} fresh_len={} reuse_header={:?} body={:?}",
+                packed.len(),
+                fresh.len(),
+                packed.get(reuse).map(|o| o.sig),
+                packed.get(reuse).map(|o| o.body.is_some())
+            );
+        }
+        packed.get(reuse).and_then(|old| {
+            let header_match = old.sig == fresh[reuse].sig;
+            if debug && !header_match {
+                eprintln!(
+                    "fill_messages: header sig mismatch old={} new={}",
+                    old.sig, fresh[reuse].sig
+                );
+            }
+            (header_match
+                && old.body.is_some()
+                && matches!(task.turns.get(reuse), Some(Turn::Agent { .. })))
+            .then(|| old.body.clone())
+        })
+    };
+    if let Some(Some(body)) = in_place_body {
+        if let Some(Turn::Agent { blocks, .. }) = task.turns.get(reuse) {
+            {
+                let mut packed = conversation.turns.borrow_mut();
+                if let Some(old) = packed.get_mut(reuse) {
+                    sync_blocks(&body, &mut old.blocks, &mut old.widgets, blocks);
+                }
+            }
+            // Any further turns (a batch that also appended) still need packing;
+            // pack_turn records their render state.
+            for (index, turn) in task.turns.iter().enumerate().skip(reuse + 1) {
+                pack_turn(conversation, turn, &fresh[index], task.started_at);
+            }
+            if std::env::var_os("EB_DEBUG").is_some() {
+                eprintln!("fill_messages: in-place block sync");
+            }
+            conversation.messages.show_all();
+            scroll_to_bottom(&conversation.scroll);
+            return;
+        }
+    }
+
+    for (index, turn) in task.turns.iter().enumerate().skip(reuse) {
+        pack_turn(conversation, turn, &fresh[index], task.started_at);
+    }
+    conversation.turns.borrow_mut().truncate(fresh.len());
+    if std::env::var_os("EB_DEBUG").is_some() {
+        eprintln!(
+            "fill_messages: {} turns, rebuilt {}",
+            conversation.turns.borrow().len().saturating_sub(reuse),
+            conversation.turns.borrow().len().saturating_sub(reuse)
+        );
     }
     conversation.messages.show_all();
     scroll_to_bottom(&conversation.scroll);
+}
+
+/// Render one turn and remember what was packed.
+fn pack_turn(
+    conversation: &Conversation,
+    turn: &Turn,
+    state: &TurnRender,
+    started_at: Option<std::time::Instant>,
+) {
+    match turn {
+        Turn::User { text, time } => {
+            conversation
+                .messages
+                .pack_start(&user_turn(text, time), false, false, 0);
+            conversation.turns.borrow_mut().push(TurnRender {
+                sig: state.sig,
+                ..Default::default()
+            });
+        }
+        Turn::Agent {
+            name,
+            status,
+            blocks,
+            streaming,
+        } => {
+            let status = status.as_deref().map(|status| {
+                status_with_elapsed(status, *streaming, started_at)
+            });
+            let parts = agent_turn(name, status.as_deref(), blocks, *streaming);
+            let mut widgets: Vec<gtk::Widget> = Vec::new();
+            for block in blocks {
+                let widget = block_widget(block);
+                parts.body.pack_start(&widget, false, false, 0);
+                widgets.push(widget);
+            }
+            conversation
+                .messages
+                .pack_start(&parts.frame, false, false, 0);
+            conversation.turns.borrow_mut().push(TurnRender {
+                sig: state.sig,
+                blocks: state.blocks.clone(),
+                body: Some(parts.body),
+                widgets,
+            });
+        }
+    }
+}
+
+/// Bring an agent turn's block widgets in line with `blocks`, reusing what is
+/// already on screen. A text block that only grew is updated by rewriting its
+/// TextView buffer — the streaming hot path.
+fn sync_blocks(
+    body: &gtk::Box,
+    block_sigs: &mut Vec<u64>,
+    widgets: &mut Vec<gtk::Widget>,
+    blocks: &[Block],
+) {
+    if blocks.is_empty() {
+        for widget in widgets.drain(..) {
+            body.remove(&widget);
+        }
+        block_sigs.clear();
+        return;
+    }
+    let mut index = 0;
+    while index < blocks.len() && index < widgets.len() {
+        if block_sigs.get(index) != Some(&block_sig(&blocks[index])) {
+            break;
+        }
+        index += 1;
+    }
+    // The common case: the final text block grew by a streaming chunk.
+    if index == blocks.len() - 1
+        && widgets.len() == blocks.len()
+        && matches!(blocks[index], Block::Text(_))
+        && rewrite_markdown_text(&widgets[index], &markdown_text(&blocks[index]))
+    {
+        block_sigs[index] = block_sig(&blocks[index]);
+        return;
+    }
+    // Anything else: replace the tail from the first changed block on.
+    for widget in widgets.drain(index..) {
+        body.remove(&widget);
+    }
+    block_sigs.truncate(index);
+    for block in &blocks[index..] {
+        let widget = block_widget(block);
+        body.pack_start(&widget, false, false, 0);
+        widgets.push(widget);
+        block_sigs.push(block_sig(block));
+    }
+}
+
+fn block_sig(block: &Block) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    format!("{block:?}").hash(&mut hasher);
+    hasher.finish()
+}
+
+fn markdown_text(block: &Block) -> String {
+    match block {
+        Block::Text(value) => value.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Rewrite an already-packed markdown text view with fresh content. Fails for
+/// widget trees that are not a single text view (fenced code and friends).
+fn rewrite_markdown_text(widget: &gtk::Widget, value: &str) -> bool {
+    let Ok(box_) = widget.clone().downcast::<gtk::Box>() else {
+        return false;
+    };
+    let Some(view) = box_
+        .children()
+        .first()
+        .and_then(|child| child.clone().downcast::<gtk::TextView>().ok())
+    else {
+        return false;
+    };
+    let Some(markup) = crate::markdown::text_markup(value) else {
+        return false;
+    };
+    let buffer = view.buffer().expect("a GtkTextView always has a buffer");
+    buffer.set_text("");
+    let mut start = buffer.start_iter();
+    buffer.insert_markup(&mut start, &markup);
+    true
+}
+
+/// Hash everything a turn renders *except* its blocks; agent block moves are
+/// handled by `sync_blocks` in place.
+fn turn_state(turn: &Turn) -> TurnRender {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut state = TurnRender::default();
+    match turn {
+        Turn::User { text, time } => {
+            "user".hash(&mut hasher);
+            text.hash(&mut hasher);
+            time.hash(&mut hasher);
+        }
+        Turn::Agent {
+            name,
+            status,
+            streaming,
+            ..
+        } => {
+            "agent".hash(&mut hasher);
+            name.hash(&mut hasher);
+            status.hash(&mut hasher);
+            streaming.hash(&mut hasher);
+            state.blocks = match turn {
+                Turn::Agent { blocks, .. } => blocks.iter().map(block_sig).collect(),
+                _ => Vec::new(),
+            };
+        }
+    }
+    state.sig = hasher.finish();
+    state
 }
 
 fn status_with_elapsed(status: &str, streaming: bool, started: Option<std::time::Instant>) -> String {
@@ -243,7 +497,12 @@ fn user_turn(value: &str, time: &str) -> gtk::Box {
 
 /// Measured: a 500 wide frame; a 24.5px header with a 10px gap between the
 /// agent mark and its name (14px/600); then the blocks.
-fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: bool) -> gtk::Box {
+struct AgentTurnParts {
+    frame: gtk::Box,
+    body: gtk::Box,
+}
+
+fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: bool) -> AgentTurnParts {
     let frame = vbox(0);
     class(&frame, "eb-frame");
 
@@ -283,7 +542,7 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
         frame.pack_start(&streaming_footer(), false, false, 0);
     }
 
-    frame
+    AgentTurnParts { frame, body }
 }
 
 /// Measured: a one-line block occupies 53px — a 24px line plus 14px of margin
@@ -583,4 +842,68 @@ fn streaming_footer() -> gtk::Box {
     row.pack_start(&glyph("◌"), false, false, 0);
     row.pack_start(&text("Thinking", "eb-streaming-text"), false, false, 0);
     row
+}
+
+/// Initialise GTK exactly once for the widget tests, and only on the thread
+/// that won the race: macOS aborts `gtk_init` off the main thread, and CI has
+/// no display at all. `None` means "skipping is required".
+#[cfg(test)]
+fn try_init_gtk_for_test() -> Option<std::thread::ThreadId> {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<Option<std::thread::ThreadId>> = OnceLock::new();
+    let thread = std::thread::current().id();
+    let winner = INIT.get_or_init(|| {
+        std::panic::catch_unwind(|| gtk::init().is_ok())
+            .unwrap_or(false)
+            .then_some(thread)
+    });
+    winner.filter(|winner| *winner == thread)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Block;
+
+    /// The streaming hot path: a text block that only grew must keep its
+    /// TextView widget (same instance) and get its buffer rewritten in place,
+    /// instead of tearing the widget down and repainting from scratch.
+    #[test]
+    fn sync_blocks_updates_growing_text_in_place() {
+        if try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+        let before = Block::Text("hello world".into());
+        let widget = block_widget(&before);
+        body.pack_start(&widget, false, false, 0);
+        let widget_ptr = widget.as_ptr();
+        let mut block_sigs = vec![block_sig(&before)];
+        let mut widgets = vec![widget];
+
+        let after = Block::Text("hello world, streamed further".into());
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[after]);
+
+        assert_eq!(widgets.len(), 1, "the growing text block reuses its widget");
+        assert!(
+            std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
+            "the TextView instance must survive the update"
+        );
+        let text_view = body
+            .children()
+            .first()
+            .and_then(|child| child.clone().downcast::<gtk::TextView>().ok())
+            .expect("block is still a TextView");
+        let buffer = text_view.buffer().expect("buffer");
+        let text = buffer
+            .text(&buffer.start_iter(), &buffer.end_iter(), false)
+            .unwrap_or_default();
+        assert!(
+            text.contains("streamed further"),
+            "buffer must carry the streamed content, got {text:?}"
+        );
+    }
+
 }

@@ -105,6 +105,62 @@ fn flush_segments(root: &gtk::Box, segs: &mut Vec<Seg>) {
     root.pack_start(&view, false, false, 0);
 }
 
+/// Pango markup for a markdown value made only of text runs (no fenced code),
+/// the shape the streaming text block takes. `None` hands the value to the
+/// full widget renderer.
+pub fn text_markup(value: &str) -> Option<String> {
+    let mut segs: Vec<Seg> = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    for line in value.lines() {
+        let trimmed = line.trim_end();
+        if trimmed.trim_start().starts_with("```") {
+            return None;
+        }
+        if trimmed.trim().is_empty() {
+            flush_paragraph_markup(&mut segs, &mut paragraph);
+            continue;
+        }
+        if let Some((level, rest)) = heading(trimmed) {
+            flush_paragraph_markup(&mut segs, &mut paragraph);
+            segs.push(Seg::Heading(level, rest.trim().to_string()));
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+            flush_paragraph_markup(&mut segs, &mut paragraph);
+            segs.push(Seg::Item("*".into(), rest.trim().to_string()));
+            continue;
+        }
+        if let Some((number, rest)) = numbered(trimmed) {
+            flush_paragraph_markup(&mut segs, &mut paragraph);
+            segs.push(Seg::Item(number.trim().to_string(), rest.trim().to_string()));
+            continue;
+        }
+        paragraph.push(trimmed.trim().to_string());
+    }
+    flush_paragraph_markup(&mut segs, &mut paragraph);
+    Some(
+        segs.iter()
+            .map(|seg| match seg {
+                Seg::Para(value) => inline(value),
+                Seg::Heading(_, value) => {
+                    format!("<span weight=\"bold\">{}</span>", inline(value))
+                }
+                Seg::Item(marker, value) => format!("{}  {}", escape(marker), inline(value)),
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    )
+}
+
+fn flush_paragraph_markup(segs: &mut Vec<Seg>, paragraph: &mut Vec<String>) {
+    if paragraph.is_empty() {
+        return;
+    }
+    let value = paragraph.join(" ");
+    paragraph.clear();
+    segs.push(Seg::Para(value));
+}
+
 fn heading(line: &str) -> Option<(usize, &str)> {
     let hashes = line.chars().take_while(|ch| *ch == '#').count();
     if hashes == 0 || hashes > 6 {
