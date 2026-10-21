@@ -114,6 +114,7 @@ pub struct Views {
     /// A sidebar section header was clicked.
     section_toggle: Rc<dyn Fn(usize)>,
     workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)>,
+    new_workspace: Rc<dyn Fn()>,
     task_action: Rc<dyn Fn(crate::sidebar::TaskAction, usize)>,
     /// The last `(sidebar_visible, artifact_open, artifact_maximised)` triple
     /// that positioned the panes. Tracking it keeps a repaint from undoing a
@@ -369,6 +370,14 @@ pub fn build(
             crate::workspace_ui::run(&window, &store, &refresher, action, &id);
         })
     };
+    let new_workspace: Rc<dyn Fn()> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        let window = window.clone();
+        Rc::new(move || {
+            crate::workspace_ui::prompt_new(&window, &store, &refresher);
+        })
+    };
     let sidebar = sidebar::build(
         &sidebar::Wiring {
             nav: nav.clone(),
@@ -380,6 +389,7 @@ pub fn build(
                 }
             }),
             workspace_action: workspace_action.clone(),
+            new_workspace: new_workspace.clone(),
             task_action: {
                 let store = store.clone();
                 let refresher = refresher.clone();
@@ -533,6 +543,7 @@ pub fn build(
         open_task,
         section_toggle: section,
         workspace_action,
+        new_workspace,
         task_action,
         laid_out: Cell::new(None),
     };
@@ -778,6 +789,7 @@ impl Views {
             &self.open_task,
             &self.section_toggle,
             &self.workspace_action,
+            &self.new_workspace,
             &self.task_action,
         );
 

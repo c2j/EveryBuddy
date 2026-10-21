@@ -31,10 +31,10 @@ pub enum TaskAction {
     Delete,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceAction {
     NewTask,
-    Keep,
+    OpenFolder,
     Rename,
     Delete,
 }
@@ -51,6 +51,8 @@ pub struct Wiring {
     pub account: std::rc::Rc<dyn Fn(usize)>,
     /// Workspace header menu action; the id is empty for NewUnassigned.
     pub workspace_action: std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+    /// The Workspaces-section header "+" (new workspace dialog).
+    pub new_workspace: std::rc::Rc<dyn Fn()>,
     /// Task row menu action.
     pub task_action: std::rc::Rc<dyn Fn(TaskAction, usize)>,
 }
@@ -263,6 +265,7 @@ pub fn fill_content(
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     section_toggle: &std::rc::Rc<dyn Fn(usize)>,
     workspace_action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+    new_workspace: &std::rc::Rc<dyn Fn()>,
     task_action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
 ) {
     clear(content);
@@ -314,6 +317,7 @@ pub fn fill_content(
         collapsed[0],
         0,
         section_toggle,
+        None,
     );
     content.pack_start(&tasks, false, false, 0);
 
@@ -336,6 +340,15 @@ pub fn fill_content(
             }
         }
     }
+    // WorkBuddy's Workspaces header carries a folder-plus button that opens
+    // the new-workspace dialog.
+    let header_plus = flat_button("eb-header-plus");
+    header_plus.set_tooltip_text(Some("New Workspace"));
+    header_plus.add(&glyph("⊞"));
+    {
+        let open_new_workspace = new_workspace.clone();
+        header_plus.connect_clicked(move |_| open_new_workspace());
+    }
     let (workspaces_section, workspaces_body) = section(
         &format!("Workspaces ({})", workspaces.len()),
         4,
@@ -343,6 +356,7 @@ pub fn fill_content(
         collapsed[1],
         1,
         section_toggle,
+        Some(header_plus),
     );
     content.pack_start(&workspaces_section, false, false, 0);
 
@@ -370,6 +384,7 @@ fn section(
     collapsed: bool,
     index: usize,
     toggle: &std::rc::Rc<dyn Fn(usize)>,
+    header_extra: Option<gtk::Button>,
 ) -> (gtk::Box, gtk::Box) {
     let block = vbox(0);
     block.set_margin_bottom(bottom_pad);
@@ -390,7 +405,13 @@ fn section(
     row.pack_start(&glyph(if collapsed { "›" } else { "⌄" }), false, false, 0);
     head.add(&row);
 
-    block.pack_start(&head, false, false, 0);
+    let head_row = hbox(4);
+    head_row.pack_start(&head, true, true, 0);
+    if let Some(extra) = header_extra {
+        head_row.pack_end(&extra, false, false, 0);
+    }
+
+    block.pack_start(&head_row, false, false, 0);
     block.pack_start(&body, false, false, 0);
     (block, body)
 }
@@ -398,7 +419,12 @@ fn section(
 fn workspace_header(
     workspace: &Workspace,
     action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
-) -> gtk::Button {
+) -> gtk::Box {
+    // WorkBuddy row: [icon] name ..... [...] [+]. Both round buttons reveal on
+    // hover; "..." opens Open Folder / Rename / Delete Workspace, "+" starts a
+    // new task in this workspace.
+    let container = hbox(2);
+
     let button = flat_button("eb-workspace");
     button.set_tooltip_text(Some("Workspace actions"));
     let row = hbox(8);
@@ -417,24 +443,25 @@ fn workspace_header(
     class(&popover, "eb-menu");
     let column = vbox(0);
     class(&column, "eb-menu-body");
-    let mut rows = Vec::new();
-    rows.push(("New task here", WorkspaceAction::NewTask));
-    rows.push(("Rename…", WorkspaceAction::Rename));
-    if workspace.state == WorkspaceState::Temporary {
-        rows.push(("Keep workspace…", WorkspaceAction::Keep));
-    }
-    rows.push(("Delete…", WorkspaceAction::Delete));
+    let rows: Vec<(&str, WorkspaceAction)> = vec![
+        ("Open Folder", WorkspaceAction::OpenFolder),
+        ("Rename", WorkspaceAction::Rename),
+        ("Delete Workspace", WorkspaceAction::Delete),
+    ];
     for (label, kind) in rows {
-        let row = flat_button("eb-menu-item");
-        row.add(&text(label, "eb-menu-item-label"));
+        let menu_row = flat_button("eb-menu-item");
+        if kind == WorkspaceAction::Delete {
+            class(&menu_row, "eb-menu-item-danger");
+        }
+        menu_row.add(&text(label, "eb-menu-item-label"));
         let id = workspace.id.clone();
         let action = action.clone();
         let popover = popover.clone();
-        row.connect_clicked(move |_| {
+        menu_row.connect_clicked(move |_| {
             popover.popdown();
             action(kind, id.clone());
         });
-        column.pack_start(&row, false, false, 0);
+        column.pack_start(&menu_row, false, false, 0);
     }
     popover.add(&column);
     column.show_all();
@@ -443,7 +470,40 @@ fn workspace_header(
         let popover = popover.clone();
         move |_| popover.popup()
     });
-    button
+
+    let plus = flat_button("eb-header-plus");
+    plus.set_tooltip_text(Some("New Task"));
+    plus.add(&glyph("⊞"));
+    {
+        let action = action.clone();
+        let id = workspace.id.clone();
+        plus.connect_clicked(move |_| action(WorkspaceAction::NewTask, id.clone()));
+    }
+
+    // Hover reveals both round buttons, like WorkBuddy.
+    for revealed in [&button, &plus] {
+        hide_from_show_all(revealed);
+    }
+    {
+        let revealed = [button.clone(), plus.clone()];
+        container.connect_enter_notify_event(move |_, _| {
+            for widget in &revealed {
+                widget.set_visible(true);
+            }
+            gtk::glib::Propagation::Proceed
+        });
+        let revealed = [button.clone(), plus.clone()];
+        container.connect_leave_notify_event(move |_, _| {
+            for widget in &revealed {
+                widget.set_visible(false);
+            }
+            gtk::glib::Propagation::Proceed
+        });
+    }
+
+    container.pack_start(&button, true, true, 0);
+    container.pack_start(&plus, false, false, 0);
+    container
 }
 
 /// Measured: 255x31, radius 8px, `padding: 0 12px`; the active row is #ebebeb.
