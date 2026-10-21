@@ -1534,3 +1534,13 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
 .eb-ghost {
   opacity: 0;
 }
+
+/* One selectable TextView per markdown text run: selection spans wrapped
+ * lines and paragraphs. The background is pinned like the composer editor's,
+ * so dark themes cannot paint their base under the light text colors. */
+textview.eb-md-view,
+textview.eb-md-view text {
+  background-color: @bg_card;
+  color: @eb_text_primary;
+  font-size: 15px;
+}

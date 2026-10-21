@@ -47,6 +47,11 @@ fn note(probes: &mut Probes, name: &'static str, widget: &impl WidgetExt) {
 pub struct Refresher {
     deferred: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
     immediate: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
+    /// Set while a throttled agent refresh is scheduled. Streaming delivers
+    /// one event per token, and each refresh tears the conversation down and
+    /// rebuilds it; coalescing the burst into one frame-rate rebuild is what
+    /// keeps X11 from flickering (Kylin among them).
+    pending: Rc<std::cell::Cell<bool>>,
 }
 
 impl Refresher {
@@ -54,6 +59,7 @@ impl Refresher {
         Refresher {
             deferred: Rc::new(RefCell::new(None)),
             immediate: Rc::new(RefCell::new(None)),
+            pending: Rc::new(std::cell::Cell::new(false)),
         }
     }
 
@@ -78,11 +84,20 @@ impl Refresher {
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresher: now {:?}", std::thread::current().id());
         }
-        if let Some(refresh) = self.immediate.borrow().as_ref() {
-            refresh();
-        } else {
-            self.request();
+        if self.pending.replace(true) {
+            return; // a rebuild is already scheduled inside this frame window
         }
+        let pending = self.pending.clone();
+        let immediate = self.immediate.clone();
+        let deferred = self.deferred.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(33), move || {
+            pending.set(false);
+            if let Some(refresh) = immediate.borrow().as_ref() {
+                refresh();
+            } else if let Some(refresh) = deferred.borrow().as_ref() {
+                refresh();
+            }
+        });
     }
 }
 
