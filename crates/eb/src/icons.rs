@@ -44,8 +44,11 @@ fn bytes(name: &str) -> Option<&'static [u8]> {
 /// Load an icon by name. Unknown names return `None` so callers can fall back
 /// to a text glyph during the transition.
 pub fn image(name: &str, size: i32) -> Option<gtk::Image> {
+    // Resolve the bytes *before* creating the loader: an unknown name must
+    // not leave a loader behind un-closed (GdkPixbuf warns on finalize).
+    let bytes = bytes(name)?;
     let loader = gtk::gdk_pixbuf::PixbufLoader::new();
-    loader.write(bytes(name)?).ok()?;
+    loader.write(bytes).ok()?;
     loader.close().ok()?;
     let pixbuf = loader.pixbuf()?;
     // `GtkImage::set_pixel_size` is ignored for a pixbuf-backed image in GTK3;

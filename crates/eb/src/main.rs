@@ -167,9 +167,18 @@ const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "
 
 /// Installs the embedded mascot as the default icon for every window.
 fn load_app_icon() {
-    match gtk::gdk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(APP_ICON_PNG)) {
-        Ok(pixbuf) => gtk::Window::set_default_icon(&pixbuf),
-        Err(error) => eprintln!("[evobuddy] app icon decode failed: {error}"),
+    // Manual loader rather than `Pixbuf::from_read`: the upstream
+    // gdk_pixbuf_new_from_stream path never closes its internal loader, and
+    // GdkPixbuf warns on finalize.
+    let icon = (|| -> Option<gtk::gdk::gdk_pixbuf::Pixbuf> {
+        let loader = gtk::gdk::gdk_pixbuf::PixbufLoader::new();
+        loader.write(APP_ICON_PNG).ok()?;
+        loader.close().ok()?;
+        loader.pixbuf()
+    })();
+    match icon {
+        Some(pixbuf) => gtk::Window::set_default_icon(&pixbuf),
+        None => eprintln!("[evobuddy] app icon decode failed"),
     }
     // Wayland compositors match the desktop entry by app id instead; keep the
     // icon-theme name as the fallback for installed bundles.
