@@ -82,7 +82,13 @@ pub fn load() -> Loaded {
 
     let mut workspaces: Vec<Workspace> = std::fs::read_to_string(workspaces_path())
         .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
+        .and_then(|text| {
+            let parsed = serde_json::from_str(&text);
+            if let Err(error) = &parsed {
+                eprintln!("[evobuddy] workspaces.json parse failed: {error}");
+            }
+            parsed.ok()
+        })
         .unwrap_or_default();
 
     let mut tasks = Vec::new();

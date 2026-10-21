@@ -1526,3 +1526,8 @@ button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   font-weight: 600;
   font-size: 13px;
 }
+
+/* WorkBuddy's workspace-row buttons are invisible until the row is hovered. */
+.eb-ghost {
+  opacity: 0;
+}
