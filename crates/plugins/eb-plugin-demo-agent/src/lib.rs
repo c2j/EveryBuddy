@@ -165,14 +165,13 @@ impl AnswerSource for FakeAgent {
                     });
                     return;
                 }
-                if sink
-                    .send(AgentEvent::Delta {
-                        text: format!("chunk {index} "),
-                    })
-                    .is_err()
-                {
+                if let Err(error) = sink.send(AgentEvent::Delta {
+                    text: format!("chunk {index} "),
+                }) {
+                    eprintln!("[fake-agent] delta send failed: {error:?}");
                     return;
                 }
+                eprintln!("[fake-agent] delta {index} sent");
             }
 
             if sink
