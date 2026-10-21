@@ -90,7 +90,10 @@ fn main() {
     ensure_gtk_im_modules();
 
     let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
-    application.connect_startup(|_| load_css());
+    application.connect_startup(|_| {
+        load_css();
+        load_app_icon();
+    });
     application.connect_activate(build_ui);
     application.connect_shutdown(|_| bridge::stop());
     preview_server::ensure();
@@ -156,6 +159,22 @@ fn ensure_gtk_im_modules() {
 /// On other platforms GTK locates its input-method modules on its own.
 #[cfg(not(target_os = "macos"))]
 fn ensure_gtk_im_modules() {}
+
+/// The mascot, embedded: window managers and docks take a running window's
+/// icon from the app, not from the desktop entry, so an AppImage or an unpacked
+/// bundle (Kylin's dock among them) would otherwise show a generic gear.
+const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/appicon.png"));
+
+/// Installs the embedded mascot as the default icon for every window.
+fn load_app_icon() {
+    match gtk::gdk::gdk_pixbuf::Pixbuf::from_read(std::io::Cursor::new(APP_ICON_PNG)) {
+        Ok(pixbuf) => gtk::Window::set_default_icon(&pixbuf),
+        Err(error) => eprintln!("[evobuddy] app icon decode failed: {error}"),
+    }
+    // Wayland compositors match the desktop entry by app id instead; keep the
+    // icon-theme name as the fallback for installed bundles.
+    gtk::Window::set_default_icon_name("evobuddy");
+}
 
 fn load_css() {
     let provider = gtk::CssProvider::new();
