@@ -7,3 +7,4 @@ Icon=evobuddy
 Terminal=false
 Categories=Utility;
 StartupNotify=true
+StartupWMClass=com.evobuddy.app

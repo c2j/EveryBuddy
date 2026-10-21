@@ -36,7 +36,7 @@ if command -v rsvg-convert >/dev/null 2>&1; then
   rsvg-convert -w 256 -h 256 -o "$prefix/share/icons/hicolor/256x256/apps/$app.png" \
     "$here/../evobuddy.svg"
 fi
-cp "$here/evobuddy.desktop" "$prefix/share/applications/$app.desktop"
+cp "$here/com.evobuddy.app.desktop" "$prefix/share/applications/com.evobuddy.app.desktop"
 install -m755 "$here/install.sh" "$prefix/install.sh"
 sed "s|@VERSION@|$version|; s|@ARCH@|$arch|" "$here/README.txt.in" > "$prefix/README.txt"
 
@@ -135,7 +135,7 @@ out_appimage="/out/$app-$version-linux-$arch.AppImage"
 rm -rf "$appdir" "$out_appimage" "$out_appimage.sha256"
 mkdir -p "$appdir"
 cp -a "$prefix/." "$appdir/"
-cp "$prefix/share/applications/$app.desktop" "$appdir/$app.desktop"
+cp "$prefix/share/applications/com.evobuddy.app.desktop" "$appdir/com.evobuddy.app.desktop"
 if [ -f "$prefix/share/icons/hicolor/256x256/apps/$app.png" ]; then
   cp "$prefix/share/icons/hicolor/256x256/apps/$app.png" "$appdir/$app.png"
   cp "$prefix/share/icons/hicolor/256x256/apps/$app.png" "$appdir/.DirIcon"

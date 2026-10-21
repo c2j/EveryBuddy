@@ -144,4 +144,4 @@ rm -rf /tmp/inst-prefix
 "$prefix/install.sh" /tmp/inst-prefix 2>&1 | sed 's/^/  /'
 ls -l /tmp/inst-prefix/bin/evobuddy | sed 's/^/  /'
 ls /tmp/inst-prefix/share/applications/ /tmp/inst-prefix/share/icons/hicolor/*/apps/ | sed 's/^/  /'
-echo "  resolved Exec: $(sed -n 's/^Exec=//p' /tmp/inst-prefix/share/applications/evobuddy.desktop)"
+echo "  resolved Exec: $(sed -n 's/^Exec=//p' /tmp/inst-prefix/share/applications/com.evobuddy.app.desktop)"
