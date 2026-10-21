@@ -480,22 +480,27 @@ fn workspace_header(
         plus.connect_clicked(move |_| action(WorkspaceAction::NewTask, id.clone()));
     }
 
-    // Hover reveals both round buttons, like WorkBuddy.
-    for revealed in [&button, &plus] {
-        hide_from_show_all(revealed);
-    }
-    {
+    // Hover reveals both round buttons, like WorkBuddy. The buttons stay
+    // realised (opacity 0) so the row keeps its height and hit area; only the
+    // paint toggles.
+    class(&button, "eb-ghost");
+    class(&plus, "eb-ghost");
+    // Boxes have no GDK window, so the crossing events have to live on the
+    // buttons themselves. Leaving one button ghosts both; entering the other
+    // immediately unghosts them again, so the pair looks stable while the
+    // pointer stays on the row.
+    for sensor in [&button, &plus] {
         let revealed = [button.clone(), plus.clone()];
-        container.connect_enter_notify_event(move |_, _| {
+        sensor.connect_enter_notify_event(move |_, _| {
             for widget in &revealed {
-                widget.set_visible(true);
+                widget.style_context().remove_class("eb-ghost");
             }
             gtk::glib::Propagation::Proceed
         });
         let revealed = [button.clone(), plus.clone()];
-        container.connect_leave_notify_event(move |_, _| {
+        sensor.connect_leave_notify_event(move |_, _| {
             for widget in &revealed {
-                widget.set_visible(false);
+                widget.style_context().add_class("eb-ghost");
             }
             gtk::glib::Propagation::Proceed
         });
