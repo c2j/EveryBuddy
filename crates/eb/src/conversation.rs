@@ -207,6 +207,7 @@ fn user_turn(value: &str, time: &str) -> gtk::Box {
     let bubble = vbox(0);
     class(&bubble, "eb-bubble");
     let label = gtk::Label::new(Some(value));
+    label.set_selectable(true);
     label.set_line_wrap(true);
     label.set_xalign(1.0);
     label.set_justify(gtk::Justification::Right);
@@ -561,6 +562,7 @@ fn table_cell(value: &str, class_name: &str, header: bool) -> gtk::Box {
     let cell = hbox(0);
     class(&cell, class_name);
     let label = gtk::Label::new(Some(value));
+    label.set_selectable(true);
     label.set_xalign(0.0);
     label.set_line_wrap(true);
     label.set_width_chars(1);
