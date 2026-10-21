@@ -31,12 +31,14 @@ fi
 
 mkdir -p "$prefix/bin" "$apps" "$icons/256x256/apps" "$icons/scalable/apps"
 ln -sf "$lib/run" "$prefix/bin/evobuddy"
-cp "$lib/share/applications/evobuddy.desktop" "$apps/"
+cp "$lib/share/applications/com.evobuddy.app.desktop" "$apps/"
+# Legacy entry from older bundles; harmless when absent.
+rm -f "$apps/evobuddy.desktop"
 cp "$lib/share/icons/hicolor/scalable/apps/evobuddy.svg" "$icons/scalable/apps/"
 [ -f "$lib/share/icons/hicolor/256x256/apps/evobuddy.png" ] &&
   cp "$lib/share/icons/hicolor/256x256/apps/evobuddy.png" "$icons/256x256/apps/"
 
 echo "installed:  $lib"
 echo "launcher:   $prefix/bin/evobuddy"
-echo "menu entry: $apps/evobuddy.desktop"
-echo "remove:     rm -rf $lib $prefix/bin/evobuddy $apps/evobuddy.desktop"
+echo "menu entry: $apps/com.evobuddy.app.desktop"
+echo "remove:     rm -rf $lib $prefix/bin/evobuddy $apps/com.evobuddy.app.desktop"

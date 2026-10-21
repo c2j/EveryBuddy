@@ -174,6 +174,34 @@ fn load_app_icon() {
     // Wayland compositors match the desktop entry by app id instead; keep the
     // icon-theme name as the fallback for installed bundles.
     gtk::Window::set_default_icon_name("evobuddy");
+    #[cfg(target_os = "macos")]
+    apply_macos_dock_icon();
+}
+
+/// macOS: the Dock takes its icon from NSApplication, not from the GTK window,
+/// so a bare `cargo run` binary shows the generic executable icon. Feed the
+/// embedded mascot straight to NSApp.
+#[cfg(target_os = "macos")]
+fn apply_macos_dock_icon() {
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::{NSData, MainThreadMarker};
+
+    let Some(marker) = MainThreadMarker::new() else {
+        return;
+    };
+    let data = unsafe {
+        NSData::dataWithBytes_length(
+            APP_ICON_PNG.as_ptr().cast::<std::ffi::c_void>(),
+            APP_ICON_PNG.len(),
+        )
+    };
+    let decoded = NSImage::initWithData(NSImage::alloc(), &data);
+    let Some(image) = decoded else {
+        eprintln!("[evobuddy] app icon: NSImage decode failed");
+        return;
+    };
+    unsafe { NSApplication::sharedApplication(marker).setApplicationIconImage(Some(&image)) };
 }
 
 fn load_css() {

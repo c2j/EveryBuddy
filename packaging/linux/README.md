@@ -19,12 +19,12 @@ app/
   bin/evobuddy
   lib/                 # GTK 3, GLib, Pango, Cairo, GDK, HarfBuzz, ... (72 .so)
   share/               # fonts, hicolor + app icons, compiled GSettings schemas
-  share/applications/evobuddy.desktop
+  share/applications/com.evobuddy.app.desktop
   etc/fonts.conf.template
 ```
 
 The AppImage is the same tree with three files added at its root — `AppRun`
-(what the runtime executes), `evobuddy.desktop`, and the icon, plus `.DirIcon`.
+(what the runtime executes), `com.evobuddy.app.desktop`, and the icon, plus `.DirIcon`.
 
 ```sh
 ./package.sh   # build on glibc 2.28: dist/app, the .tar.gz and the .AppImage
