@@ -147,6 +147,9 @@ struct TurnRender {
     blocks: Vec<u64>,
     /// The agent block container, kept for in-place block updates.
     body: Option<gtk::Box>,
+    /// The packed turn widget. `Container::children()` walks a GtkBox in
+    /// reverse, so removals must use these recorded handles, not children().
+    frame: Option<gtk::Widget>,
     /// Packed block widgets, parallel to `blocks`.
     widgets: Vec<gtk::Widget>,
 }
@@ -182,9 +185,16 @@ pub fn fill_messages(conversation: &Conversation, task: &Task) {
             .take_while(|(old, new)| old.sig == new.sig && old.blocks == new.blocks)
             .count()
     };
-    let children = conversation.messages.children();
-    for child in children.iter().skip(reuse) {
-        conversation.messages.remove(child);
+    let stale_frames: Vec<gtk::Widget> = {
+        let packed = conversation.turns.borrow();
+        packed
+            .iter()
+            .skip(reuse)
+            .filter_map(|turn| turn.frame.clone())
+            .collect()
+    };
+    for frame in stale_frames {
+        conversation.messages.remove(&frame);
     }
     conversation.turns.borrow_mut().truncate(reuse);
 
@@ -264,11 +274,11 @@ fn pack_turn(
 ) {
     match turn {
         Turn::User { text, time } => {
-            conversation
-                .messages
-                .pack_start(&user_turn(text, time), false, false, 0);
+            let frame = user_turn(text, time);
+            conversation.messages.pack_start(&frame, false, false, 0);
             conversation.turns.borrow_mut().push(TurnRender {
                 sig: state.sig,
+                frame: Some(frame.upcast()),
                 ..Default::default()
             });
         }
@@ -288,14 +298,13 @@ fn pack_turn(
                 parts.body.pack_start(&widget, false, false, 0);
                 widgets.push(widget);
             }
-            conversation
-                .messages
-                .pack_start(&parts.frame, false, false, 0);
+            conversation.messages.pack_start(&parts.frame, false, false, 0);
             conversation.turns.borrow_mut().push(TurnRender {
                 sig: state.sig,
                 blocks: state.blocks.clone(),
                 body: Some(parts.body),
                 widgets,
+                frame: Some(parts.frame.upcast()),
             });
         }
     }
@@ -521,8 +530,9 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
     if let Some(status) = status {
         // Measured: 15px at rgba(0,0,0,.5), directly under the header. Errors
         // arrive through this line too, so it must be able to wrap instead of
-        // becoming the window's minimum width.
-        let line = text(status, "eb-agent-status");
+        // becoming the window's minimum width. WorkBuddy marks the line with a
+        // trailing chevron.
+        let line = text(&format!("{status} ›"), "eb-agent-status");
         line.set_margin_top(8);
         line.set_line_wrap(true);
         line.set_wrap_mode(gtk::pango::WrapMode::WordChar);
@@ -531,11 +541,10 @@ fn agent_turn(name: &str, status: Option<&str>, blocks: &[Block], streaming: boo
         frame.pack_start(&line, false, false, 0);
     }
 
+    // Blocks are packed by `pack_turn`, which also records them for in-place
+    // streaming updates; packing here as well would render everything twice.
     let body = vbox(0);
     body.set_margin_top(12);
-    for block in blocks {
-        body.pack_start(&block_widget(block), false, false, 0);
-    }
     frame.pack_start(&body, false, false, 0);
 
     if streaming {
@@ -844,22 +853,6 @@ fn streaming_footer() -> gtk::Box {
     row
 }
 
-/// Initialise GTK exactly once for the widget tests, and only on the thread
-/// that won the race: macOS aborts `gtk_init` off the main thread, and CI has
-/// no display at all. `None` means "skipping is required".
-#[cfg(test)]
-fn try_init_gtk_for_test() -> Option<std::thread::ThreadId> {
-    use std::sync::OnceLock;
-    static INIT: OnceLock<Option<std::thread::ThreadId>> = OnceLock::new();
-    let thread = std::thread::current().id();
-    let winner = INIT.get_or_init(|| {
-        std::panic::catch_unwind(|| gtk::init().is_ok())
-            .unwrap_or(false)
-            .then_some(thread)
-    });
-    winner.filter(|winner| *winner == thread)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,7 +863,7 @@ mod tests {
     /// instead of tearing the widget down and repainting from scratch.
     #[test]
     fn sync_blocks_updates_growing_text_in_place() {
-        if try_init_gtk_for_test().is_none() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
             eprintln!("skipping: gtk needs the main thread and a display");
             return;
         }
