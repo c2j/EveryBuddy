@@ -31,6 +31,8 @@ use crate::widgets::*;
 pub struct Wiring {
     /// The "show sidebar" affordance shown while the sidebar is collapsed.
     pub reveal: Rc<dyn Fn()>,
+    /// The "show artifact panel" affordance in the chat topbar.
+    pub open_artifact: Rc<dyn Fn()>,
 }
 
 pub struct Conversation {
@@ -38,6 +40,8 @@ pub struct Conversation {
     pub topbar: gtk::Box,
     /// The action group in the topbar: search and share.
     pub actions: gtk::Box,
+    /// Shown while the artifact panel is hidden but files exist; reopens it.
+    pub artifact_button: gtk::Button,
     /// The topbar title, repainted with the active task's title.
     pub title: gtk::Label,
     /// The scroll region holding the messages.
@@ -98,6 +102,15 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     );
     actions.pack_start(&share, false, false, 0);
 
+    // Reopens the artifact panel after the user dismissed it.
+    let artifact_button = icon_button("▦", "eb-icon", "Show artifact panel");
+    hide_from_show_all(&artifact_button);
+    artifact_button.connect_clicked({
+        let open_artifact = wiring.open_artifact.clone();
+        move |_| open_artifact()
+    });
+    actions.pack_start(&artifact_button, false, false, 0);
+
     options.pack_start(&actions, false, false, 0);
     topbar.pack_start(&options, true, true, 0);
     root.pack_start(&topbar, false, false, 0);
@@ -128,6 +141,7 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         root,
         topbar,
         actions,
+        artifact_button,
         title,
         scroll,
         messages,

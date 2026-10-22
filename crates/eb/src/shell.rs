@@ -288,7 +288,11 @@ pub fn build(
     });
     let feedback_root: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
     let feedback_outer: Rc<RefCell<Option<gtk::Paned>>> = Rc::new(RefCell::new(None));
-    let hide_detail_base = act0(store, &refresher, |app| app.detail_visible = false);
+    let hide_detail_base = act0(store, &refresher, |app| {
+        app.detail_visible = false;
+        // Stay closed for this task even when further files arrive.
+        app.artifact_dismissed = true;
+    });
     let hide_detail: Rc<dyn Fn()> = {
         let base = hide_detail_base.clone();
         let feedback_root = feedback_root.clone();
@@ -440,9 +444,30 @@ pub fn build(
     note(&mut probes, "eb-composer-footer", &welcome.footer);
     note(&mut probes, "eb-notice", &welcome.notice);
 
+    let open_artifact: Rc<dyn Fn()> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move || {
+            {
+                let mut app = store.borrow_mut();
+                app.artifact_dismissed = false;
+                let has = match &app.route {
+                    crate::model::Route::Task(index) => app
+                        .tasks
+                        .get(*index)
+                        .and_then(|task| task.artifact.as_ref())
+                        .is_some(),
+                    _ => false,
+                };
+                app.detail_visible = has;
+            }
+            refresher.request();
+        })
+    };
     let conversation = conversation::build(
         &conversation::Wiring {
             reveal: reveal.clone(),
+            open_artifact: open_artifact.clone(),
         },
         &chat_composer,
     );
@@ -926,6 +951,11 @@ impl Views {
             }
         }
         self.detail.root.set_visible(open);
+        // While the panel is dismissed but files exist, offer the reopen
+        // affordance in the chat topbar.
+        self.conversation
+            .artifact_button
+            .set_visible(!open && artifact.is_some());
 
         // ---- panes --------------------------------------------------------
         self.sidebar.root.set_visible(app.sidebar_visible);

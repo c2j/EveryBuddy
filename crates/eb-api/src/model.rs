@@ -180,6 +180,9 @@ pub struct App {
     pub workspaces: Vec<Workspace>,
     pub sidebar_visible: bool,
     pub detail_visible: bool,
+    /// The user closed the artifact panel; stay closed until the task
+    /// changes, even when new files arrive.
+    pub artifact_dismissed: bool,
     /// The artifact panel's "expand" button: the panel takes the whole window
     /// instead of sharing it with the conversation.
     pub detail_maximised: bool,
@@ -217,6 +220,7 @@ impl App {
             workspaces: Vec::new(),
             sidebar_visible: true,
             detail_visible: false,
+            artifact_dismissed: false,
             detail_maximised: false,
             model: 0,
             workspace: 0,
@@ -251,6 +255,7 @@ impl App {
         self.nav = Some(0);
         self.route = Route::Welcome;
         self.detail_visible = false;
+        self.artifact_dismissed = false;
     }
 
     pub fn open_task(&mut self, index: usize) {
@@ -259,6 +264,7 @@ impl App {
         }
         self.nav = None;
         self.route = Route::Task(index);
+        self.artifact_dismissed = false;
         self.detail_visible = self.tasks[index].artifact.is_some();
     }
 
@@ -355,7 +361,11 @@ impl App {
                 return false;
             };
             task.artifact = Some(artifact);
-            self.detail_visible = true;
+            // A manual close wins: the panel stays hidden for this task even
+            // when further files arrive (WorkBuddy behaves the same).
+            if !self.artifact_dismissed {
+                self.detail_visible = true;
+            }
             return true;
         }
 
