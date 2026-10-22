@@ -928,18 +928,27 @@ impl Runner {
                             &file,
                             "#include <stdio.h>\nint main(){char *s=\"#include <stdio.h>%cint main()%c{%char *s=%c%s%c;printf(s,10,34,s,34);}\";printf(s,10,34,s,34);}\n",
                         );
+                        let fake_block = eb_api::AgentEvent::Block {
+                            block: crate::model::Block::Diff {
+                                path: file.display().to_string(),
+                                added: 2,
+                                removed: 0,
+                                lines: Vec::new(),
+                            },
+                        };
                         if let Some(active) = runner.active.borrow().as_ref() {
-                            runner.store.borrow_mut().apply_agent_event(
-                                active.task,
-                                eb_api::AgentEvent::Block {
-                                    block: crate::model::Block::Diff {
-                                        path: file.display().to_string(),
-                                        added: 2,
-                                        removed: 0,
-                                        lines: Vec::new(),
-                                    },
-                                },
-                            );
+                            let task = active.task;
+                            runner.store.borrow_mut().apply_agent_event(task, fake_block.clone());
+                            // Same interception the drain applies to real
+                            // agents: the written file pops the panel open.
+                            if let Some(artifact) =
+                                runner.written_file_artifact(task, &fake_block)
+                            {
+                                runner.store.borrow_mut().apply_agent_event(
+                                    task,
+                                    eb_api::AgentEvent::Artifact { artifact },
+                                );
+                            }
                         }
                     }
                     let applied = if let Some(active) = runner.active.borrow().as_ref() {
