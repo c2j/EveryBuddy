@@ -23,7 +23,7 @@ use eb_api::{
     PermissionDecision, PermissionPrompter, PermissionRequest,
 };
 
-use crate::model::Store;
+use crate::model::{Artifact, Store};
 use crate::shell::Refresher;
 
 struct Active {
@@ -216,6 +216,65 @@ impl PermissionPrompter for PermissionBridge {
         }
         answer.recv().unwrap_or(PermissionDecision::Cancelled)
     }
+}
+
+
+/// Paths of files a reported block wrote, in report order. `Diff` blocks carry
+/// the path directly; tool rows often carry it in the title ("Write /abs/path").
+fn collect_written_paths(block: &crate::model::Block) -> Vec<String> {
+    use crate::model::Block;
+    match block {
+        Block::Diff { path, .. } => vec![path.clone()],
+        Block::Tool { primary, .. } => {
+            let trimmed = primary.trim();
+            for prefix in ["Write ", "Edit ", "Create ", "Wrote ", "Created "] {
+                if let Some(path) = trimmed.strip_prefix(prefix) {
+                    let path = path.trim();
+                    if !path.is_empty() && !path.contains(' ') {
+                        return vec![path.to_string()];
+                    }
+                }
+            }
+            Vec::new()
+        }
+        Block::Group { blocks, .. } => blocks
+            .iter()
+            .flat_map(collect_written_paths)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+
+/// Read the newest written file that exists under any of `bases` (absolute
+/// paths win as-is). The newest candidate wins: within a batch the last
+/// written file is the one the user just produced.
+fn resolve_file_artifact(
+    paths: &[String],
+    bases: &[std::path::PathBuf],
+) -> Option<Artifact> {
+    for path in paths.iter().rev() {
+        for base in bases {
+            let resolved = if std::path::Path::new(path).is_absolute() {
+                std::path::PathBuf::from(path)
+            } else {
+                base.join(path)
+            };
+            if let Ok(content) = std::fs::read_to_string(&resolved) {
+                const MAX: usize = 512 * 1024;
+                let mut content = content;
+                if content.len() > MAX {
+                    content.truncate(MAX);
+                }
+                let name = resolved
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.clone());
+                return Some(Artifact { name, code: content });
+            }
+        }
+    }
+    None
 }
 
 impl Runner {
@@ -698,6 +757,33 @@ impl Runner {
         }
     }
 
+    /// The file a just-reported block wrote, if it exists on disk. `Diff`
+    /// blocks carry the path directly; tool rows often carry it in the title
+    /// ("Write /abs/path").
+    fn written_file_artifact(&self, task: usize, event: &AgentEvent) -> Option<Artifact> {
+        let AgentEvent::Block { block } = event else {
+            return None;
+        };
+        let paths = collect_written_paths(block);
+        if paths.is_empty() {
+            return None;
+        }
+        let app = self.store.borrow();
+        let task = app.tasks.get(task)?;
+        let workspace_root = task.workspace_id.as_deref().and_then(|id| {
+            app.workspaces
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .map(|workspace| workspace.root.clone())
+        });
+        let mut bases: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(root) = workspace_root {
+            bases.push(std::path::PathBuf::from(root));
+        }
+        bases.push(std::path::PathBuf::from("."));
+        resolve_file_artifact(&paths, &bases)
+    }
+
     fn drain(self: &Rc<Self>) {
         let mut closed = false;
         let mut applied = false;
@@ -714,9 +800,18 @@ impl Runner {
                         }
                         let done =
                             matches!(event, AgentEvent::Finished | AgentEvent::Failed { .. });
+                        // WorkBuddy surfaces every file the agent writes in the
+                        // artifact panel. Do the same: when a block names a
+                        // written file, read it and pop the panel open.
                         self.store
                             .borrow_mut()
-                            .apply_agent_event(active.task, event);
+                            .apply_agent_event(active.task, event.clone());
+                        if let Some(artifact) = self.written_file_artifact(active.task, &event) {
+                            self.store.borrow_mut().apply_agent_event(
+                                active.task,
+                                AgentEvent::Artifact { artifact },
+                            );
+                        }
                         if !done && !crate::dsh_agent::enabled() {
                             let text = self.store.borrow().tasks.get(active.task).and_then(|task| {
                                 task.turns.iter().rev().find_map(|turn| match turn {
@@ -821,6 +916,32 @@ impl Runner {
                 // repaint, exercising the streaming render path (in-place
                 // text updates) without a live agent.
                 if std::env::var_os("EB_FAKE_STREAM").is_some() {
+                    // Once per stream, write a real file and report it the way
+                    // an agent edit does — exercises the artifact pop-open.
+                    static FAKE_FILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                    if !FAKE_FILE.get().copied().unwrap_or(false) {
+                        let _ = FAKE_FILE.set(true);
+                        let dir = std::env::temp_dir().join("evobuddy-fake-stream");
+                        let _ = std::fs::create_dir_all(&dir);
+                        let file = dir.join("quine.c");
+                        let _ = std::fs::write(
+                            &file,
+                            "#include <stdio.h>\nint main(){char *s=\"#include <stdio.h>%cint main()%c{%char *s=%c%s%c;printf(s,10,34,s,34);}\";printf(s,10,34,s,34);}\n",
+                        );
+                        if let Some(active) = runner.active.borrow().as_ref() {
+                            runner.store.borrow_mut().apply_agent_event(
+                                active.task,
+                                eb_api::AgentEvent::Block {
+                                    block: crate::model::Block::Diff {
+                                        path: file.display().to_string(),
+                                        added: 2,
+                                        removed: 0,
+                                        lines: Vec::new(),
+                                    },
+                                },
+                            );
+                        }
+                    }
                     let applied = if let Some(active) = runner.active.borrow().as_ref() {
                         runner.store.borrow_mut().apply_agent_event(
                             active.task,
@@ -968,3 +1089,54 @@ mod tests {
         assert!(prompt.contains("earlier context omitted"));
     }
 }
+
+
+    use super::*;
+
+    /// A Diff block naming a written file must surface that file's content as
+    /// the artifact WorkBuddy-style: the panel pops open with the source.
+    #[test]
+    fn written_files_surface_as_artifacts() {
+        let dir = std::env::temp_dir().join("evobuddy-artifact-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("quine.c");
+        std::fs::write(&file, "#include <stdio.h>\nint main(){}\n").unwrap();
+
+        let block = crate::model::Block::Diff {
+            path: file.display().to_string(),
+            added: 2,
+            removed: 0,
+            lines: Vec::new(),
+        };
+        let paths = collect_written_paths(&block);
+        assert_eq!(paths, vec![file.display().to_string()]);
+
+        let artifact = resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")])
+            .expect("written file resolves");
+        assert_eq!(artifact.name, "quine.c");
+        assert!(artifact.code.contains("#include <stdio.h>"));
+    }
+
+    #[test]
+    fn tool_rows_with_paths_surface_too() {
+        let block = crate::model::Block::Tool {
+            status: "Ran".into(),
+            primary: "Write /tmp/evobuddy-tool-path/example.txt".into(),
+            detail: None,
+        };
+        assert_eq!(
+            collect_written_paths(&block),
+            vec!["/tmp/evobuddy-tool-path/example.txt".to_string()]
+        );
+        // relative paths resolve against the given bases
+        let block = crate::model::Block::Diff {
+            path: "src/main.rs".into(),
+            added: 1,
+            removed: 0,
+            lines: Vec::new(),
+        };
+        let paths = collect_written_paths(&block);
+        // cargo test runs with the package root as cwd
+        assert!(resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")]).is_some());
+    }
+
