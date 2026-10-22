@@ -312,3 +312,19 @@ pub fn attach_menu(
 
     popover
 }
+
+/// Initialise GTK once for widget tests, and only on the thread that won the
+/// race: macOS aborts `gtk_init` off the main thread, and CI has no display.
+/// `None` means "skipping is required".
+#[cfg(test)]
+pub(crate) fn try_init_gtk_for_test() -> Option<std::thread::ThreadId> {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<Option<std::thread::ThreadId>> = OnceLock::new();
+    let thread = std::thread::current().id();
+    let winner = INIT.get_or_init(|| {
+        std::panic::catch_unwind(|| gtk::init().is_ok())
+            .unwrap_or(false)
+            .then_some(thread)
+    });
+    winner.filter(|winner| *winner == thread)
+}

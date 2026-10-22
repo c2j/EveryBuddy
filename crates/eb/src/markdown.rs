@@ -19,7 +19,12 @@ pub fn render(value: &str) -> gtk::Box {
     let mut segs: Vec<Seg> = Vec::new();
     let mut code: Option<(String, Vec<String>)> = None;
 
-    for line in value.lines() {
+    let lines: Vec<&str> = value.lines().collect();
+    let mut position = 0;
+    while position < lines.len() {
+        let line = lines[position];
+        position += 1;
+
         if let Some((_language, body)) = &mut code {
             if line.trim_start().starts_with("```") {
                 flush_segments(&root, &mut segs);
@@ -38,7 +43,20 @@ pub fn render(value: &str) -> gtk::Box {
             continue;
         }
         if trimmed.trim().is_empty() {
-            flush_segments(&root, &mut segs);
+            // A blank line only splits the run when the next content line is
+            // not another list item: WorkBuddy keeps a list tight.
+            let next_content = lines[position..]
+                .iter()
+                .find(|candidate| !candidate.trim().is_empty());
+            let continues_list = next_content.is_some_and(|candidate| {
+                let candidate = candidate.trim_start();
+                candidate.starts_with("- ")
+                    || candidate.starts_with("* ")
+                    || numbered(candidate).is_some()
+            });
+            if !continues_list {
+                flush_segments(&root, &mut segs);
+            }
             continue;
         }
         if let Some((level, rest)) = heading(trimmed) {
@@ -47,12 +65,10 @@ pub fn render(value: &str) -> gtk::Box {
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-            flush_segments(&root, &mut segs);
-            segs.push(Seg::Item("*".into(), rest.trim().to_string()));
+            segs.push(Seg::Item("•".into(), rest.trim().to_string()));
             continue;
         }
         if let Some((number, rest)) = numbered(trimmed) {
-            flush_segments(&root, &mut segs);
             segs.push(Seg::Item(number.trim().to_string(), rest.trim().to_string()));
             continue;
         }
@@ -127,7 +143,7 @@ pub fn text_markup(value: &str) -> Option<String> {
         }
         if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
             flush_paragraph_markup(&mut segs, &mut paragraph);
-            segs.push(Seg::Item("*".into(), rest.trim().to_string()));
+            segs.push(Seg::Item("•".into(), rest.trim().to_string()));
             continue;
         }
         if let Some((number, rest)) = numbered(trimmed) {
@@ -256,7 +272,7 @@ fn inline(value: &str) -> String {
                 let end = index + 1 + end;
                 let code: String = chars[index + 1..end].iter().collect();
                 out.push_str(&format!(
-                    "<span font_family=\"monospace\" foreground=\"#c7254e\">{}</span>",
+                    "<span font_family=\"monospace\" background=\"#efefef\">{}</span>",
                     escape(&code)
                 ));
                 index = end + 1;
@@ -268,7 +284,7 @@ fn inline(value: &str) -> String {
                 let end = index + 2 + end;
                 let bold: String = chars[index + 2..end].iter().collect();
                 out.push_str(&format!("<b>{}</b>", escape(&bold)));
-                index = end + 1;
+                index = end + 2;
                 continue;
             }
         }
@@ -277,7 +293,7 @@ fn inline(value: &str) -> String {
                 let end = index + 1 + end;
                 let italic: String = chars[index + 1..end].iter().collect();
                 out.push_str(&format!("<i>{}</i>", escape(&italic)));
-                index = end + 1;
+                index = end + 2;
                 continue;
             }
         }
@@ -386,3 +402,43 @@ mod tests {
         assert_eq!(heading("not a heading"), None);
     }
 }
+
+    use super::*;
+    use gtk::prelude::*;
+
+    /// Every markdown run must render exactly once, in order: this guards the
+    /// streaming incremental renderer against double-packing.
+    #[test]
+    fn render_renders_each_run_once_in_order() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let value = "Here's the Java Quine:\n\n**How it works:**\n\n1. **char q = 34** — stores\n2. **String[] a** — contains\n\n- `10` → newline\n- `34` → `\"`\n\nThis produces the exact source.";
+        let root = render(value);
+        let mut texts: Vec<String> = Vec::new();
+        for child in root.children() {
+            if let Ok(view) = child.downcast::<gtk::TextView>() {
+                let buffer = view.buffer().unwrap();
+                texts.push(
+                    buffer
+                        .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                );
+            }
+        }
+        let joined = texts.join("|");
+        eprintln!("runs: {texts:?}");
+        let count = |needle: &str| joined.matches(needle).count();
+        assert_eq!(count("Here's the Java Quine"), 1, "paragraph duplicated");
+        assert_eq!(count("How it works"), 1, "heading duplicated");
+        assert_eq!(count("char q = 34"), 1, "item duplicated");
+        assert_eq!(count("This produces"), 1, "closing duplicated");
+        // order: paragraph before heading before closing
+        let first = joined.find("Here's the Java Quine").unwrap();
+        let heading = joined.find("How it works").unwrap();
+        let closing = joined.find("This produces").unwrap();
+        assert!(first < heading && heading < closing, "runs out of order");
+    }
+
