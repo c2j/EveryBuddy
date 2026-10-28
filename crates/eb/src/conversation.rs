@@ -1847,8 +1847,15 @@ fn artifact_card(artifact: &Artifact, index: usize, actions: &TurnActions) -> gt
     card.set_tooltip_text(Some(&format!("Open {} in the artifact panel", artifact.name)));
 
     let inner = hbox(12);
-    let badge = crate::icons::image(if is_code_file(&artifact.name) { "artifact-code" } else { "artifact-unknown" }, 24)
-        .unwrap_or_else(|| crate::icons::image("artifact-unknown", 24).unwrap());
+    // `image` is None when gdk-pixbuf cannot decode the PNG. The bare Debian
+    // 10 bundle is one of those hosts, and unwrapping here aborts the process
+    // the first time a card is built. `named` keeps a label in that case.
+    let badge_name = if is_code_file(&artifact.name) {
+        "artifact-code"
+    } else {
+        "artifact-unknown"
+    };
+    let badge = crate::icons::named(badge_name, 24, "eb-artifact-badge");
     badge.set_valign(gtk::Align::Center);
     inner.pack_start(&badge, false, false, 0);
 
