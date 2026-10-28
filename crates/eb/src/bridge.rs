@@ -4,27 +4,105 @@
 //! messageFeedback service on 127.0.0.1:39472. This module is the single owner:
 //! Settings starts/stops it, previews ensure it is up, and app shutdown stops it.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-const ADDR: &str = "127.0.0.1:39472";
+const DEFAULT_ADDR: &str = "127.0.0.1:39472";
+/// The bridge address, overridable so the hang harness can squat on a port of
+/// its own instead of fighting a bridge that is already running.
+fn addr() -> std::net::SocketAddr {
+    std::env::var("EVOBUDDY_BRIDGE_ADDR")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| DEFAULT_ADDR.parse().expect("default bridge address"))
+}
+/// Session calls are small local writes; bound every socket operation so a
+/// stuck bridge can never freeze the GTK main thread (submit and drain call
+/// these inline). Only `run_agent` waits on a real model turn, and it runs on
+/// the dsh worker thread, so it gets a generous read timeout instead.
+const CALL_TIMEOUT: Duration = Duration::from_millis(1000);
+const AGENT_READ_TIMEOUT: Duration = Duration::from_secs(600);
+const DEGRADED_COOLDOWN: Duration = Duration::from_secs(30);
+/// Worst-case stall for `ensure()`, which runs on the GTK main thread at app
+/// start and on every submit. A healthy bridge binds the port within tens of
+/// milliseconds; the old two-second budget turned a missing or wedged bridge
+/// into a frozen window on every new task.
+const BOOT_WAIT: Duration = Duration::from_millis(300);
 
 static CHILD: Mutex<Option<Child>> = Mutex::new(None);
 /// The one session the bridge is currently serving. Projection is global, so
 /// only this task may consume it; otherwise selecting an old task would
 /// overwrite its transcript with the live session's messages.
 static ACTIVE_SESSION: Mutex<Option<String>> = Mutex::new(None);
+static DEGRADED_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn degraded() -> bool {
+    DEGRADED_UNTIL
+        .lock()
+        .unwrap()
+        .is_some_and(|until| Instant::now() < until)
+}
+
+/// A connect that succeeded but timed out reading means the bridge process is
+/// alive and wedged. Skip further calls for the cooldown so the UI thread
+/// pays the bound once per window instead of once per event.
+fn mark_degraded() {
+    *DEGRADED_UNTIL.lock().unwrap() = Some(Instant::now() + DEGRADED_COOLDOWN);
+}
+
+fn is_timeout(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
+}
+
+fn exchange(read: Duration, request: String) -> Result<String, String> {
+    if degraded() {
+        return Err("bridge degraded".to_string());
+    }
+    let mut stream =
+        TcpStream::connect_timeout(&addr(), Duration::from_millis(150)).map_err(|e| e.to_string())?;
+    let _ = stream.set_write_timeout(Some(CALL_TIMEOUT));
+    let _ = stream.set_read_timeout(Some(read));
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| {
+            if is_timeout(&error) {
+                mark_degraded();
+            }
+            error.to_string()
+        })?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|error| {
+        if is_timeout(&error) {
+            mark_degraded();
+        }
+        error.to_string()
+    })?;
+    Ok(response)
+}
+
+fn request_line(method: &str, path: &str, body: Option<&serde_json::Value>) -> String {
+    let body = body.map(|value| value.to_string()).unwrap_or_default();
+    match method {
+        "GET" => format!(
+            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        ),
+        _ => format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        ),
+    }
+}
 
 pub fn healthy() -> bool {
-    TcpStream::connect_timeout(
-        &ADDR.parse().expect("bridge address"),
-        Duration::from_millis(150),
-    )
-    .is_ok()
+    TcpStream::connect_timeout(&addr(), Duration::from_millis(150)).is_ok()
 }
 
 fn binary() -> PathBuf {
@@ -87,7 +165,8 @@ pub fn start() -> Result<bool, String> {
         format!("cannot start bridge: {error}")
     })?;
     *slot = Some(child);
-    for _ in 0..40 {
+    let deadline = Instant::now() + BOOT_WAIT;
+    loop {
         if healthy() {
             return Ok(true);
         }
@@ -96,7 +175,10 @@ pub fn start() -> Result<bool, String> {
                 return Err("bridge exited during startup".into());
             }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        if Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
     eprintln!("bridge: did not become healthy");
     Err("bridge did not become healthy".into())
@@ -115,11 +197,11 @@ pub fn stop() {
     }
 }
 
-pub fn status() -> &'static str {
+pub fn status() -> String {
     if healthy() {
-        "running · http://127.0.0.1:39472"
+        format!("running · http://{}", addr())
     } else {
-        "stopped"
+        "stopped".to_string()
     }
 }
 
@@ -128,17 +210,11 @@ pub fn status() -> &'static str {
 /// assistant answer into one dsh session, then the feedback surface addresses
 /// that session's assistant message.
 pub fn bind_conversation(prompt: &str, answer: &str) -> Result<String, String> {
-    let body = serde_json::json!({ "prompt": prompt, "answer": answer }).to_string();
-    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
-    let request = format!(
-        "POST /session/append HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    use std::io::Read;
-    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    let body = serde_json::json!({ "prompt": prompt, "answer": answer });
+    let response = exchange(
+        CALL_TIMEOUT,
+        request_line("POST", "/session/append", Some(&body)),
+    )?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
         let marker = "\"sessionId\":\"";
         if let Some(start) = response.find(marker) {
@@ -153,24 +229,33 @@ pub fn bind_conversation(prompt: &str, answer: &str) -> Result<String, String> {
 }
 
 /// Create the empty dsh session that will back one EvoBuddy task.
+///
+/// A task without a session loses its dsh feedback surface, so a cold bridge
+/// gets retried for the boot budget. Refused connections answer instantly, so
+/// this loop can never outlast `BOOT_WAIT`; a wedged bridge fails with a
+/// timeout and returns on the first attempt.
 pub fn create_session(session_id: &str) -> Result<(), String> {
-    let body = serde_json::json!({ "sessionId": session_id }).to_string();
-    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
-    let request = format!(
-        "POST /session/create HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    use std::io::Read;
-    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    let body = serde_json::json!({ "sessionId": session_id });
+    let request = request_line("POST", "/session/create", Some(&body));
+    let deadline = Instant::now() + BOOT_WAIT;
+    let response = loop {
+        match exchange(CALL_TIMEOUT, request.clone()) {
+            Err(error) if connect_refused(&error) && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            result => break result?,
+        }
+    };
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
         *ACTIVE_SESSION.lock().unwrap() = Some(session_id.to_string());
         Ok(())
     } else {
         Err(response)
     }
+}
+
+fn connect_refused(error: &str) -> bool {
+    error.contains("Connection refused") || error.contains("ConnectionRefused")
 }
 
 /// Append one completed turn to the task's retained dsh session.
@@ -191,18 +276,11 @@ pub fn append_turn(
         "prompt": prompt,
         "answer": answer,
         "tools": tools,
-    })
-    .to_string();
-    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
-    let request = format!(
-        "POST /session/append HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    use std::io::Read;
-    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    });
+    let response = exchange(
+        CALL_TIMEOUT,
+        request_line("POST", "/session/append", Some(&body)),
+    )?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
         Ok(())
     } else {
@@ -212,16 +290,9 @@ pub fn append_turn(
 
 /// Read the retained session's user/assistant text in order.
 pub fn session_turns() -> Vec<(String, String)> {
-    let Ok(mut stream) = TcpStream::connect(ADDR) else { return Vec::new() };
-    let request = "GET /session HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    if stream.write_all(request.as_bytes()).is_err() {
+    let Ok(response) = exchange(CALL_TIMEOUT, request_line("GET", "/session", None)) else {
         return Vec::new();
-    }
-    let mut response = String::new();
-    use std::io::Read;
-    if stream.read_to_string(&mut response).is_err() {
-        return Vec::new();
-    }
+    };
     let Some(body) = response.split("\r\n\r\n").nth(1) else { return Vec::new() };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return Vec::new() };
     value["messages"]
@@ -254,17 +325,11 @@ pub fn active_session() -> Option<String> {
 
 /// Resume a persisted task session after an app restart.
 pub fn resume_session(session_id: &str) -> Result<(), String> {
-    let body = serde_json::json!({ "sessionId": session_id }).to_string();
-    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
-    let request = format!(
-        "POST /session/resume HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    use std::io::Read;
-    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
+    let body = serde_json::json!({ "sessionId": session_id });
+    let response = exchange(
+        CALL_TIMEOUT,
+        request_line("POST", "/session/resume", Some(&body)),
+    )?;
     if response.contains("\"ok\":true") || response.contains("\"ok\": true") {
         *ACTIVE_SESSION.lock().unwrap() = Some(session_id.to_string());
         Ok(())
@@ -275,39 +340,25 @@ pub fn resume_session(session_id: &str) -> Result<(), String> {
 
 /// Ordered session projection including tool rows.
 pub fn session_projection() -> Vec<serde_json::Value> {
-    let Ok(mut stream) = TcpStream::connect(ADDR) else { return Vec::new() };
-    let request = "GET /projection HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    if stream.write_all(request.as_bytes()).is_err() { return Vec::new() }
-    let mut response = String::new();
-    use std::io::Read;
-    if stream.read_to_string(&mut response).is_err() { return Vec::new() }
+    let Ok(response) = exchange(CALL_TIMEOUT, request_line("GET", "/projection", None)) else {
+        return Vec::new();
+    };
     let Some(body) = response.split("\r\n\r\n").nth(1) else { return Vec::new() };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return Vec::new() };
     value["items"].as_array().cloned().unwrap_or_default()
 }
 
-fn post_json(path: &str, body: serde_json::Value) -> Result<String, String> {
-    let body = body.to_string();
-    let mut stream = TcpStream::connect(ADDR).map_err(|error| error.to_string())?;
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(request.as_bytes()).map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    use std::io::Read;
-    stream.read_to_string(&mut response).map_err(|error| error.to_string())?;
-    Ok(response)
+fn post_json(read: Duration, path: &str, body: serde_json::Value) -> Result<String, String> {
+    exchange(read, request_line("POST", path, Some(&body)))
 }
 
 pub fn begin_turn(prompt: &str) -> Result<(), String> {
-    let response = post_json("/session/begin", serde_json::json!({ "prompt": prompt }))?;
+    let response = post_json(CALL_TIMEOUT, "/session/begin", serde_json::json!({ "prompt": prompt }))?;
     if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
 }
 
 pub fn append_attempt(text: &str) -> Result<(), String> {
-    let response = post_json("/session/attempt", serde_json::json!({ "text": text }))?;
+    let response = post_json(CALL_TIMEOUT, "/session/attempt", serde_json::json!({ "text": text }))?;
     if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
 }
 
@@ -315,12 +366,12 @@ pub fn finish_turn(answer: &str, tools: &[(String, String, String)]) -> Result<(
     let tools: Vec<_> = tools.iter().map(|(name, arguments, result)| serde_json::json!({
         "name": name, "arguments": arguments, "result": result
     })).collect();
-    let response = post_json("/session/finish", serde_json::json!({ "answer": answer, "tools": tools }))?;
+    let response = post_json(CALL_TIMEOUT, "/session/finish", serde_json::json!({ "answer": answer, "tools": tools }))?;
     if response.contains("\"ok\":true") { Ok(()) } else { Err(response) }
 }
 
 pub fn run_agent(prompt: &str) -> Result<Vec<(String, String)>, String> {
-    let response = post_json("/agent/turn", serde_json::json!({ "prompt": prompt }))?;
+    let response = post_json(AGENT_READ_TIMEOUT, "/agent/turn", serde_json::json!({ "prompt": prompt }))?;
     let body = response.split("\r\n\r\n").nth(1).unwrap_or(&response);
     let value: serde_json::Value = serde_json::from_str(body).map_err(|error| error.to_string())?;
     if value["ok"] != true {

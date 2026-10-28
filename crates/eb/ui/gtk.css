@@ -26,6 +26,13 @@
 @define-color eb_diff_add_bg    #e7f9ef;
 @define-color eb_diff_remove_bg #fef0f0;
 
+/* Measured filter-popover checkmark (ui-spec §5.4, 2026-10-24 capture). */
+@define-color eb_filter_check   #57bf9c;
+
+/* Measured topbar controls (ui-spec §5.6, 2026-10-24 captures): the icon
+ * button hover is a 32x32 rounded square on #f0f0f0. */
+@define-color eb_icon_hover_bg  #f0f0f0;
+
 @define-color eb_error           #c0392b;
 
 /* ---------------------------------------------------------------- window */
@@ -72,7 +79,9 @@ button.eb-icon {
 }
 
 button.eb-icon:hover {
-  background-color: @bg_tertiary;
+  /* Measured off the topbar search hover (ui-spec §5.6): #f0f0f0, not the
+   * sidebar row's #ebebeb. */
+  background-color: @eb_icon_hover_bg;
   color: @eb_text_primary;
 }
 
@@ -522,6 +531,28 @@ button.eb-task.eb-task-child {
   font-weight: 600;
 }
 
+/* Expanded conversation search (ui-spec §5.6, 2026-10-24 capture): a 300x32
+ * pill on #f2f2f2 (= @bg_hover_light) with 8px corners, sitting in the
+ * magnifier's slot. Inset 9px to the dimmed magnifier, 12px after the ×;
+ * the ^ v × steps are 24px wide each (measured 48px pitch at DPR 2). */
+.eb-search-pill {
+  background-color: @bg_hover_light;
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 12px 0 9px;
+}
+
+.eb-search-pill entry.eb-search-entry {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  outline-width: 0;
+  min-height: 24px;
+  padding: 0;
+  font-size: 14px;
+  color: @eb_text_primary;
+}
+
 /* The scrollable message column. Its horizontal margins are set in
  * shell::Views::refresh: 752 wide with no artifact panel, 500 with it open
  * (measured M2.1, ui-spec §5.3), centred in the available pane. */
@@ -529,10 +560,8 @@ button.eb-task.eb-task-child {
   padding: 0;
 }
 
-/* `cr-frame`: 16px above every message. The user's frame measured
- * `16px 0 28px` because a 28px action row sits in the bottom padding; here the
- * row is a real child instead, so only the top inset is kept (see
- * `.eb-frame-user`). The agent's frame measured `16px 0`. */
+/* `cr-frame`: agent frames are `16px 0`. A user frame is `16px 0 28px`, and
+ * the 28px is the toolbar itself, so the user frame drops the bottom 16. */
 .eb-frame {
   padding: 16px 0;
 }
@@ -541,17 +570,90 @@ button.eb-task.eb-task-child {
   padding-bottom: 0;
 }
 
-/* User bubble: 255.38x43.97, bg #f2f2f2, radius `16 16 0 16`,
- * `padding: 8px 12px`, 15px/400 at rgba(0,0,0,.9) on a 21px line. */
+/* User bubble: hugs short text, grows until it is 32px short of the column
+ * (live 720 inside 752; the inset is margin-start on the widget).
+ * bg #f2f2f2, radius `16 16 0 16`, `padding: 8px 12px`, 15px/400. */
 .eb-bubble {
   background-color: @bg_hover_light;
   border-radius: 16px 16px 0 16px;
   padding: 8px 12px;
 }
 
-.eb-bubble-text {
+label.eb-bubble-text {
   color: @eb_text_primary;
   font-size: 15px;
+}
+
+/* Viewport fade: 72px, transparent to the conversation surface. */
+.eb-message-mask {
+  background-color: transparent;
+  background-image: linear-gradient(to bottom, alpha(@color_bg_secondary_default, 0), @color_bg_secondary_default);
+  min-height: 72px;
+}
+
+/* Transcript bar (spec §10-39). The bar lives outside the scroller (§10-37), so
+ * it never gets the theme's overlay-scrollbar styling and inherits a solid
+ * ~14px trough - measured #cecece down the whole window edge, which reads as a
+ * grey band welded to the chrome. Strip the trough, thin the slider, inset it
+ * 4px from the edge, and let it thicken only while the transcript moves. Widths
+ * and alphas here are invented: the product's bar fades out, so a still capture
+ * yields nothing to measure (§10-21).
+ *
+ * Descendant combinators, not `>`: with `>` the *widget* rule took (the band went
+ * white) while `trough > slider` never matched, so the slider kept the theme's
+ * own colour and width. The node chain has something between the scrollbar and
+ * its trough that the theme's flatter selectors do not care about. */
+scrollbar.eb-transcript-bar,
+scrollbar.eb-transcript-bar trough,
+scrollbar.eb-transcript-bar slider,
+scrollbar.eb-transcript-bar button {
+  border: none;
+  box-shadow: none;
+  background-image: none;
+  background-color: transparent;
+}
+
+scrollbar.eb-transcript-bar {
+  min-width: 12px;
+  min-height: 12px;
+  padding: 0;
+  margin: 0;
+}
+
+scrollbar.eb-transcript-bar trough {
+  min-width: 12px;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+scrollbar.eb-transcript-bar slider {
+  background-color: alpha(#000, 0.13);
+  min-width: 3px;
+  min-height: 32px;
+  margin: 8px 4px 8px 5px;
+  border-radius: 99px;
+}
+
+scrollbar.eb-transcript-bar.eb-bar-active slider,
+scrollbar.eb-transcript-bar trough:hover slider {
+  background-color: alpha(#000, 0.26);
+  min-width: 5px;
+}
+
+scrollbar.eb-transcript-bar slider:active {
+  background-color: alpha(#000, 0.38);
+  min-width: 5px;
+}
+
+/* Steppers: the theme can hand a standalone scrollbar arrow buttons, which on a
+ * 12px bar look like two grey nubs. */
+scrollbar.eb-transcript-bar button {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  -gtk-icon-source: none;
 }
 
 /* Action row under a user message: right-aligned, 28px tall, `padding-top: 4px`,
@@ -562,6 +664,50 @@ button.eb-task.eb-task-child {
 
 .eb-message-time {
   color: @eb_text_tertiary;
+  font-size: 14px;
+}
+
+/* Artifact cards under a settled agent turn, measured from the product
+ * capture at DPR 2 (ui-spec §5.5): 370x64 cards filling the 752px column as
+ * two homogeneous 370s with a 12px gap, radius 10, fill #f2f2f2, 24px badge
+ * inset 14px, 12px badge-to-text gap, name 15px/600 over size 13px tertiary.
+ */
+button.eb-artifact-card {
+  background-color: @bg_hover_light;
+  background-image: none;
+  border-width: 0;
+  border-radius: 10px;
+  box-shadow: none;
+  min-height: 64px;
+  padding: 0 14px;
+}
+
+button.eb-artifact-card:hover {
+  background-color: shade(@bg_hover_light, 0.96);
+}
+
+.eb-artifact-name {
+  color: @eb_text_primary;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.eb-artifact-size {
+  color: @eb_text_tertiary;
+  font-size: 13px;
+}
+
+/* "View all artifacts (N)" text link, 26px below the cards, with the
+ * product's trailing chevron. */
+button.eb-artifact-viewall {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.eb-artifact-viewall-label {
+  color: @eb_text_secondary;
   font-size: 14px;
 }
 
@@ -651,8 +797,8 @@ button.eb-icon-mini:hover {
   padding: 0;
 }
 
-/* Text block: 15px/400 at rgba(0,0,0,.9) on a 24px line. The vertical rhythm
- * (53px per one-line block) is widget margins in Rust, not type metrics. */
+/* Text block: 15px/400 at rgba(0,0,0,.9). The 26px line box and the 12px
+ * paragraph gap are pixels on the text view, not a margin on this widget. */
 .eb-text-block {
   color: @eb_text_primary;
   font-size: 15px;
@@ -729,6 +875,16 @@ button.eb-context-usage:hover {
   font-size: 13px;
 }
 
+/* Streamed reasoning: a light host-rendered line (the product thinking UI
+   is not captured). */
+.eb-thought {
+  color: @eb_text_tertiary;
+  font-size: 13px;
+  font-style: italic;
+  border-left: 2px solid @border_strong;
+  padding-left: 10px;
+}
+
 /* Collapse header: 26.25px, 8px gap, 15px/400 at rgba(0,0,0,.5). */
 button.eb-group-header {
   background: none;
@@ -738,10 +894,17 @@ button.eb-group-header {
   min-height: 26px;
 }
 
-.eb-group-title,
-.eb-group-chevron {
+.eb-group-title {
   color: @eb_text_tertiary;
   font-size: 15px;
+}
+
+/* The product's collapse chevron is a 12x12 icon after the title. */
+.eb-group-chevron {
+  color: @eb_text_tertiary;
+  font-size: 12px;
+  min-width: 12px;
+  min-height: 12px;
 }
 
 /* ------------------------------------------------------- diff / exec blocks -- */
@@ -890,9 +1053,12 @@ button.eb-group-header {
   box-shadow: none;
   border-radius: 8px;
   padding: 0 8px;
-  /* Measured 240x32. `min-width` is a content-box value in GTK3, so the 16px
-     of horizontal padding is subtracted here. */
-  min-width: 224px;
+  /* Measured 32px tall, 240px wide at most — the width comes from the label's
+     24 max-width-chars and the strip's share (detail.rs), not a CSS floor: a
+     floor here would stop the tab from shrinking on narrow panels, and the
+     header's four action buttons would be clipped off-screen instead of the
+     name. */
+  min-width: 0;
   min-height: 32px;
   color: @eb_text_secondary;
   font-size: 14px;
@@ -1071,6 +1237,78 @@ button.eb-menu-item.eb-menu-item-danger .eb-menu-item-label {
 
 button.eb-menu-item.eb-menu-item-active .eb-menu-item-label {
   font-weight: 600;
+}
+
+/* ------------------------------------------------------- filter popover -- */
+/* Values are the 2026-10-24 product capture (ui-spec §5.4): a 240px card,
+ * 37px section headers, 31px rows at a 34px pitch, an 8px-radius #f7f7f7
+ * pill with a right-aligned #57bf9c check on the selected row. The hover
+ * fill is our own — the capture has no hover state.
+ *
+ * The card chrome lives on `.eb-filter-body`, not `> contents`: the offscreen
+ * snapshot only paints child widgets, and a contents-node-only background
+ * renders transparent there (the old `.eb-menu-body` styled its box for the
+ * same reason). */
+popover.eb-menu.eb-filter > contents {
+  background: none;
+  border-width: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.eb-filter-body {
+  background-color: @bg_card;
+  border: 1px solid @border_subtle;
+  border-radius: 10px;
+  padding: 0 8px;
+  box-shadow: 0 6px 16px alpha(@palette_black_100, 0.12);
+}
+
+.eb-filter-header {
+  min-height: 37px;
+  color: @eb_text_tertiary;
+  font-size: 13px;
+}
+
+button.eb-menu-item.eb-filter-row {
+  min-height: 31px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+
+button.eb-filter-row:hover {
+  background-color: @dropdown_item_bg_selected;
+}
+
+.eb-filter-label {
+  color: @eb_text_primary;
+  font-size: 13px;
+}
+
+button.eb-filter-row-selected {
+  background-color: @dropdown_item_bg_selected;
+}
+
+button.eb-filter-row-selected .eb-filter-label {
+  font-weight: 600;
+}
+
+.eb-filter-check {
+  color: @eb_filter_check;
+  font-size: 13px;
+}
+
+separator.eb-filter-separator {
+  margin-top: 9px;
+  background-color: @border_subtle;
+}
+
+button.eb-filter-reset {
+  margin-bottom: 9px;
+}
+
+button.eb-filter-reset .eb-filter-label {
+  color: @eb_chevron;
 }
 
 /* Experimental Settings → Plugins (runtime dsh host plugins). */

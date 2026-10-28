@@ -29,24 +29,42 @@ impl EbPlugin for DshAgent {
 
 impl AnswerSource for DshAgent {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle> {
-        if sink.send(AgentEvent::Started { name: "dsh".into() }).is_err() {
-            return Box::new(NoopHandle);
-        }
-        match crate::bridge::run_agent(prompt) {
-            Ok(messages) => {
-                for (role, text) in messages {
-                    if role == "assistant" && !text.is_empty() {
-                        if sink.send(AgentEvent::Block { block: eb_api::model::Block::Text(text) }).is_err() {
-                            break;
+        // `start` must return promptly: `run_agent` is a blocking HTTP call
+        // that runs a real agent turn (minutes, not milliseconds). Doing it
+        // inline would park the runtime thread and freeze the main thread in
+        // the start handshake.
+        let prompt = prompt.to_string();
+        std::thread::Builder::new()
+            .name("evobuddy-dsh-agent".into())
+            .spawn(move || {
+                if sink
+                    .send(AgentEvent::Started { name: "dsh".into() })
+                    .is_err()
+                {
+                    return;
+                }
+                match crate::bridge::run_agent(&prompt) {
+                    Ok(messages) => {
+                        for (role, text) in messages {
+                            if role == "assistant" && !text.is_empty() {
+                                if sink
+                                    .send(AgentEvent::Block {
+                                        block: eb_api::model::Block::Text(text),
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
                         }
+                        let _ = sink.send(AgentEvent::Finished);
+                    }
+                    Err(error) => {
+                        let _ = sink.send(AgentEvent::Failed { message: error });
                     }
                 }
-                let _ = sink.send(AgentEvent::Finished);
-            }
-            Err(error) => {
-                let _ = sink.send(AgentEvent::Failed { message: error });
-            }
-        }
+            })
+            .expect("spawn dsh agent worker");
         Box::new(NoopHandle)
     }
 }

@@ -67,12 +67,17 @@ pub trait AnswerSource: Send + Sync + 'static {
 |---|---|
 | `crates/eb-api/src/lib.rs` | 事件、sink/stream、取消句柄、`AnswerSource::start` |
 | `crates/eb-api/src/model.rs` | `begin_task` / `apply_agent_event`;`Delta` 追加到当前文本块 |
-| `crates/eb/src/agent.rs` | `AgentRuntime`(专用线程 + tokio)与 `Runner`(主线程 16ms drain、应用事件、supersede/cancel) |
+| `crates/eb/src/agent.rs` | `AgentRuntime`(专用线程 + tokio)与 `Runner`(主线程 16ms drain 全部在途流;同任务新提交 supersede,cancel 作用于当前路由任务) |
 | `crates/plugins/eb-plugin-demo-agent` | demo agent 同步发射;`EB_FAKE_AGENT=1` 的慢流 fake agent |
-| `main.rs` | `EB_FAKE_DEMO=1` 提交并等终态;`EB_CANCEL_AFTER_MS` 取消 |
+| `crates/eb/src/dsh_agent.rs` | dsh 路线的整轮在 `evobuddy-dsh-agent` 线程执行,`start` 只回一个 `NoopHandle` |
+| `crates/eb/src/bridge.rs` | 主线程内联的 dsh 桥 HTTP:连接 150ms、写/读 1s(`run_agent` 读 600s),超时即进入 30s 降级冷却 |
+| `main.rs` | `EB_FAKE_DEMO=1` 提交并等终态;`EB_CANCEL_AFTER_MS` 取消;`EB_TWO_TASK_TEST=1` 验证后台任务不被第二个提交打断;`EB_HANG_TEST=1` 用黑洞桥验证主线程调用有界 |
 
 当前限制/有意保留:
 
+- `AgentRuntime::start` 在主线程等握手,等待有界(`await_start(.., 10s)`):
+  `start` 违约不返回就报一条 `Failed` 而不是永久冻结窗口。dsh 路线因此必须把
+  整轮搬到工作线程(`crates/eb/src/dsh_agent.rs`);
 - `AgentSink` 是容量 64 的有界队列(满时阻塞 producer),没有丢弃策略;
 - `AgentRuntime` 已有专用线程和 current-thread tokio,`start` 在该线程执行;
   fake agent 仍自己起一个 worker 线程,模拟真实 agent 的异步生产;
@@ -80,11 +85,15 @@ pub trait AnswerSource: Send + Sync + 'static {
 - `start` panic 已转成 `Failed`;producer 线程 panic 通过 sink 断开转成
   `Failed("agent stream closed")`;
 - `Usage` 事件已定义,但模型还没有用量环,暂时忽略;
-- 同一任务只允许一个在途回答,新提交把旧的标成 `Cancelled`;
+- 每个任务只允许一个在途回答,同一任务的新提交把旧回答标成 `Cancelled`;
+  不同任务可并发流式:新任务提交/其他会话发言不影响在途任务,后台事件写回
+  各自任务(后台 artifact 不弹前台面板,dsh bridge 投影只在 session 仍为当前
+  活动会话时写入)。ACP 的真实 agent 共享一条子进程 session,跨任务 prompt
+  在插件内串行等待;
 - `Contribs` 仍是挂载期快照,运行期贡献热更新未做(agent 内容走 `AgentEvent`)。
 
-测试:`eb-api` 6 个(事件增量、失败、空 prompt、有界队列背压、Usage),demo-agent 5 个
-(完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`eb-plugin-acp-agent` 5 个(协议/权限/cancel),`evobuddy` 4 个(26 步期望表、负向断言、Markdown 解析)。
+测试:`eb-api` 12 个(事件增量、失败、空 prompt、有界队列背压、Usage、后台 artifact 不弹前台面板、在途任务判定),demo-agent 5 个
+(完整事件、M2.1 三种块、fake 流、取消、sink 关闭),`eb-plugin-acp-agent` 10 个(协议/权限/cancel/连接器→MCP 映射/握手探针/响应后的尾流/重试状态行/续流失败),`evobuddy` 39 个(宿主单元测试,含 33 步期望表、负向断言、Markdown 解析、artifacts 累积、artifact 文件卡、有界握手、有界且字符安全的 artifact 读取、窄窗口三段保底的分隔条计算、ACP 槽位枚举与 7 行路由菜单的 round-trip)。
 
 ## 3. 线程模型
 
@@ -129,9 +138,10 @@ M2.0a 不把它和 agent 流混在一起。
 `Tool`。会话跨 turn 保留；`session/cancel` 由 `AnswerHandle::cancel` 发出；
 权限请求默认弹 GTK 模态框让用户 allow/reject，`EVOBUDDY_ACP_AUTO_APPROVE=1` 可绕过。
 
-配置与限制见 [`docs/acp-agent.md`](acp-agent.md)。已验证 fake ACP（5 个测试，
-含 cancel）与真实 dsh/opencode 的 initialize/prompt 链路；dsh 需要本地
-`DEEPSEEK_API_KEY`，opencode 用本机认证。
+配置与限制见 [`docs/acp-agent.md`](acp-agent.md)。已验证 fake ACP（`eb-plugin-acp-agent`
+10 个测试，含 cancel、`EB_ACP_PROBE` 的握手探针和「响应之后还在干活」的尾流）与真实
+opencode 的 initialize/prompt 链路；opencode 用本机认证，dsh 已从 ACP profile 改成路由里的
+独立进程内路线（需要本地 `DEEPSEEK_API_KEY`）。
 
 ## 5. dsh 边界(已先选 A)
 
@@ -147,7 +157,9 @@ M2.0a 不把它和 agent 流混在一起。
 
 - ✅ fake agent:按 `Started → Status → Delta* → Block → Usage → Finished` 发射,
   带延迟;`EB_FAKE_DEMO=1` 等终态退出,`EB_CANCEL_AFTER_MS` 得到 `Failed/Cancelled`。
-- ✅ 顺序:同一任务的 user turn 先于 agent 事件;新提交把旧回答标成 `Cancelled`。
+- ✅ 顺序:同一任务的 user turn 先于 agent 事件;同一任务的新提交把旧回答标成 `Cancelled`。
+- ✅ 并发:任务 A 流式期间另起任务 B,A 继续在自己的会话里流到终态
+  (`EB_TWO_TASK_TEST=1` harness,回归时以退出码 1 报 `two-task: FAIL`)。
 - ✅ 测试:`cargo test` 覆盖 sink 关闭、取消、事件顺序;Linux/macOS verify 跑
   fake streaming/cancel。
 - ✅ demo agent 同步适配;M2.0a 时截图仍为 `5b0eef6b…`,M2.2/P2 后 baseline 为 `5d42eebb…`。

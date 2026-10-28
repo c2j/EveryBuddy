@@ -12,75 +12,29 @@ pub fn render(value: &str) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 9);
     class(&root, "eb-markdown");
 
-    // Consecutive text lines (paragraphs, headings, list items) accumulate
-    // into one selectable TextView, so a drag can select across wrapped lines
-    // and paragraphs the way the product's web client does; per-widget labels
-    // confine a selection to a single line.
-    let mut segs: Vec<Seg> = Vec::new();
-    let mut code: Option<(String, Vec<String>)> = None;
-
-    let lines: Vec<&str> = value.lines().collect();
-    let mut position = 0;
-    while position < lines.len() {
-        let line = lines[position];
-        position += 1;
-
-        if let Some((_language, body)) = &mut code {
-            if line.trim_start().starts_with("```") {
-                flush_segments(&root, &mut segs);
-                let (language, body) = code.take().unwrap();
-                root.pack_start(&code_block(&language, &body.join("\n")), false, false, 0);
-            } else {
-                body.push(line.to_string());
+    // Text stays in one selectable TextView until a fenced code card, so a drag
+    // can cross wrapped lines and paragraphs. Paragraphs are separate buffer
+    // lines with a 12px gap, not a blank line.
+    for chunk in parse(value) {
+        match chunk {
+            Chunk::Text(segs) => {
+                let view = markdown_view();
+                fill_view(&view, &segs);
+                root.pack_start(&view, false, false, 0);
             }
-            continue;
-        }
-
-        let trimmed = line.trim_end();
-        if let Some(language) = trimmed.trim_start().strip_prefix("```") {
-            flush_segments(&root, &mut segs);
-            code = Some((language.trim().to_string(), Vec::new()));
-            continue;
-        }
-        if trimmed.trim().is_empty() {
-            // A blank line only splits the run when the next content line is
-            // not another list item: WorkBuddy keeps a list tight.
-            let next_content = lines[position..]
-                .iter()
-                .find(|candidate| !candidate.trim().is_empty());
-            let continues_list = next_content.is_some_and(|candidate| {
-                let candidate = candidate.trim_start();
-                candidate.starts_with("- ")
-                    || candidate.starts_with("* ")
-                    || numbered(candidate).is_some()
-            });
-            if !continues_list {
-                flush_segments(&root, &mut segs);
+            Chunk::Code { language, body } => {
+                root.pack_start(&code_block(&language, &body), false, false, 0);
             }
-            continue;
         }
-        if let Some((level, rest)) = heading(trimmed) {
-            flush_segments(&root, &mut segs);
-            segs.push(Seg::Heading(level, rest.trim().to_string()));
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-            segs.push(Seg::Item("•".into(), rest.trim().to_string()));
-            continue;
-        }
-        if let Some((number, rest)) = numbered(trimmed) {
-            segs.push(Seg::Item(number.trim().to_string(), rest.trim().to_string()));
-            continue;
-        }
-        segs.push(Seg::Para(trimmed.trim().to_string()));
     }
-
-    if let Some((language, body)) = code {
-        root.pack_start(&code_block(&language, &body.join("\n")), false, false, 0);
-    }
-    flush_segments(&root, &mut segs);
     root
 }
+
+/// Body copy is 15px in a 26px line box. Live agent paragraphs add 12px under
+/// every paragraph except the last. GTK has no `line-height`, so the line box
+/// is split into above / inside-wrap / below pixels on the text view.
+const BODY_LINE_PX: i32 = 26;
+const PARAGRAPH_GAP: i32 = 12;
 
 /// One run of consecutive markdown text lines.
 enum Seg {
@@ -89,25 +43,68 @@ enum Seg {
     Item(String, String),
 }
 
-fn flush_segments(root: &gtk::Box, segs: &mut Vec<Seg>) {
-    if segs.is_empty() {
-        return;
-    }
-    let markup = segs
-        .drain(..)
-        .map(|seg| match seg {
-            Seg::Para(value) => inline(&value),
-            Seg::Heading(level, value) => {
-                // Pango markup has no relative sizes, so headings differ by
-                // weight only; the product's size scale is a CSS concern.
-                let _ = level;
-                format!("<span weight=\"bold\">{}</span>", inline(&value))
-            }
-            Seg::Item(marker, value) => format!("{}  {}", escape(&marker), inline(&value)),
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+enum Chunk {
+    Text(Vec<Seg>),
+    Code { language: String, body: String },
+}
 
+/// Replace the buffer of an existing markdown text view. Returns false when
+/// `value` contains a fence, so the caller rebuilds the code card instead.
+pub fn write_markdown_text(view: &gtk::TextView, value: &str) -> bool {
+    let chunks = parse(value);
+    if chunks
+        .iter()
+        .any(|chunk| matches!(chunk, Chunk::Code { .. }))
+    {
+        return false;
+    }
+    let segs = chunks.into_iter().fold(Vec::new(), |mut all, chunk| {
+        if let Chunk::Text(segs) = chunk {
+            all.extend(segs);
+        }
+        all
+    });
+    fill_view(view, &segs);
+    true
+}
+
+/// Pad a 15px text view out to the measured 26px line box.
+///
+/// The stylesheet may not have resolved the 15px font until the view is
+/// realized, so callers also connect this to `realize`. It refreshes the
+/// paragraph-gap tag when that tag is already on the buffer.
+pub fn apply_line_box(view: &gtk::TextView) {
+    let extra = line_extra(view);
+    let above = extra / 2;
+    let below = extra - above;
+    view.set_pixels_above_lines(above);
+    view.set_pixels_below_lines(below);
+    view.set_pixels_inside_wrap(extra);
+    let Some(buffer) = view.buffer() else {
+        return;
+    };
+    let Some(table) = buffer.tag_table() else {
+        return;
+    };
+    let Some(tag) = table.lookup("eb-md-gap") else {
+        return;
+    };
+    tag.set_pixels_below_lines(below + PARAGRAPH_GAP);
+    tag.set_pixels_below_lines_set(true);
+}
+
+fn line_extra(view: &gtk::TextView) -> i32 {
+    let font = view.style_context().font(gtk::StateFlags::NORMAL);
+    let metrics = view.pango_context().metrics(Some(&font), None);
+    let natural = (metrics.ascent() + metrics.descent()) / gtk::pango::SCALE;
+    if (12..=BODY_LINE_PX).contains(&natural) {
+        BODY_LINE_PX - natural
+    } else {
+        8
+    }
+}
+
+fn markdown_view() -> gtk::TextView {
     let view = gtk::TextView::new();
     view.set_editable(false);
     view.set_cursor_visible(false);
@@ -115,66 +112,168 @@ fn flush_segments(root: &gtk::Box, segs: &mut Vec<Seg>) {
     view.set_left_margin(2);
     view.set_right_margin(2);
     class(&view, "eb-md-view");
-    let buffer = view.buffer().expect("text view has a buffer");
-    let mut start = buffer.start_iter();
-    buffer.insert_markup(&mut start, &markup);
-    root.pack_start(&view, false, false, 0);
+    view.connect_realize(apply_line_box);
+    view
 }
 
-/// Pango markup for a markdown value made only of text runs (no fenced code),
-/// the shape the streaming text block takes. `None` hands the value to the
-/// full widget renderer.
-pub fn text_markup(value: &str) -> Option<String> {
-    let mut segs: Vec<Seg> = Vec::new();
-    let mut paragraph: Vec<String> = Vec::new();
-    for line in value.lines() {
+fn fill_view(view: &gtk::TextView, segs: &[Seg]) {
+    apply_line_box(view);
+    let below = view.pixels_below_lines();
+    let buffer = view.buffer().expect("text view has a buffer");
+    buffer.set_text("");
+    let gap = paragraph_gap_tag(&buffer, below + PARAGRAPH_GAP);
+    for (index, seg) in segs.iter().enumerate() {
+        let start_offset = buffer.end_iter().offset();
+        let mut iter = buffer.end_iter();
+        buffer.insert_markup(&mut iter, &seg_markup(seg));
+        let end_offset = iter.offset();
+        let last = index + 1 == segs.len();
+        let tight_list = matches!(seg, Seg::Item(_, _))
+            && segs
+                .get(index + 1)
+                .is_some_and(|next| matches!(next, Seg::Item(_, _)));
+        if !last && !tight_list {
+            let start = buffer.iter_at_offset(start_offset);
+            let end = buffer.iter_at_offset(end_offset);
+            buffer.apply_tag(&gap, &start, &end);
+        }
+        if !last {
+            let mut iter = buffer.end_iter();
+            buffer.insert(&mut iter, "\n");
+        }
+    }
+}
+
+fn paragraph_gap_tag(buffer: &gtk::TextBuffer, below: i32) -> gtk::TextTag {
+    let table = buffer
+        .tag_table()
+        .expect("text buffer has a tag table");
+    if let Some(tag) = table.lookup("eb-md-gap") {
+        tag.set_pixels_below_lines(below);
+        tag.set_pixels_below_lines_set(true);
+        return tag;
+    }
+    let tag = gtk::TextTag::new(Some("eb-md-gap"));
+    tag.set_pixels_below_lines(below);
+    tag.set_pixels_below_lines_set(true);
+    table.add(&tag);
+    tag
+}
+
+fn seg_markup(seg: &Seg) -> String {
+    match seg {
+        Seg::Para(value) => inline(value),
+        Seg::Heading(level, value) => {
+            // CSS already records h1 at 20px and h2 at 17px. Pango absolute
+            // size is 1024ths of a point; at 96dpi a pixel is 0.75pt.
+            let px = match level {
+                1 => 20,
+                2 => 17,
+                _ => 15,
+            };
+            let size = px * 72 * gtk::pango::SCALE / 96;
+            format!(
+                "<span size=\"{size}\" weight=\"600\">{}</span>",
+                inline(value)
+            )
+        }
+        Seg::Item(marker, value) => format!("{}  {}", escape(marker), inline(value)),
+    }
+}
+
+fn parse(value: &str) -> Vec<Chunk> {
+    let mut chunks = Vec::new();
+    let mut segs = Vec::new();
+    let mut paragraph = Vec::new();
+    let mut code: Option<(String, Vec<String>)> = None;
+    let lines: Vec<&str> = value.lines().collect();
+
+    for (position, line) in lines.iter().copied().enumerate() {
+        if code.is_some() {
+            if line.trim_start().starts_with("```") {
+                if let Some((language, body)) = code.take() {
+                    chunks.push(Chunk::Code {
+                        language,
+                        body: body.join("\n"),
+                    });
+                }
+            } else if let Some((_, body)) = code.as_mut() {
+                body.push(line.to_string());
+            }
+            continue;
+        }
+
         let trimmed = line.trim_end();
-        if trimmed.trim_start().starts_with("```") {
-            return None;
+        if let Some(language) = trimmed.trim_start().strip_prefix("```") {
+            flush_text(&mut chunks, &mut segs, &mut paragraph);
+            code = Some((language.trim().to_string(), Vec::new()));
+            continue;
         }
         if trimmed.trim().is_empty() {
-            flush_paragraph_markup(&mut segs, &mut paragraph);
+            // A blank line between list items stays tight. Anywhere else it
+            // ends the paragraph.
+            let next_content = lines[position + 1..]
+                .iter()
+                .find(|candidate| !candidate.trim().is_empty());
+            let continues_list = next_content.is_some_and(|candidate| is_list_item(candidate));
+            if continues_list && paragraph.is_empty() {
+                continue;
+            }
+            flush_paragraph(&mut segs, &mut paragraph);
             continue;
         }
         if let Some((level, rest)) = heading(trimmed) {
-            flush_paragraph_markup(&mut segs, &mut paragraph);
+            flush_paragraph(&mut segs, &mut paragraph);
             segs.push(Seg::Heading(level, rest.trim().to_string()));
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
-            flush_paragraph_markup(&mut segs, &mut paragraph);
+        if let Some(rest) = trimmed
+            .trim_start()
+            .strip_prefix("- ")
+            .or_else(|| trimmed.trim_start().strip_prefix("* "))
+        {
+            flush_paragraph(&mut segs, &mut paragraph);
             segs.push(Seg::Item("•".into(), rest.trim().to_string()));
             continue;
         }
-        if let Some((number, rest)) = numbered(trimmed) {
-            flush_paragraph_markup(&mut segs, &mut paragraph);
-            segs.push(Seg::Item(number.trim().to_string(), rest.trim().to_string()));
+        if let Some((number, rest)) = numbered(trimmed.trim_start()) {
+            flush_paragraph(&mut segs, &mut paragraph);
+            segs.push(Seg::Item(number, rest.trim().to_string()));
             continue;
         }
         paragraph.push(trimmed.trim().to_string());
     }
-    flush_paragraph_markup(&mut segs, &mut paragraph);
-    Some(
-        segs.iter()
-            .map(|seg| match seg {
-                Seg::Para(value) => inline(value),
-                Seg::Heading(_, value) => {
-                    format!("<span weight=\"bold\">{}</span>", inline(value))
-                }
-                Seg::Item(marker, value) => format!("{}  {}", escape(marker), inline(value)),
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n"),
-    )
+
+    if let Some((language, body)) = code.take() {
+        flush_text(&mut chunks, &mut segs, &mut paragraph);
+        chunks.push(Chunk::Code {
+            language,
+            body: body.join("\n"),
+        });
+    }
+    flush_text(&mut chunks, &mut segs, &mut paragraph);
+    chunks
 }
 
-fn flush_paragraph_markup(segs: &mut Vec<Seg>, paragraph: &mut Vec<String>) {
+fn is_list_item(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("- ") || line.starts_with("* ") || numbered(line).is_some()
+}
+
+fn flush_paragraph(segs: &mut Vec<Seg>, paragraph: &mut Vec<String>) {
     if paragraph.is_empty() {
         return;
     }
     let value = paragraph.join(" ");
     paragraph.clear();
     segs.push(Seg::Para(value));
+}
+
+fn flush_text(chunks: &mut Vec<Chunk>, segs: &mut Vec<Seg>, paragraph: &mut Vec<String>) {
+    flush_paragraph(segs, paragraph);
+    if !segs.is_empty() {
+        chunks.push(Chunk::Text(std::mem::take(segs)));
+    }
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {
@@ -193,22 +292,6 @@ fn numbered(line: &str) -> Option<(String, &str)> {
         return None;
     }
     Some((format!("{prefix}."), &line[dot + 2..]))
-}
-
-fn flush_paragraph(root: &gtk::Box, lines: &mut Vec<String>) {
-    if lines.is_empty() {
-        return;
-    }
-    let value = lines.join(" ");
-    lines.clear();
-    let label = gtk::Label::new(None);
-    label.set_selectable(true);
-    label.set_markup(&inline(&value));
-    label.set_line_wrap(true);
-    label.set_width_chars(1);
-    label.set_xalign(0.0);
-    class(&label, "eb-md-text");
-    root.pack_start(&label, false, false, 0);
 }
 
 fn code_block(language: &str, code: &str) -> gtk::Box {
@@ -401,12 +484,64 @@ mod tests {
         assert_eq!(heading("## Plan"), Some((2, "Plan")));
         assert_eq!(heading("not a heading"), None);
     }
+
+    #[test]
+    fn headings_use_the_css_sizes() {
+        let h1 = seg_markup(&Seg::Heading(1, "Title".into()));
+        let h2 = seg_markup(&Seg::Heading(2, "Title".into()));
+        assert!(h1.contains("size=\"15360\""), "{h1}");
+        assert!(h2.contains("size=\"13056\""), "{h2}");
+        assert!(h1.contains("weight=\"600\""));
+    }
+
+    #[test]
+    fn paragraph_gap_is_on_every_paragraph_but_the_last_and_list_stays_tight() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let root = render("one\n\ntwo");
+        let view = root
+            .children()
+            .into_iter()
+            .find_map(|child| child.downcast::<gtk::TextView>().ok())
+            .expect("paragraphs share one text view");
+        let buffer = view.buffer().unwrap();
+        let start = buffer.start_iter();
+        assert!(
+            start.tags().iter().any(|tag| tag.name().as_deref() == Some("eb-md-gap")),
+            "the first paragraph keeps the 12px gap"
+        );
+        let mut end = buffer.end_iter();
+        assert!(end.backward_char());
+        assert!(
+            !end.tags().iter().any(|tag| tag.name().as_deref() == Some("eb-md-gap")),
+            "the last paragraph has no trailing gap"
+        );
+
+        let listed = render("- a\n\n- b");
+        let list_view = listed
+            .children()
+            .into_iter()
+            .find_map(|child| child.downcast::<gtk::TextView>().ok())
+            .expect("a tight list is one text view");
+        let list_buffer = list_view.buffer().unwrap();
+        let mut walk = list_buffer.start_iter();
+        let mut gapped = false;
+        loop {
+            if walk.tags().iter().any(|tag| tag.name().as_deref() == Some("eb-md-gap")) {
+                gapped = true;
+                break;
+            }
+            if !walk.forward_char() {
+                break;
+            }
+        }
+        assert!(!gapped, "consecutive list items stay on the line box");
+    }
 }
 
-    use super::*;
-    use gtk::prelude::*;
-
-    /// Every markdown run must render exactly once, in order: this guards the
+/// Every markdown run must render exactly once, in order: this guards the
     /// streaming incremental renderer against double-packing.
     #[test]
     fn render_renders_each_run_once_in_order() {

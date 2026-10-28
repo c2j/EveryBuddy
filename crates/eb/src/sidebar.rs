@@ -45,8 +45,14 @@ pub struct Wiring {
     pub nav: std::rc::Rc<dyn Fn(usize)>,
     /// The topbar's collapse button.
     pub collapse: std::rc::Rc<dyn Fn()>,
-    /// A row of the task-filter menu was chosen.
-    pub filter: std::rc::Rc<dyn Fn(usize)>,
+    /// Reads the active sidebar filters (status, time).
+    pub filter_state: std::rc::Rc<dyn Fn() -> (usize, usize)>,
+    /// A filter row was chosen: (0 = status / 1 = time, choice index).
+    pub filter_select: std::rc::Rc<dyn Fn(usize, usize)>,
+    /// Reset Filters was chosen.
+    pub filter_reset: std::rc::Rc<dyn Fn()>,
+    /// Opens the global search popover anchored to the given widget.
+    pub search: std::rc::Rc<dyn Fn(&gtk::Button)>,
     /// A row of the account menu was chosen (0 = Settings).
     pub account: std::rc::Rc<dyn Fn(usize)>,
     /// Workspace header menu action; the id is empty for NewUnassigned.
@@ -71,6 +77,9 @@ pub struct Sidebar {
 pub struct TaskRow {
     pub title: String,
     pub meta: String,
+    /// The latest agent turn is still streaming: the row shows a spinner
+    /// where the timestamp would be.
+    pub running: bool,
     pub active: bool,
     pub index: usize,
     pub workspace_id: Option<String>,
@@ -90,7 +99,14 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
     });
     let filter = filter_button(wiring, contribs);
 
-    let topbar = topbar(&collapse, &filter, contribs);
+    let search_button = {
+        let search = wiring.search.clone();
+        let button = icon_button("◉", "eb-icon", "Search");
+        let button_for_click = button.clone();
+        button.connect_clicked(move |_| search(&button_for_click));
+        button
+    };
+    let topbar = topbar(&collapse, &filter, &search_button, contribs);
     root.pack_start(&topbar, false, false, 0);
 
     let (header, nav) = header(wiring, contribs);
@@ -122,18 +138,20 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
 ///
 /// Left to right the capture shows collapse, search, filter. `pack_end` places
 /// each new child *leftwards*, so they are added in reverse.
-fn topbar(collapse: &gtk::Button, filter: &gtk::Button, contribs: &Contribs) -> gtk::Box {
+fn topbar(
+    collapse: &gtk::Button,
+    filter: &gtk::Button,
+    search: &gtk::Button,
+    _contribs: &Contribs,
+) -> gtk::Box {
     let bar = hbox(4);
     class(&bar, "eb-sidebar-topbar");
 
-    // Search is its own 800x640 window in the product (`main/window-apps.js`)
-    // and its contents were never captured, so the button says so instead of
-    // looking broken. The copy is the notices plugin's.
-    let search = icon_button("◉", "eb-icon", "Search");
-    attach_notice(&search, contribs.notice("sidebar.search"));
+    // The product opens a dedicated search window; this build pops the same
+    // search over the sidebar. The button is pre-wired by the caller.
 
     bar.pack_end(filter, false, false, 0);
-    bar.pack_end(&search, false, false, 0);
+    bar.pack_end(search, false, false, 0);
     bar.pack_end(collapse, false, false, 0);
 
     bar
@@ -141,16 +159,96 @@ fn topbar(collapse: &gtk::Button, filter: &gtk::Button, contribs: &Contribs) -> 
 
 /// Kept as a function because the shell holds this button: the task-filter menu
 /// is the one sidebar dropdown whose selection is not part of `App`.
-fn filter_button(wiring: &Wiring, contribs: &Contribs) -> gtk::Button {
+fn filter_button(wiring: &Wiring, _contribs: &Contribs) -> gtk::Button {
     let button = icon_button("≡", "eb-icon", "Filter tasks");
-    attach_menu(
-        &button,
-        contribs.menu("filter"),
-        std::rc::Rc::new(std::cell::Cell::new(0)),
-        gtk::PositionType::Bottom,
-        wiring.filter.clone(),
-    );
+    button.connect_clicked({
+        let wiring = wiring.clone();
+        let button = button.clone();
+        move |_| build_filter_menu(&button, &wiring)
+    });
     button
+}
+
+/// WorkBuddy's filter popover: Filter Status, Filter Time, Reset Filters.
+///
+/// Geometry and colors are the 2026-10-24 product capture (spec §5.4): 240px
+/// card, 37px section headers, 31px rows at a 34px pitch with an 8px-radius
+/// `#f7f7f7` pill and a right-aligned green check on the selected row.
+fn build_filter_menu(button: &gtk::Button, wiring: &Wiring) {
+    let popover = gtk::Popover::new(Some(button));
+    popover.set_position(gtk::PositionType::Bottom);
+    class(&popover, "eb-menu");
+    class(&popover, "eb-filter");
+    let column = vbox(0);
+    class(&column, "eb-filter-body");
+    // The card is 240 CSS px including its 1px border.
+    column.set_size_request(238, -1);
+
+    let (status, time) = (wiring.filter_state)();
+
+    let header = |label: &str, column: &gtk::Box| {
+        let row = text(label, "eb-filter-header");
+        column.pack_start(&row, false, false, 0);
+    };
+    let section = |labels: &[&'static str],
+                   selected: usize,
+                   kind: usize,
+                   column: &gtk::Box,
+                   wiring: &Wiring,
+                   popover: &gtk::Popover| {
+        let rows = vbox(3);
+        for (index, label) in labels.iter().enumerate() {
+            let row = flat_button("eb-menu-item");
+            class(&row, "eb-filter-row");
+            if index == selected {
+                class(&row, "eb-filter-row-selected");
+            }
+            let inner = hbox(8);
+            inner.pack_start(&text(label, "eb-filter-label"), true, true, 0);
+            if index == selected {
+                inner.pack_end(&text("✓", "eb-filter-check"), false, false, 0);
+            }
+            row.add(&inner);
+            let select = wiring.filter_select.clone();
+            let popover = popover.clone();
+            row.connect_clicked(move |_| {
+                popover.popdown();
+                select(kind, index);
+            });
+            rows.pack_start(&row, false, false, 0);
+        }
+        column.pack_start(&rows, false, false, 0);
+    };
+    let separator = |column: &gtk::Box| {
+        let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+        class(&separator, "eb-menu-separator");
+        class(&separator, "eb-filter-separator");
+        column.pack_start(&separator, false, false, 0);
+    };
+
+    header("Filter Status", &column);
+    section(&eb_api::model::FILTER_STATUS_LABELS, status, 0, &column, wiring, &popover);
+    separator(&column);
+    header("Filter Time", &column);
+    section(&eb_api::model::FILTER_TIME_LABELS, time, 1, &column, wiring, &popover);
+    separator(&column);
+
+    let reset = flat_button("eb-menu-item");
+    class(&reset, "eb-filter-row");
+    class(&reset, "eb-filter-reset");
+    reset.add(&text("Reset Filters", "eb-filter-label"));
+    let reset_all = wiring.filter_reset.clone();
+    let popover_for_reset = popover.clone();
+    reset.connect_clicked(move |_| {
+        popover_for_reset.popdown();
+        reset_all();
+    });
+    column.pack_start(&reset, false, false, 0);
+
+    popover.add(&column);
+    column.show_all();
+    hide_from_show_all(&popover);
+    popover.popup();
 }
 
 /// 279x246: the brand block (255x48) then the nav list (255x168, starting at
@@ -542,7 +640,12 @@ fn task_row(
         line.pack_start(&glyph("pin"), false, false, 0);
     }
     line.pack_start(&ellipsized(&row.title, "eb-task-title"), true, true, 0);
-    if !row.meta.is_empty() {
+    if row.running {
+        // Capture: a running task's row shows a spinner where the timestamp
+        // would be. Clock-driven, so sidebar rebuilds mid-stream keep it
+        // turning (widgets::spinner).
+        line.pack_end(&crate::widgets::spinner(16), false, false, 0);
+    } else if !row.meta.is_empty() {
         line.pack_end(&text(&row.meta, "eb-task-meta"), false, false, 0);
     }
     button.add(&line);

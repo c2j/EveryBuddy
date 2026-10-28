@@ -137,6 +137,7 @@ pub fn load() -> Loaded {
             meta: String::new(),
             turns: serde_json::from_value(value["turns"].clone()).unwrap_or_default(),
             artifact: None,
+            artifacts: Vec::new(),
             session_id,
             workspace_id,
             agent_route: value["agent_route"].as_str().map(str::to_string),

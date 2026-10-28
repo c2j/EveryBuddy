@@ -62,6 +62,22 @@ pub const CHAT_CARD_WIDTH_CLOSED: i32 = 783;
 pub const CHAT_CARD_HEIGHT: i32 = 134;
 pub const DETAIL_WIDTH: i32 = 579;
 
+/// The artifact panel's share at the captured 1440 width (ui-spec §4.4):
+/// 1440 − 280 sidebar − 580 conversation. The panel keeps this width when the
+/// window grows; the conversation column absorbs the slack, because the
+/// product's message column is centred and the panel is a fixed reading pane.
+pub const ARTIFACT_PANEL_WIDTH: i32 = WINDOW_WIDTH - SIDEBAR_WIDTH - CONVERSATION_WIDTH;
+
+/// Narrow-window floors (invented; ui-spec §10-31). The panel's close, tab,
+/// expand and side/embed buttons live in its own header, so a panel squeezed to
+/// a few pixels cannot be dismissed from inside: below the 1440 baseline the
+/// panel keeps its live content minimum (measured from `detail.root`, 332px with
+/// a two-file tab strip) and the conversation column gives way first. This is
+/// where the conversation stops giving, and it is a guard rather than a state a
+/// user reaches — GTK clamps the window itself to 1082px (280 sidebar + 470
+/// conversation + 332 panel), which is above `CONVERSATION_MIN_WIDTH`.
+pub const CONVERSATION_MIN_WIDTH: i32 = 240;
+
 /// Measured: with the artifact panel open the conversation pane is 580 and its
 /// message column 500 (40px gutters); with the panel closed the column grows to
 /// 752 (M2.1, ui-spec §5.3). The artifact pane pads its body by 24px vertically.

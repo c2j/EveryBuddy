@@ -139,6 +139,25 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
         });
     }
 
+    // ---- optional: switch to the other artifact tab before the capture ----
+    // Proves the live paint — not just the snapshot's forced allocation —
+    // renders the tab a click selected.
+    if std::env::var_os("EB_TAB_CLICK").is_some() {
+        let views = views.clone();
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+            let tabs: Vec<gtk::Widget> = widgets(&views)
+                .into_iter()
+                .filter(|widget| widget.style_context().has_class("eb-tab"))
+                .collect();
+            if let Some(tab) = tabs.first() {
+                click(tab, &views.window);
+                eprintln!("tabclick: clicked {} of {} tabs", 1, tabs.len());
+            } else {
+                eprintln!("tabclick: no tabs to click");
+            }
+        });
+    }
+
     // ---- the screenshot, on the first real paint ----
     //
     // `gtk_widget_draw` checks that the widget is *drawable*, which is only true
@@ -227,6 +246,10 @@ static CLICK_FAILURES: AtomicUsize = AtomicUsize::new(0);
 /// line: toplevel counts, popover coordinates and the code pane's measured
 /// scroll width move with the window server, fonts and layout timing.
 fn expected_click(label: &str) -> &'static [&'static str] {
+    // The audit runs with and without the EB_ARTIFACT seed; the seeded task's
+    // prompt and two-file tab strip differ from the demo agent's one artifact,
+    // so the steps that touch them branch on the seed.
+    let seeded = std::env::var_os("EB_ARTIFACT").is_some();
     match label {
         "chip[0]" => &["Help me plan and build a small desktop utility."],
         "segmented 'Code'" => &["active segments: [1]"],
@@ -234,22 +257,74 @@ fn expected_click(label: &str) -> &'static [&'static str] {
         "nav[0] (New Task)" => &["route=welcome"],
         "sidebar collapse" => &["sidebar visible=false", "reveal visible=true"],
         "sidebar reveal" => &["sidebar visible=true", "reveal visible=false"],
-        "sidebar search" => &["menu open: visible=true", "notice=\"Global search"],
+        "sidebar search" => &["menu open: visible=true", "5 of 5 menu rows visible"],
         "sidebar mini programs" => &["notice=\"Mini programs"],
-        "sidebar filter menu" => &["3 of 3 menu rows visible"],
+        "sidebar filter menu" => &["11 of 11 menu rows visible"],
         "composer '+' menu" => &["4 of 4 menu rows visible"],
-        "model selector menu" => &["5 of 5 menu rows visible"],
+        "model selector menu" => &["7 of 7 menu rows visible"],
         "Enter (submit via chip text)" => &["route=conversation", "Ask anything"],
-        "chat search" => &["notice=\"Searching inside a task"],
+        "chat search" => &["search bar visible=true"],
+        "chat search close" => &["search bar visible=false"],
         "chat share" => &["notice=\"Sharing a task"],
+        "task row (artifact seed)" => {
+            if seeded {
+                &["detail visible=true", "tabs=2", "file=\"demo.py\""]
+            } else {
+                &["detail visible=true", "tabs=1"]
+            }
+        }
         "artifact expand" => &["detail visible=true"],
         "artifact expand (back)" => &["detail visible=true"],
-        "artifact tab" => &["detail visible=true"],
-        "artifact new tab" => &["notice=\"Only the one artifact"],
-        "artifact tab close (x)" => &["detail visible=false"],
+        "artifact card" => {
+            if seeded {
+                &["detail visible=true", "tabs=2", "file=\"notes.md\"", "cards=2"]
+            } else {
+                // Without the seed the open task may still be streaming, and
+                // cards only settle under a completed answer; the panel state
+                // is what the step can assert there.
+                &["detail visible=true", "tabs=1"]
+            }
+        }
+        "artifact tab" => {
+            if seeded {
+                &["detail visible=true", "tabs=2", "file=\"notes.md\""]
+            } else {
+                &["detail visible=true", "tabs=1"]
+            }
+        }
+        "artifact new tab" => &["notice=\"Create an artifact tab"],
+        "artifact tab close (x)" => {
+            if seeded {
+                &["detail visible=true", "tabs=1", "file=\"demo.py\""]
+            } else {
+                &["detail visible=false"]
+            }
+        }
         "artifact panel close (header)" => &["detail visible=false"],
-        "task row (reopens panel)" => &["detail visible=true"],
+        "task row (reopens panel)" => {
+            if seeded {
+                &["detail visible=true"]
+            } else {
+                // Without the seed the click lands on the task already open,
+                // so the route — not the panel — is what the step proves.
+                &["detail visible=false", "route=conversation"]
+            }
+        }
+        "panel toggle (close)" => &[
+            // Seeded: closes the panel the row above reopened. Unseeded: the
+            // task has no artifact, so the toggle is a no-op on a closed panel.
+            "detail visible=false",
+        ],
         "copy message" => &["Copied"],
+        "edit message" => {
+            if seeded {
+                &["Explain the selected artifact."]
+            } else {
+                &["Help me plan and build a small desktop utility."]
+            }
+        }
+        "regenerate answer" => &["2 user bubbles"],
+        "rate answer" => &["notice=\"This UI-only"],
         "section label (Workspaces)" => &["GtkButton:hidden"],
         "section label (Workspaces expand again)" => &["GtkButton:shown"],
         "user row menu" => &["4 of 4 menu rows visible"],
@@ -283,9 +358,9 @@ fn assert_click_observation(label: &str, observed: &str) {
 fn start_click_audit(views: &Rc<Views>, application: &gtk::Application) {
     let steps: Vec<Step> = build_steps();
     println!("click: --- audit ({} steps) ---", steps.len());
-    if click_assert_requested() && steps.len() != 26 {
+    if click_assert_requested() && steps.len() != 33 {
         eprintln!(
-            "click: ASSERT FAILED: expected 26 steps, the audit now has {}",
+            "click: ASSERT FAILED: expected 33 steps, the audit now has {}",
             steps.len()
         );
         CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
@@ -499,8 +574,19 @@ fn observe_detail(views: &Views) -> String {
             )
         })
         .unwrap_or_else(|| "no code view".into());
+    // The toolbar's file label names the tab whose contents are on screen.
+    let file = widgets(views)
+        .into_iter()
+        .find(|widget| widget.style_context().has_class("eb-detail-file"))
+        .and_then(|widget| {
+            widget
+                .downcast::<gtk::Label>()
+                .ok()
+                .map(|label| label.text().to_string())
+        })
+        .unwrap_or_default();
     format!(
-        "detail visible={} maximised-pos={} tabs={} ({code})",
+        "detail visible={} maximised-pos={} tabs={} file={file:?} ({code})",
         views.detail.root.is_visible(),
         views.outer.position(),
         widgets(views)
@@ -623,6 +709,9 @@ fn build_steps() -> Vec<Step> {
         activate: Rc::new(|views| {
             if let Some(button) = by_tooltip(views, "Filter tasks") {
                 click(&button, &views.window);
+                if let Some(path) = std::env::var_os("EB_FILTER_SHOT") {
+                    snapshot(views, &path.to_string_lossy());
+                }
             }
         }),
         observe: Rc::new(observe_popover),
@@ -671,20 +760,73 @@ fn build_steps() -> Vec<Step> {
     steps.push(Step {
         label: "chat search".into(),
         activate: Rc::new(|views| {
-            if let Some(button) = by_tooltip(views, "Search in task") {
+            if let Some(button) = by_tooltip(views, "Search in conversation ⌘F") {
+                click(&button, &views.window);
+                if let Some(path) = std::env::var_os("EB_SEARCH_SHOT") {
+                    snapshot(views, &path.to_string_lossy());
+                }
+            }
+        }),
+        observe: Rc::new(|views| {
+            format!(
+                "search bar visible={:?}",
+                views.conversation.search_bar.get_visible()
+            )
+        }),
+    });
+    steps.push(Step {
+        label: "chat search close".into(),
+        activate: Rc::new(|views| {
+            if let Some(button) = by_tooltip(views, "Close search") {
+                click(&button, &views.window);
+            }
+        }),
+        observe: Rc::new(|views| {
+            format!(
+                "search bar visible={:?}",
+                views.conversation.search_bar.get_visible()
+            )
+        }),
+    });
+    steps.push(Step {
+        label: "chat share".into(),
+        activate: Rc::new(|views| {
+            if let Some(button) = by_tooltip(views, "Share") {
                 click(&button, &views.window);
             }
         }),
         observe: Rc::new(observe_popover),
     });
+
+    // ---- the seeded two-file task (EB_ARTIFACT) ---------------------------
+    // The chat steps below run on the seeded task, where the tab strip shows
+    // two files; the Enter-submitted task before them keeps the single-tab
+    // expectations for search and share.
     steps.push(Step {
-        label: "chat share".into(),
+        label: "task row (artifact seed)".into(),
         activate: Rc::new(|views| {
-            if let Some(button) = by_tooltip(views, "Share task") {
-                click(&button, &views.window);
+            if let Some(row) = by_class(views, "eb-task") {
+                click(&row, &views.window);
             }
         }),
-        observe: Rc::new(observe_popover),
+        observe: Rc::new(observe_detail),
+    });
+    // The card row under the settled answer: the first card is the first
+    // written file, and clicking it re-selects that tab in the open panel.
+    steps.push(Step {
+        label: "artifact card".into(),
+        activate: Rc::new(|views| {
+            if let Some(card) = by_class(views, "eb-artifact-card") {
+                click(&card, &views.window);
+            }
+        }),
+        observe: Rc::new(|views| {
+            let cards = widgets(views)
+                .into_iter()
+                .filter(|widget| widget.style_context().has_class("eb-artifact-card"))
+                .count();
+            format!("{} cards={cards}", observe_detail(views))
+        }),
     });
     steps.push(Step {
         label: "artifact expand".into(),
@@ -716,6 +858,11 @@ fn build_steps() -> Vec<Step> {
     steps.push(Step {
         label: "artifact new tab".into(),
         activate: Rc::new(|views| {
+            // The tab step's select rebuild ran on idle, so by now the panel
+            // shows the *other* file — capture that switched state.
+            if let Some(path) = std::env::var_os("EB_TAB_SHOT") {
+                snapshot(views, &path.to_string_lossy());
+            }
             if let Some(button) = by_tooltip(views, "New tab") {
                 click(&button, &views.window);
             }
@@ -747,6 +894,26 @@ fn build_steps() -> Vec<Step> {
                 click(&button, &views.window);
             }
         }),
+        observe: Rc::new(|views| {
+            format!("{} {}", observe_route(views), observe_detail(views))
+        }),
+    });
+    // The always-present topbar toggle: closes the panel the row above just
+    // reopened (seeded); on the unseeded one-file-less task it is a no-op.
+    steps.push(Step {
+        label: "panel toggle (close)".into(),
+        activate: Rc::new(|views| {
+            let tooltip = if views.conversation.artifact_button.tooltip_text()
+                == Some("Close right panel ⇧⌘B".into())
+            {
+                "Close right panel ⇧⌘B"
+            } else {
+                "Open right panel ⇧⌘B"
+            };
+            if let Some(button) = by_tooltip(views, tooltip) {
+                click(&button, &views.window);
+            }
+        }),
         observe: Rc::new(observe_detail),
     });
     steps.push(Step {
@@ -764,6 +931,41 @@ fn build_steps() -> Vec<Step> {
                 .collect();
             format!("mini-button tooltips: {tooltips:?}")
         }),
+    });
+    steps.push(Step {
+        label: "edit message".into(),
+        activate: Rc::new(|views| {
+            if let Some(button) = by_tooltip(views, "Edit and resend") {
+                click(&button, &views.window);
+            }
+        }),
+        observe: Rc::new(|views| {
+            format!("chat composer={:?}", text_of(&views.chat_composer.view))
+        }),
+    });
+    steps.push(Step {
+        label: "regenerate answer".into(),
+        activate: Rc::new(|views| {
+            if let Some(button) = by_tooltip(views, "Regenerate answer") {
+                click(&button, &views.window);
+            }
+        }),
+        observe: Rc::new(|views| {
+            let bubbles = widgets(views)
+                .into_iter()
+                .filter(|widget| widget.style_context().has_class("eb-bubble"))
+                .count();
+            format!("{} user bubbles resent", bubbles)
+        }),
+    });
+    steps.push(Step {
+        label: "rate answer".into(),
+        activate: Rc::new(|views| {
+            if let Some(button) = by_tooltip(views, "Good answer") {
+                click(&button, &views.window);
+            }
+        }),
+        observe: Rc::new(observe_popover),
     });
     steps.push(Step {
         label: "section label (Workspaces)".into(),
@@ -874,6 +1076,14 @@ fn click(widget: &gtk::Widget, toplevel: &impl IsA<gtk::Widget>) {
     let device = gtk::gdk::Display::default()
         .and_then(|display| display.default_seat())
         .and_then(|seat| seat.pointer());
+    // A box that added its own `BUTTON_PRESS_MASK` — the artifact tab, for one
+    // — owns an *input-only* window, and `gtk_widget_event` checks the event's
+    // window against that, not against the toplevel. Buttons are left on the
+    // toplevel window, which is what GTK's own dispatch reports for them here.
+    let target = match widget.window() {
+        Some(window) if window.window_type() == gtk::gdk::WindowType::Temp => window,
+        _ => window.clone(),
+    };
 
     for kind in [
         gtk::gdk::EventType::ButtonPress,
@@ -882,7 +1092,7 @@ fn click(widget: &gtk::Widget, toplevel: &impl IsA<gtk::Widget>) {
         let mut event = gtk::gdk::Event::new(kind);
         unsafe {
             let ptr: *mut gtk::gdk::ffi::GdkEvent = event.to_glib_none_mut().0;
-            (*ptr).button.window = window.to_glib_none().0;
+            (*ptr).button.window = target.to_glib_none().0;
             // `gdk_event_free` releases the event's reference to the window.
             gtk::glib::gobject_ffi::g_object_ref((*ptr).button.window as *mut _);
             (*ptr).button.time = gtk::gdk::ffi::GDK_CURRENT_TIME as u32;
@@ -898,6 +1108,47 @@ fn click(widget: &gtk::Widget, toplevel: &impl IsA<gtk::Widget>) {
         }
         gtk::propagate_event(widget, &mut event);
     }
+}
+
+/// Synthesise one wheel/trackpad event over `widget`, in the shape GDK reports
+/// on macOS: `GDK_SCROLL_SMOOTH` with a `delta_y` in pixels. Discrete
+/// `GDK_SCROLL_UP`/`DOWN` events are what a Linux wheel makes; the smooth form is
+/// what both a macOS mouse and a trackpad make, and it is the one whose maths
+/// `GtkScrolledWindow` does not do through the range's `step_increment`.
+pub fn scroll_wheel(widget: &impl IsA<gtk::Widget>, delta_y: f64) {
+    let Some(toplevel) = widget.toplevel().and_then(|top| top.window()) else {
+        eprintln!("scroll: the toplevel has no window, cannot synthesise a wheel event");
+        return;
+    };
+    if !widget.is_realized() {
+        widget.realize();
+    }
+    // Same rule as `click`: the event's window has to be the window GTK reports
+    // for that position, or `event_window_is_still_viewable` drops it.
+    let target = widget.window().unwrap_or(toplevel);
+    let device = gtk::gdk::Display::default()
+        .and_then(|display| display.default_seat())
+        .and_then(|seat| seat.pointer());
+    let mut event = gtk::gdk::Event::new(gtk::gdk::EventType::Scroll);
+    unsafe {
+        let ptr: *mut gtk::gdk::ffi::GdkEvent = event.to_glib_none_mut().0;
+        (*ptr).scroll.window = target.to_glib_none().0;
+        gtk::glib::gobject_ffi::g_object_ref((*ptr).scroll.window as *mut _);
+        (*ptr).scroll.time = gtk::gdk::ffi::GDK_CURRENT_TIME as u32;
+        (*ptr).scroll.send_event = 1;
+        (*ptr).scroll.x = 1.0;
+        (*ptr).scroll.y = 1.0;
+        (*ptr).scroll.device = device
+            .as_ref()
+            .map(|device| device.to_glib_none().0)
+            .unwrap_or(std::ptr::null_mut());
+        (*ptr).scroll.state = 0;
+        (*ptr).scroll.is_stop = 0;
+        (*ptr).scroll.direction = gtk::gdk::ffi::GDK_SCROLL_SMOOTH;
+        (*ptr).scroll.delta_x = 0.0;
+        (*ptr).scroll.delta_y = delta_y;
+    }
+    gtk::propagate_event(widget, &mut event);
 }
 
 /// Drive Enter-to-send end to end.
@@ -1113,9 +1364,9 @@ fn assert_geometry(
             spec::CHAT_CARD_WIDTH_CLOSED
         };
         let messages_width = if detail_open {
-            spec::MESSAGE_WIDTH - 1
+            spec::MESSAGE_WIDTH
         } else {
-            spec::MESSAGE_WIDTH_CLOSED - 1
+            spec::MESSAGE_WIDTH_CLOSED
         };
         if let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == "eb-messages") {
             if widget.is_visible() {
@@ -1131,7 +1382,9 @@ fn assert_geometry(
         }
         for (name, want_width, want_height) in [
             ("eb-chat-card", chat_width, spec::CHAT_CARD_HEIGHT),
-            ("eb-detail", spec::DETAIL_WIDTH, spec::WINDOW_HEIGHT),
+            // The panel spans the window's full height, and the window may be
+            // height-clamped on a short screen even when it is 1440 wide.
+            ("eb-detail", spec::DETAIL_WIDTH, allocation.height()),
         ] {
             let Some((_, widget)) = probes.iter().find(|(probe, _)| probe == name) else {
                 check(false, format!("probe {name} is missing"), &mut failures);
@@ -1260,7 +1513,11 @@ fn report(window: &gtk::ApplicationWindow, views: &Views, probes: &[(String, gtk
 /// `EB_SHOT_PANED=1` draws the paned instead of the toplevel, and `EB_DEBUG=1`
 /// fills the surface with magenta first. Both exist to tell "nothing was drawn"
 /// apart from "the wrong thing was drawn" when a capture comes back empty.
-fn snapshot(views: &Views, path: &str) {
+///
+/// `pub(crate)` so the switch harness can capture the window after its last
+/// task switch: `EB_SHOT` is in [`requested`], and a run with it set never
+/// loads the saved state, so the heavy-fixture switches cannot be shot with it.
+pub(crate) fn snapshot(views: &Views, path: &str) {
     let window = &views.window;
 
     // A repaint that adds widgets (`detail::fill` does) leaves widgets flagged as
@@ -1339,7 +1596,7 @@ mod tests {
     #[test]
     fn every_click_step_has_an_expectation() {
         let steps = build_steps();
-        assert_eq!(steps.len(), 26, "the audit's step count changed");
+        assert_eq!(steps.len(), 33, "the audit's step count changed");
         for step in &steps {
             assert!(
                 !expected_click(&step.label).is_empty(),

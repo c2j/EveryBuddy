@@ -73,6 +73,55 @@ pub fn flat_button(class_name: &str) -> gtk::Button {
     button
 }
 
+/// A rotating ring marking a running task. The capture shows a spinner in the
+/// sidebar row while an answer streams (gtk.css note); the arc geometry,
+/// colour and cadence here are our own (ui-spec §10).
+///
+/// The phase comes from the wall clock, not a per-instance counter: the
+/// sidebar rebuilds its rows on every refresh while a stream is live, and a
+/// fresh widget must resume mid-rotation rather than restart. The 40ms ticker
+/// keeps a row spinning between refreshes and stops itself once the widget is
+/// gone (every sidebar rebuild drops the old rows).
+pub fn spinner(size: i32) -> gtk::DrawingArea {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    let area = gtk::DrawingArea::new();
+    area.set_size_request(size, size);
+    area.set_halign(gtk::Align::End);
+    area.set_valign(gtk::Align::Center);
+    class(&area, "eb-spinner");
+    area.connect_draw(move |_, cr| {
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|since| since.as_millis() as f64)
+            .unwrap_or(0.0);
+        let start = (millis % 900.0) / 900.0 * std::f64::consts::TAU;
+        let center = f64::from(size) / 2.0;
+        cr.set_line_width(2.0);
+        cr.set_line_cap(gtk::cairo::LineCap::Round);
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.5); // @eb_text_tertiary
+        cr.arc(
+            center,
+            center,
+            (center - 2.0).max(1.0),
+            start,
+            start + std::f64::consts::TAU * 0.75,
+        );
+        let _ = cr.stroke();
+        gtk::glib::Propagation::Proceed
+    });
+    let weak = area.downgrade();
+    gtk::glib::timeout_add_local(Duration::from_millis(40), move || {
+        match weak.upgrade() {
+            Some(widget) => {
+                widget.queue_draw();
+                gtk::glib::ControlFlow::Continue
+            }
+            None => gtk::glib::ControlFlow::Break,
+        }
+    });
+    area
+}
+
 /// A round-rect icon button with a single glyph inside.
 ///
 /// `tooltip` is the accessible name as well: with no icon theme loaded, a glyph

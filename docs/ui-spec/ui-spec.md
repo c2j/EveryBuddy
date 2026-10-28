@@ -379,6 +379,8 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 
 > 会话态与欢迎态的输入区**不是同一个组件**：欢迎态是 800×144 卡片 + 独立的 800×36 选择器行；会话态是 532×134 卡片，权限 pill 在工具条**内部**，下方另有 34px 声明行。
 
+> 本节全部数值都是 **1440 宽**下的实测。窗口拉窄时的三段保底（面板保住自身内容最小宽、会话降到 240；有效最小宽 1082）是**自创规则**，见 §10-31。
+
 **块节奏**：每个单行消息块实测约 53 高 ⇒ 等价 `margin: 14px 0`（实现里是 `vbox(28)`）。
 
 侧栏（有任务时，替换掉欢迎态的空态）：
@@ -466,7 +468,7 @@ GTK 3 的 CSS 是**另一个子集**，不是 Web CSS 的降级版。实测踩�
 **本轮抓取澄清的行为歧义**
 
 1. **点击 chip 不填输入框、不导航。** 录制里点击 chip 后唯一的 DOM 差异是输入工具条右组的 `cr-context-usage` 上下文用量环出现/消失（32×32 + 4px gap = 36px），左组因为是弹性容器而反向变化同幅度。因此「chip 预填输入框」是实现侧的选择而非产品行为：`spec::CHIP_PROMPTS` 存整句提示语，点击即填入输入框（已在 §4.4 记录）。
-2. **顶栏只有两个操作按钮**（搜索、分享），此前按 3 个实现（多了一个结果面板开关）属于**虚构，已删除**。重新打开已关闭的结果面板改由点击侧栏任务行完成（`open_task` 同时把 `detail_visible` 置为 `artifact.is_some()`）。
+2. **顶栏操作按钮**：本轮 DOM 录制只数到两个（搜索、分享），当时据此删掉了第三个（结果面板开关）；2026-10-24 的整栏截图证明默认就有**三个**（搜索 / Share / 右面板开关，见 §5.6）——以截图为准，DOM 录制窗口太短是误判来源。任务行重开面板的行为保留（`open_task` 同时把 `detail_visible` 置为 `artifact.is_some()`）。
 3. **分段控件**：`wb-scene-tabs` 163.74×36 @778.1,185，`wb-segmented` 159.74×32，滑块 `wb-segmented__thumb--measured` 79×32，选中类 `wb-segmented__item--active`——全部与 §4.3 的实现尺寸一致。
 
 ### 5.3 内容块实测（v5.8.4，2026-10-18）
@@ -502,6 +504,57 @@ usage popover、processing/done 都已采集。`cr-collapse--summary` 与
 diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组，以及
 仅在 agent 上报 Usage 时出现的 `cr-context-usage` 环；popover 目前只显示
 总量，五类分解仍待事件流补充。
+
+### 5.4 筛选弹层实测（v5.8.4，2026-10-24，用户提供截图）
+
+采集条件：WorkBuddy AI 5.8.4 macOS 截图裁剪（1256×1184，DPR 2，像素值按 ÷2
+换算 CSS px）。侧栏顶栏漏斗按钮弹出的筛选卡：
+
+| 部位 | 实测（CSS px） |
+|---|---|
+| 卡片 | 宽 240（含 1px 边框），圆角 10，边框 `#f2f2f2`，内容左右内缩 8 |
+| 分组标题 | 高 37，文字垂直居中，13px `#7f7f7f`（=`@eb_text_tertiary`） |
+| 选项行 | 高 31、行距 3（pitch 34），圆角 8，左右 padding 10；文字 13px `#181818` |
+| 选中行 | bg `#f7f7f7`（=`@dropdown_item_bg_selected`），文字加粗 600，行尾绿色对勾 `#57bf9c`，对勾右缩进 10 |
+| 分隔线 | 1px `#f2f2f2`，通内容宽；上间距 9，下接分组标题带（标题带自带余量） |
+| Reset Filters | 行高 31、下外边距 9，文字 13px `#a3a3a3`（≈`@eb_chevron`） |
+
+对勾只在选中行出现（状态组与时数组各一个）；未选中行无对勾、不加粗。悬停态
+未采集，实现沿用选中底色（自创，见 §10-27）。
+
+### 5.5 artifact 文件卡实测（v5.8.4，2026-10-24，用户提供截图）
+
+采集条件：会话页截图裁剪（1656×352，DPR 2，像素值按 ÷2 换算 CSS px）。面板
+收起（752 宽会话列）时，已完成 agent 回答正文下方的文件卡：
+
+| 部位 | 实测（CSS px） |
+|---|---|
+| 卡片 | 两张 370×64，间距 12（2×370+12=752 恰好铺满列宽，等分拉伸）；圆角 10，底色 `#f2f2f2`（=`@bg_hover_light`），无可见边框 |
+| 徽章 | 24×24 圆角方块 `#7A95F8`，白色字形；左内缩 14，徽章→文字间距 12 |
+| 文件名 | 15px/600 `#000000e6`（=`@eb_text_primary`），超长省略号 |
+| 大小 | 13px `#797979`（=`@eb_text_tertiary`），在文件名下方（如 `32.6 KB`、`131 B`） |
+| View all 链接 | 卡片下方 26（文字顶沿起算），14px `#4C4C4C`（=`@eb_text_secondary`）+ 尾部 `›` 箭头（约 5.5×8.5，间距 ~4.5） |
+
+自创部分（见 §10-28）：最多显示前 2 张、`N>2` 才有链接、扩展名→徽章映射、
+悬停底色。点击行为按用户口述：点任意卡或链接都展开 artifact 面板，卡选中
+自己那个文件的标签。
+
+### 5.6 会话顶栏操作区实测（v5.8.4，2026-10-24，用户提供截图 ×5）
+
+采集条件：默认态整栏 + 搜索悬停/展开、Share 悬停、面板开关悬停四张截图
+（DPR 2，像素值按 ÷2 换算 CSS px）。**修正 §5.2 澄清 2**：顶栏右侧默认
+就有**三个**图标按钮（搜索 / Share / 右面板开关），此前 DOM 录制只数到两
+个是采集窗口太短，不是产品只有两个。
+
+| 部位 | 实测（CSS px） |
+|---|---|
+| 按钮组 | 三枚 32×32 幽灵按钮，间距 4（pitch 36），字形约 14；常驻，面板开合不增删按钮 |
+| 悬停底 | 32×32 圆角 8 方块 `#f0f0f0`（新增 shell 局部 token `@eb_icon_hover_bg`，`button.eb-icon:hover` 从 `@bg_tertiary` 改到实测值） |
+| 搜索 | 收起态 = 放大镜，tooltip `Search in conversation ⌘F`；点击后原地展开为搜索药丸，放大镜按钮隐藏 |
+| 搜索药丸 | 300×32，圆角 8（顶边内缩曲线按 r≈8 拟合），底色 `#f2f2f2`（=`@bg_hover_light`）；左内缩 9 放 14px 放大镜（`#797979`≈52% 黑，自绘 `search-dim`），占位文本 `Search in conversation`（≈`#a9a9a9`），尾部 `^` `v` `×` 三枚 24px 步进（pitch 24；`×` 约 8×8、`#484848`），右内缩 12；标题在药丸左侧**保持可见** |
+| Share | 弯曲前向箭头（重绘 `share`），tooltip 只有 `Share` |
+| 面板开关 | 圆角矩形 + 右侧实心导轨（新自绘 `panel-right`），tooltip `Open right panel ⇧⌘B`；面板打开时同一按钮 tooltip 变 `Close right panel ⇧⌘B`（产品帧未采集到开态 tooltip，措辞按对称推断，记录在 §10-29） |
+| 快捷键 | ⌘F 展开药丸并聚焦、⇧⌘B 开合右面板，在窗口 key-press 里实现（macOS GTK 把 ⌘ 报成 CONTROL_MASK）；tooltip 里写快捷键的前提就是它们真的能用 |
 
 ## 6. 屏幕清单（全量 143 个 CSS module）
 
@@ -598,7 +651,7 @@ diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组�
 - 交互已连通：欢迎态（导航切换、分段开关、侧栏折叠、chip 预填输入框、输入框启用/发送、下拉 popover）+ 一条真实的会话状态（发送 → 建任务 → 开会话 → 开结果面板）。结果面板的「展开」按钮接的是真动作（`detail_maximised`：面板占满除侧栏外的全部宽度）。Enter 发送（含 IME 组合保护）与欢迎 → 会话的整条路由已用合成按键实测跑通：`EB_ENTER=1` 打印 `before=welcome` / `after=conversation`，见缺口 17/18。
 - 实测校验通过（欢迎态）：`teams-container` 1440×868、侧栏 280、居中列 800、分段控件高 36、chip 行高 32、输入卡 800×144、选择器行高 36；hero / 分段 / chip / 输入卡的 y（127 / 185 / 285 / 333）与产品**逐项一致**；8 个关键色解析值与实测完全吻合。
 - 实测校验通过（会话态）：会话顶栏 64 高、**操作组 68×32 @776,16（逐像素一致）**、消息列表 579×636、输入区 579×168、输入卡 531×134、**结果面板 861,0 579×868（一致）**、**结果面板头部 579×64（一致）**、标签页 240×32 @877,15.5（本轮修正后一致）、加号 1121、头部操作 68×32 @1356（一致）。
-- **交互逐控件审计**（`EB_CLICK=1`，26 步「点一下 → 读回状态」，每步打印可观测变化）：导航、chip、分段开关、侧栏折叠 / 恢复、Enter 发送、发送按钮、结果面板展开 / 恢复 / 关闭、任务行重开面板、复制按钮（`Copied` 反馈）**全部有响应**。审计顺带查出并修掉三个**真实缺陷**（产品侧同样会看到的问题，不是测试环境问题）：
+- **交互逐控件审计**（`EB_CLICK=1`，33 步「点一下 → 读回状态」，每步打印可观测变化）：导航、chip、分段开关、侧栏折叠 / 恢复、Enter 发送、发送按钮、结果面板展开 / 恢复 / 关闭、多文件标签切换与单标签关闭（`EB_ARTIFACT=1` 下断言 `tabs=2 → 1` 与选中文件 `notes.md → demo.py`，见 §10-26）、任务行重开面板、回答下 artifact 文件卡（`EB_ARTIFACT=1` 下断言 `cards=2` 且点第一卡把面板从 `demo.py` 切到 `notes.md`，见 §5.5/§10-28）、顶栏三件套（搜索药丸展开 / 收起、Share 弹自创 notice、面板开关按 tooltip 关面板，见 §5.6/§10-29）、消息快捷按钮（复制 `Copied` 反馈、编辑回填输入框、重新生成追加一轮对话、点赞弹自创 notice；见 §10-25）**全部有响应**。审计顺带查出并修掉三个**真实缺陷**（产品侧同样会看到的问题，不是测试环境问题）：
   1. **`set_no_show_all(true)` 必须放在 `show_all()` 之后**。`gtk_widget_show_all()` 对 `no_show_all` 控件**直接 return，也不向下递归**，所以此前所有下拉 popover 的内容、以及所有"隐藏待显"按钮（侧栏展开 `▶`、Code assist）的**子控件从未被 show 过**：下拉弹出来是个**空盒子**（requisition 恒为 66×42），按钮是个**空方块**。修法：新增 `widgets::hide_from_show_all()`（先 `show_all()`，再置 `no_show_all` + `set_visible(false)`），7 处调用点全部改掉。修后 popover requisition 回到按内容计算（筛选菜单 93×114、模型菜单 71×114、提示 294–324×48–80），审计打印 `3 of 3 menu rows visible`；离屏渲染 `menu.png` 里能直接看到模型下拉「Auto / Fast / Deep」。
   2. **侧栏分区标题点了没反应** —— 现在接真动作：折叠 / 展开（状态在 `App.collapsed`；因为 `show_all` 会把两个分区都显示出来，折叠只能在 `show_all()` **之后**施加），chevron `⌄` / `›` 随之切换。审计打印 `shown → hidden → shown` 的可见性链。
   3. **结果面板代码区横向被裁且无处可滚** —— 非换行 `GtkTextView` 上报的是"已排版行的宽度"，而它永远不会超过被分配到的宽度，请求宽度于是收敛到分配宽度、长行被裁掉。修法：用 Pango 量出最长行并 `set_size_request`，滚动区 `hadjustment` 由 `579/579` 变为 `579/646`（`upper > page_size`）⇒ 可横向滚动。
@@ -638,12 +691,79 @@ diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组�
     - 合成**点击**必须落在已 realize 的控件上：`gtk_widget_event` 的 `WIDGET_REALIZED_FOR_EVENT` 断言只看 `_gtk_widget_get_realized()`，而"本帧刚变可见"的控件要等下一帧布局才 realize（合成事件会早于它到达，真实鼠标不可能这么早），表现是两条 `Gtk-CRITICAL` 且 handler 根本不进。审计的 `click()` 里先 `widget.realize()` 补上这一帧。
     - `gtk_widget_show_all()` 对 `no_show_all` 控件**直接 return**（且不递归）——详见上文"已完成"里的缺陷 1，这是本轮最贵的一个坑。
 18. **IME 组合态下的 Enter 无法自动化验证** —— 实现侧已在 `key-press-event` 里先调用 `gtk_im_context_filter_keypress`（这是 GTK 专门给"在默认处理之前运行的处理器"的 API），输入法接管则 `Propagation::Stop`，不再发送。`EB_ENTER=1` 用合成事件跑通整条链路「聚焦 → 输入 → Enter → 建任务 → 切路由」，实测 `before=welcome` / `after=conversation`、且 buffer 被 `reset` 回提示语 ⇒ **无输入法时的 Enter 发送已验证**；**组合态仍未验证**，需要真实输入法介入（自动化提供不了）。`Shift+Enter` 与发送按钮始终是安全路径。
-19. **"本构建未实现"提示 popover 是自创 chrome** —— 侧栏搜索 / 小程序、会话顶栏搜索 / 分享、结果面板新建标签、Code assist 这 6 个控件，产品的行为都没采集到（而且产品里全局搜索是**独立窗口** `global-search` 800×640，不是本栏内的东西）。实现侧的选择是：点击弹一个 `eb-notice` popover 明说缺什么，而不是静默无反应——静默会被读成"坏了"（这正是本轮用户反馈"部分能点，部分失效"的来源之一）。这些 popover、`eb-missing-label` 样式与文案都属自创，记录备案。
+19. **"本构建未实现"提示 popover 是自创 chrome** —— 侧栏搜索 / 小程序、会话顶栏分享、结果面板新建标签、Code assist 这 5 个控件，产品的行为都没采集到（而且产品里全局搜索是**独立窗口** `global-search` 800×640，不是本栏内的东西；会话顶栏的搜索在 2026-10-24 截图里已采集到展开态，改为真实实现，见 §5.6）。实现侧的选择是：点击弹一个 `eb-notice` popover 明说缺什么，而不是静默无反应——静默会被读成"坏了"（这正是本轮用户反馈"部分能点，部分失效"的来源之一）。这些 popover、`eb-missing-label` 样式与文案都属自创，记录备案。
 20. **结果面板标签体与分区的折叠行为也属实现侧选择** —— 标签体不再是按钮（唯一的标签就是当前标签，点它没有动作），标签里的 `×` 变成真的关闭按钮 `eb-tab-close`（14×14，靠 `button.eb-tab` → `.eb-tab` 的类名改动保持几何不变）；`eb-section-label` 的折叠是照着我写的 tooltip 实现的，产品实测里没抓到过这类点击。
 21. **popover 与 overlay 滚动条在"无头 / 非活跃窗口"环境下的呈现无法完全验证** —— 审计环境没有窗管激活窗口（`window active=false`，还伴随 `Failed to initialize CVDisplayLink`），下拉在修好缺陷 1 后能按内容 sizing、也能在离屏渲染里看到（`menu.png`），但**真实活跃窗口下的呈现与焦点**未验证。同理代码区的横向滚动条在 macOS 上是 GTK 的 **overlay 指示条，静止时透明**，离屏截图看不到，只能用 `hadjustment` 的 `upper > page_size`（579/646）证明可滚动。
 22. **自带 GTK 栈下的 CJK 输入法** —— Debian 10 的默认 immodules 只有 `im-xim` / `im-cedilla` / `im-ipa` 等，**没有 `im-ibus`**（它随 `ibus` 包分发），而 Linux 桌面上的中文输入绝大多数走 ibus。要在自带栈里打中文，得把 `im-ibus.so` 与 `libibus-1.0.so.0` 一并打包（并保证 `GTK_IM_MODULE=ibus` 时能找到），否则只剩已自带的 XIM。目前两者都未做，探针不带输入法。
 23. **Windows 7 / 8.1 未验证，且文档自相矛盾** —— 硬要求里有 Win7/8.1，而 §2 表原先写"GTK 3（MSYS2 构建）无 Win7 门槛"，README「Prebuilt binaries」却写"MSYS2 自 2024-05 起不再支持 Win7/8.0，因此没有可维护的 GTK 3 运行时"。二者必有一错。要分清**构建环境**与**目标机**：Cygwin/msys2-runtime 3.5 不支持 Win7 只影响构建侧；MinGW-w64 产物理论上仍可声明 `_WIN32_WINNT` 兼容 Win7，但新版 GLib 可能已调用 Win8+ API（如 `GetSystemTimePreciseAsFileTime`），这只能真机实测。需要一台 Win7/8.1 虚拟机才能定论，目前无法验证。
 24. **Windows 产物并不自包含（且未验证）** —— `evobuddy-<版本>-windows-x86_64.zip` 目前只带 GTK 3 的 DLL 与 exe，**不带 GTK 的数据文件**：GSettings schema、immodules、gdk-pixbuf loader cache、图标主题、字体。缺 `org.gtk.Settings.*` 时 GTK 会直接拒绝启动，所以这个 zip 在没装过 MSYS2/GTK 的机器上大概率起不来。Linux 侧靠启动器在运行时重写两份 cache 里的绝对路径；Windows 需要等价的 `.cmd` 启动器 + 真机验证，因此**刻意没有照抄一份没验证过的实现**。CI 里该任务设为 `continue-on-error`（不阻塞 Linux 发布），产物自带的 README 也如实写明"未验证、非自包含"。另外 UCRT64 目标是 Win10+，与缺口 23 的 Win7/8.1 问题叠加。（v0.2.1 起该 zip 带上了版本号并补了 `.sha256`，与 Linux 产物对齐；但"单文件"对 Windows 无解——GTK 3 无法静态链接进一个 exe。）
+25. **消息框下方的快捷按钮整行属自创** —— 产品会话页的消息操作行从没被采集到（早期截图里用户气泡下方只有时间 + 我们自己的复制键）。本构建把它扩成:用户消息 = 复制 / 编辑重发（回填输入框）；已完成的 EvoBuddy 回答 = 复制回答（只含正文文本，不含思考/工具块）/ 点赞 / 点踩 / 重新生成（把该回答对应的用户提问按正常提交链路再发一次）。复制、编辑、重新生成都有真实行为并进了 33 步点击审计；点赞/点踩没有反馈通道可写，按 §10-19 的纪律弹 `eb-notice` popover 明说"本构建不发送反馈"。图标 `pencil/regenerate/like/dislike` 由 `gen_icons.py` 自绘。流式回答期间不画这一行（`agent_turn` 只在 `!streaming` 时打包 toolbar）。
+26. **结果面板的多文件标签条属自创** —— §4.4 的 `artifact-tab` 240×32 只在**单标签**场景被采集到。本构建把面板扩成"任务写过的每个文件一个标签"（最多 12 个，重写同名文件会把它移到末尾并选中），但 240px 被降级为**上限**而非定宽：标签按内容收缩（名字过长按中间省略），整条标签列表包在不传播自然宽的横向 scroller 里，放不下时横向滚动——定宽 240 的两个标签会把表头自然宽顶到 776，GtkPaned 的 resize-child 语义会据此抢回分隔条位置（§4.4 宽度回归的根因）。标签内 `×` 只关掉那一个文件（关到空才收起面板，且不置"永久收起"旗，下一个写入的文件仍会打开面板）；顶栏"▥"仍是整面板收起。加号按钮维持自创 notice（本构建不能凭空新建 artifact）。
+27. **筛选弹层的悬停底色属自创** —— 2026-10-24 用户提供的产品截图把筛选卡整体补齐了（§5.4：240 宽卡片、37 分组标题带、31 行高 34 pitch、选中 `#f7f7f7` 圆角 8 药丸 + 加粗 + 行尾 `#57bf9c` 对勾、`#f2f2f2` 分隔线、灰色 Reset Filters），旧版"✓ 前缀 + 4px 间距"的临时样式已按实测重做。截图里没有悬停帧，悬停沿用选中底色；卡片在离屏快照里必须把底色/边框画在 `.eb-filter-body`（子 widget）上而不是 `> contents` 节点——`snapshot()` 只画子 widget，contents 节点背景在离屏渲染中是透明的（旧 `.eb-menu-body` 同理，属同一坑）。
+28. **artifact 文件卡的取数规则属自创** —— 2026-10-24 用户截图给出卡片外观（§5.5）与点击行为（点卡/点链接都展开面板），但没采集到"什么时候显示几张卡"。本构建定死为：**最后一个已完成 agent 轮**下、按写入顺序显示**前 2 个**文件、`N>2` 才有 `View all artifacts (N) ›` 链接（链接选最新文件）。徽章映射也是自创：扩展名命中代码表（c/py/js/ts/rs/…含 md/json/yaml 等配置文本）用 `</>`（`artifact-code`），其余用 `?`（`artifact-unknown`），两枚均由 `gen_icons.py` 自绘；悬停底色（`shade(#f2f2f2,.96)`）同样未采集。字节的显示单位（`B`/`KB`/`MB`，一位小数）按截图样本 `131 B`、`32.6 KB` 推断。卡片行折进所属轮的 sig，因此面板收起再写新文件也会重排；流式期间不画。
+
+29. **顶栏搜索药丸的交互细节属自创** —— §5.6 截图给了外观与三个按钮的常驻布局，但没采集到：Escape 关药丸（本构建加了，与 `×` 同一路径）、无文件任务上面板开关的行为（本构建保持可见、点击无操作，不弹提示）、面板开态的 tooltip 措辞（`Close right panel ⇧⌘B` 按对称推断）、药丸内 `^` `v` 的 tooltip（`Previous/Next match`）。两个已知渲染差异：GTK3 的占位文本在**聚焦时不渲染**（产品截图里聚焦态仍显示占位），离屏快照因此看不到 `Search in conversation` 灰字；药丸放大镜/步进字形颜色（`#797979`/`#484848`）靠自绘 PNG 的 alpha 近似，不是逐像素一致。⌘F / ⇧⌘B 是真实实现的窗口快捷键（tooltip 采集值，兑现才写上去）。审计 +2 步（33 步）：`chat search` 展开药丸（`EB_SEARCH_SHOT` 快照钩子）、`chat search close` 收起、`panel toggle (close)` 验证开态 tooltip 并关闭面板；`chat share` 的 tooltip 从自创的 `Share task` 改成采集值 `Share`，`Search in conversation` 同步加 ` ⌘F` 后缀。
+
+30. **侧栏在途任务的转圈样式属自创** —— §4.3 的 gtk.css 备注只采集到"运行中的任务行显示 spinner（替代行尾时间戳）"这一事实，产品帧没有给过光圈几何。本构建定为：16px 圆环、2px 圆头描边、300° 缺口弧、`rgba(0,0,0,.5)`（与 `@eb_text_tertiary` 同色）、900ms/圈、40ms 步进重绘；判定条件是"最后一个 agent 轮 `streaming==true`"（`task_is_running`），所以后台并发流式任务（§10 之外的 M2 修复）也在自己行上转。相位取**全局时钟**而不是实例计数器：侧栏每轮刷新整表重建，新行必须续着转而不是从头转。普通任务（Tasks 区）与工作区嵌套行共用 `task_row`，两处同时生效。
+
+31. **极窄窗口的三栏保底规则属自创** —— 产品只在 1440×868 客户区被采集过（§4.3/§4.4），没有任何一帧是"用户把窗口拉到 1000px 以下"。本构建的窗口有效最小宽 **1082px**（GTK 由三栏控件的自然最小撑出来，实测值；`EB_WINDOW_WIDTH=900` 也只会得到 1082）。**（§10-36 之后修正：1082 是面板打开时的下限。面板收起时消息列的 scroller 只申报自己的 `min_content_width`（1）、不再把列的最小宽抬进窗口，所以窗口能一路拉到 800 以下——`EB_RESIZE_TEST=800` 实测 `toplevel=800 surface=800`；代价是旧转录右侧会被裁，见 §10-36 的残留条目。）**规则定在 `shell::outer_sash`（三段保底，从宽到窄）：① ≥1384（含实测基线 1440、1920）面板保持 580 份额，会话吃掉全部余量；② 1136–1384 会话列先让，但不低于 `MESSAGE_WIDTH(500)+24` ⇒ 分隔条恒为 `sidebar+524`=804，面板从 580 一路收到 332；③ <1136 面板保住**自身内容的实时最小宽**（`detail.root.preferred_width()`，两文件标签条实测 332），会话降到 `spec::CONVERSATION_MIN_WIDTH=240` 为止——这一档实际到不了（窗口先被 GTK 钳在 1082），它是防"分隔条跑到侧栏左边"的数学保底；1082 时会话拿到 470，面板 332、分隔条 750。面板的最小值取实时测量而不是写死常量：§10-26 之后标签条按内容收缩，标签数一变面板最小就变，写死的常量会再次和 GtkPaned 的 clamp 打架。
+    动因是一个肉眼可见的错位：面板开着、窗口拉窄时，我们设定的分隔条位置（804）和 GtkPaned 实际能给的分配（750，被面板最小宽 clamp）不一致，消息列的 margin 却按 804 算 ⇒ 用户气泡越过分隔条压进面板。现在 margin 一律从 `outer_sash()` 的返回值推（`pane_width = sash - sidebar`），两者同源；`EB_DEBUG=1` 会打印 `layout: width=… pos=… detail_min=… conv_min=…` 供核对。窄态下面板顶部的 ×/+/◐/⤢ 与顶栏 ⇧⌘B 都仍可点，收起面板后会话列回到 752。`evobuddy` 新增单测 `the_outer_sash_holds_the_captured_share_then_the_two_floors`（含 640–1920 全区间不变量）。
+32. **agent 在"回答完之后还在干活"时的状态行属自创** —— 产品从没采集过这种帧：ACP agent 先给本轮的 `stopReason=end_turn`，随后（Grok 的 `deep-research`/子 agent）继续往同一条 session 推 `session/update`。旧实现在响应处就 `Finished` 并**再也不读 stdout**，于是那半段结论永远不出现——用户看到的正是"话说到一半就结束了"。本构建把一轮的结束条件改成"响应 + 静默窗口"（`AcpConfig.tail`）：响应后先等 **2s**（`EVOBUDDY_ACP_TAIL_FIRST_SECS`）探有没有续流；一旦有，就按 **40s** 静默上限持续收（`…_TAIL_QUIET_SECS`），总时长再封顶 **900s**（`…_TAIL_MAX_SECS`）。40s 不是拍的：2026-10-27 用独立 stdio 驱动抓真实 Grok，它在 provider 退避时相邻两条 `retry_state` 的间隔实测 26.6–35.8s，窗口再小就会在两次重试之间把轮关掉。续流期间状态行文案为自创的 `Agent is still working`；provider 退避把 Grok 的 `retry_state` 原样抬成 `Retrying <attempt>/<max>: <reason>`（reason 按字符截 140），因为不显示时用户只会看到"界面卡住"。看门狗同步从"整轮 180s 墙钟"改成"**连续 180s 没有任何消息**才 kill"（`EVOBUDDY_ACP_TIMEOUT_SECS` 语义变更），并在 TERM 后 3s 仍未收尾时补 KILL。审计/单测：`late_updates_stay_in_the_same_turn`（断言续流文本落在同一轮、且 tail 期的权限请求仍被回答）、`provider_retries_reach_the_status_line`。补一条同抓包得出的规则：Grok 把 `retry_state`/`turn_completed` 装在私有 `_x.ai/session_notification` 信封里（那场 23.4 分钟**一条 `session/update` 都没有**，60 条退避全在私有方法里），所以两个信封都要认；`turn_completed` 只在续流阶段生效且只认 `error`/`cancelled`——`stop_reason="error"` 用它的 `agent_result` 把轮判成 `Failed`（否则后台工作死掉时界面"安静地成功"，用户只看到"稍后发结论"没下文），而 `"end_turn"` 必须忽略，它和 spec 响应同时到，认账会把续流窗口提前关掉。单测 `a_failed_continuation_ends_the_turn_with_the_agent_reason`。
+33. **流式期间"滚上去就不抢回底部"属自创行为** —— 产品采集里没有"用户往上翻历史 + 同时有 delta 到达"这一帧，而旧实现每次都无条件跳到底部：读长任务时根本翻不动，delta 一到就被拽回最新消息。现在的规则（`Conversation::follow_output`）是**只在读者已经在底部时跟随**：判定用 `upper - value - page_size <= 24px`（`FOLLOW_SLACK`，约半行文本，容得下一次没甩到底的触控板轻扫），底部以内算"在看"，往上超过 24px 立刻解钉。重新钉住只有三个入口，且都是用户自己的动作：① 轮数变多（提交、重新生成——delta 只改已有轮的内容，不算）；② 切换任务或从欢迎页进入任务（`shell` 比对 `painted_task`，`follow_now()`）；③ 用户自己滚回底部。宿主自己的跳转用 `auto_scroll` 旗标包住 `set_value`，免得把"程序滚的"读成"用户滚的"；搜索跳转 `scroll_to_widget` **故意不包**，跳到中间某轮后就不再跟随，正好符合预期。没有加"↓ 有新消息"浮标：那是产品未采集的自创 chrome，先只把抢滚动修掉，需要时再按采集补。验证：`EB_FOLLOW_TEST=1`（配慢速 `EB_FAKE_AGENT`）滚上去后要求后续 delta 不动视图、滚回底部后要求继续跟随，退出码 0；临时把 `pinned` 判定旁路跑同一 harness 复现原症状——`follow-test: FAIL a delta yanked the view +348px while 89 chars streamed in`。该 harness 原来靠存档里恰好存在的长会话撑出滚动区，环境一换就退化成"没有可滚的范围"；现在它自己发一条足够长的 prompt 把转录撑高（`streamed()` 也改成读 `painted_task` 指向的任务），不再依赖状态文件内容。
+
+34. **切换任务时"整表重建"换成按任务缓存的帧复用** —— 报障"在多个正在运行的任务间切换，多切换几次窗口就挂了"。实测（`EB_SWITCH_TEST=40` 配 3 个 20 轮、共 211KB 的存档，`EB_DEBUG=1`）：旧实现每次切换都落进 `fill_messages` 的全量分支（`reuse=0`），把整段转录按 `block_widget` 重建一遍——markdown 解析、代码卡、表格、diff 卡全来一次，20 轮约 40ms；收尾那句 `messages.show_all()` 再走全树约 1100 个控件（均值 9.5ms、峰值 25.1ms）。三个流式任务同时跑时，16ms 的 drain tick 与 33ms 的刷新合并把这类重排推到每秒 20–30 次，主循环追不上自己的节拍：harness 报 `the main loop starved by 1233ms during 40 switches`，且迟到量随切换次数单调增长。改两处：① 离开屏幕的会话帧不再销毁，按任务索引收进 `Conversation::detached`，换回来只是逐帧 `pack_start`；② `show_all` 下沉到"这一帧刚建出来的那个 frame"（`hide_from_show_all` 的控件本来就被 `no_show_all` 挡在外面，可见行为不变）。缓存条数上限 `DETACHED_CONVERSATIONS=4`，超了丢最久未用的那个，它下次被打开时重建——纯工程选择，产品没有对应采集帧，用户可见行为不变，但它是"内存换流畅"的显式取舍，所以记在这里。结果（2026-10-27 复测，同一存档、`EB_SWITCH_TEST=30`）：30 次切换 `worst_late=0ms worst_switch=0ms`，29/30 次走 re-attach、只有冷缓存的第一次全量重排（`conv` 63 次刷新均值 8.5ms、峰值 41.6ms；重排 23 次、平均 3.7 轮）。修复前是每次切换都全量重排（`conv` 均值 23.3ms）再叠全树 `show_all`。harness 同时补了第三条不变量：re-attach 的帧必须**真的被画出来**（可见且分配非零），并用 `EB_SWITCH_SHOT=<path>` 在最后一次切换后 300ms 出图人工核对。
+
+35. **长会话只渲染最近 20 轮、滚到顶再往前加载，属实现侧为性能自创的行为** —— §10-34 修完之后，"切到轮数很多的任务"仍然卡，因为剩下的成本是**按总轮数**算的：122 轮的任务每次切换实测 `remove 18–24ms + attach 4ms`，再加上 `set_child_visible(true)` 触发的全树布局 68ms（树里挂着 6289 个控件），刷新内外合计约 150ms ⇒ `switch-test: FAIL the main loop starved by 3334ms during 20 switches`。产品采集里从来没有"长会话滚动到顶"这一帧，所以这一条整段都是自创行为，只记录不比对。定死的规则：
+    - **渲染窗口**：`Conversation::first` 记"当前挂载的第一轮在任务里的下标"，`turns` 只覆盖 `task.turns[first..]`；打开任务/切换任务时窗口取最近 `ATTACH_TURNS=20` 轮，`fill_messages` 里所有下标都是**窗口相对**（要加回 `first` 才够到任务）。
+    - **滚到顶自动加载更早**（用户选的方案，**不加**"加载更早"按钮之类的自创 chrome）：`value_changed` 里 `value <= LOAD_EDGE=400px` 且还有更早的轮，就只置 `pending_load` 并请求一次重绘；重绘里 `load_earlier` 建 `ATTACH_STEP=10` 帧、`reorder_child` 到列表头、`splice` 进 `turns`。一片一片来，一次手势只吃一片（门是下面那个 anchor 旗标），否则停在顶边会把整段历史在几十个连续重绘里挂回来。`DETACHED_FRAMES=30` 限制每个离屏会话缓存的帧数，防止"有人翻到过第一轮"让下一次切换又背上整段转录。
+    - **滚动补偿必须锚在"帧"上，不能锚在内容高度上**：新帧插在读者上方，不补偿就会被整片推走。第一版只在 idle 里按 `upper` 增量补一次，实测冷加载仍偏 **1580px**（一片 9490px）——reveal 那一次协商用的是 Pango 的临时测量，之后上方内容又长高了一截，`upper` 前后差并不等于最终几何。现在记住**视口顶边下那一帧**和它距顶边的像素（`Conversation::anchor`），只要 adjustment 的 `changed`（内容高度变了）就把视图放回那条线，预算 `ANCHOR_SETTLE_PASSES=16` 次；读者自己滚动、或切到别的任务，立刻交出 anchor（那是他的位置，不是我们的）。宿主自己的跳转一律包在 `auto_scroll` 里，免得把"程序补的"读成"用户滚的"而解钉。
+    - 结果（2026-10-27，`docs/make_heavy_state.py` 造的 3×120 轮存档）：30 次切换 `window=(100, 22)`、`worst_late=0ms worst_switch=0ms`、树从 1087 只长到 1139（修复前每次切换挂满 122 轮），`conv` 刷新均值 8.0ms/峰值 41.8ms，reveal 均值 10.6ms（原 68ms）。滚到顶一片 29–47ms，落在读者主动甩到顶的那一下，且两次甩顶的视线漂移实测 **0px/0px**。
+    - **代价：会话内搜索现在只覆盖已挂载的窗口**。`search_recompute` 遍历的是 `Conversation::turns`（窗口），所以 120 轮任务里第 3 轮的内容在窗口滚到它之前搜不到；读者往上滚、每加载一片后重新输入查询就能命中。这是窗口化带来的真实功能收缩，不是渲染差异，记在这里以免被当成 bug 排查。（`search_refresh` 那段"重建后自动重算 hit 列表"是死代码，加载片不会自动补进当前查询的结果里。）
+    - 验证：`EB_LOAD_TEST=1`（配 `EB_STATE` 指向 120 轮存档、`EB_LOAD_SHOT` 出图）连做两次"甩到顶"，每次要求恰好多 10 轮、`messages` 的子控件数等于渲染状态自报的挂载数、且锚定帧相对顶边的位置漂移 ≤4px。测量坑记一笔：`upper` 的增量不是可用不变量（reveal 之后还会漂 2px/帧量级），`Widget::translate_coordinates` 不随滚动值移动；能用的度量是 `frame.allocation().y - adjustment.value()`，即"视口顶边下那个内容像素"。
+
+36. **窗口缩放后的三栏重排：`configure-event` 的返回值、消息列的居中方式，都是实测出来的坑** —— 报障"切换到某个任务时，屏幕只剩侧栏拉满整窗、没有会话区"。根因不在任务切换，而在窗口缩放：`shell::finish` 里挂的 `connect_configure_event` 返回了 `true`。configure-event 是 **RUN_LAST**，返回 `true` 会终止信号发射，也就跳过了 GTK 自己的 `gtk_window_configure_event` —— 那是 toplevel 记录新 frame 尺寸的唯一地方。于是窗口服务器把一块 **280px 的旧 surface 拉伸铺满 1470px 的 frame**：像素是侧栏的，几何是整窗的，看起来就是"侧栏占了全屏"。改两条：
+    - **返回 `false`**，让默认处理器照常吃掉事件；我们的刷新只是顺带请求一次重排。
+    - **比较事件里的宽度，不是 `window.size()`**。这个处理器跑在默认处理器**之前**，此时缓存的 `size()` 还是上一帧的值；拿"旧值 vs 旧值"判断"宽度变了没"会直接漏掉这次缩放，重排晚一个事件才发生。`gdk::EventConfigure::size().0` 才是新 frame 的宽度。
+
+    同一个报障还牵着两个"窗口拉不小"的伴生缺陷：① 消息列 scroller 的横向策略原先是 `NEVER`，会把列的最小宽（实测 1158）**原样抬进窗口最小宽**，拖到那儿就再也拉不动；改成 `Automatic` 后 scroller 只申报自己的 `min_content_width`（1），列在 pane 里横向滚动。② 居中方式从"给 `messages` 加左右 margin"换成"由 scroller 居中"（`halign=CENTER` + `propagate_natural_width(true)` + `max_content_width=设计宽`）。原因：`GtkViewport` 给子控件的宽度是 `max(子最小宽 + 子 margin, 视口宽)`，而**换行后的中文段落的最小宽等于它上一次折断时的宽度**（`_gtk_text_layout_get_min_width` 只在空格处断行，一整段中文算一个"词"；`GtkTextView` 没有 `width-chars` 可以压住它）。margin 是在刷新里补设的，GTK 重排时用的还是**上一帧的 margin**，于是"变宽"方向会自我放大：实测一次 grow 后列停在 1220px 挂在 1389px 的 pane 里，再也回不来 —— 就是"转录画出 pane 边界"的样子。scroller 居中不吃 margin，grow/shrink 都稳定在 752。
+    - **`max_content_width` 只会截断，不会撑起来**：artifact demo 的转录很短，自然宽只有 276，列就真的画成 276（`eb-messages 432,64 276x604`）。所以再给列本身一个宽度请求把自然宽钉到设计值：`messages.set_size_request(min(设计宽, pane 宽), -1)`。它**不会**把窗口最小宽抬起来 —— 列在可横向滚动的 scroller 里，scroller 申报的是自己的最小值，不是子的。
+    - 顺带改掉一条过时断言：`selftest` 原先期望 `eb-messages == MESSAGE_WIDTH - 1`（margin 居中时 viewport 会少 1px 边框），现在列宽是精确的 500 / 752，期望改成定值。
+    - 验证（`EB_RESIZE_TEST`，见 local-verification 配方 29）：800 → `toplevel=800 surface=800 sidebar=280 stack=534`；1200 → `toplevel=1200 surface=1200 stack=919 column=752`；grow 到 1270/1670 后列仍是 752（ratchet 消失）。截图核对：1200 宽时 752 的列正好居中、无裁切（`/tmp/eb-r1200-narrow.png`），面板打开时 500 的列在 580 的 pane 里左右各 40（`/tmp/eb-art500.png`）。
+    - **已知残留（未修，代价记在这里）**：列宽超过 pane 时（800 窗口 → 751 vs 534）转录右侧被裁掉，横向滚动条是 overlay 的、静止时透明，所以看上去像"文字画到窗外"。harness 以 `note` 报出而不判失败，因为那是"这段转录已经在 752 上折断过一次"的 CJK 残留：要让它跟着变窄必须**重新折断**每个 `GtkTextView`（实测 `set_size_request` 只能抬高不能压低，`width-chars` 属性 `GtkTextView` 根本没有），而重折要在每次缩放步进里遍历整棵缓存的会话树，正是 §10-34/§10-35 花力气消掉的开销。当时的取舍是"要么窗口根本拉不小（就是这份报障的机制），要么窗口最小宽写成 sidebar+752，要么接受窄窗口的裁切"。新开在窄窗口的会话没有这个问题，只有从宽窗口缩下来的旧转录会这样。
+    - **测量坑记一笔**：`steady` 只比"两次读数的 pane/列"不够。控件树可以在 frame 落地后的**一两拍里仍然拿着旧分配**（实测同一帧读出两次一模一样的 `stack=1159`），于是把中间态当成稳定态测，报出"侧栏拉满整窗"的假失败。现在要求两次读数一致 **且** pane 与 frame 相符（`|stack - (toplevel - 280)| <= 40`）才算落定；真的卡住仍会在 6s/10s 兜底处失败。
+
+
+
+
+
+37. **转录滚动条从"消息列右缘"移到"pane 右缘"** —— 报障"WorkBuddy 的转录滚动条在窗口右侧，EvoBuddy 的和输入框右缘对齐，基本与消息里引用/代码框自己的滚动条平齐；一旦遇到文本框两者叠加，就滚不动"。成因：列是由 scroller 居中的（§10-36），而竖条长在 scroller 自己的右边缘，也就是 752 列的右边缘 —— 正是消息内 exec / diff / code 卡各自竖条所在的位置。两套条叠在同一列像素上，拖到的那个只滚自己，读者的直觉是"滚不动"。
+    - 改法：scroller 的竖向策略 `Automatic → External`，条本身换成一个共享同一条 `vadjustment` 的独立 `GtkScrollbar`。**滚轮没有因为换策略而失效**：GTK3 的 `gtk_scrolled_window_scroll_event()` 走 `may_vscroll()`，它对 `GTK_POLICY_EXTERNAL` 返回真（`gtkscrolledwindow.c`，只有 `NEVER` 会关掉滚动）；`EB_LOAD_TEST` 的两次"甩到顶"仍然触发加载，就是在验这条路径。
+    - 位置：**不能**把 scroller 直接当 `GtkOverlay` 的主子控件 —— 主子控件不 expand 时，overlay 子控件是按它的**请求宽**（752）摆的，条会落回列边缘（实测 overlay x=737 ⇒ 窗口 1018–1032，正是报障里那个位置）。所以在中间垫一层会 expand 的 `hbox`（只包 scroller），overlay 子控件于是按整条 pane 定位，`halign=END`。
+    - 实测几何（1440×836，60 轮存档）：条 `1425–1439`（宽 14，贴 pane 右缘），转录列 `484–1236`（中心 860，与输入卡同轴 —— 条浮在空白 padding 上，没有把列挤偏），条与列之间 189px 全白、逐行扫描无内容压线。1470 宽时条 `1455–1469`，同样贴边；1000 宽（列已经溢出 pane 的 §10-36 残留态）条仍在 `985–999`。（§10-39 把那 14px 改成了透明槽 + 3px 滑块，滑块实测 `1433–1435`；"贴 pane 右缘"这一点没变。）
+    - 短转录不挂死条：`vadjustment` 的 `changed` 里 `upper > page_size + 1` 才可见（实测单轮任务 `upper==page==848` ⇒ 条隐藏，右缘回到纯白）。
+    - **自创部分**：产品那侧的转录条是 fade-out overlay，静止帧采不到几何（§10-21），所以"14px 常驻 trough"没有采集依据，只有"贴在窗口右缘"这一点是按用户对照产品的观察实现的。它比消息内卡片自己的条更显眼：独立 `GtkScrollbar` 不在任何 scroller 里，拿不到主题的 overlay 样式类，因此离屏快照里它是实心的（灰值 `#cecece`）；同一快照里消息内 8 个 exec/code 卡的条全部透明（按列宽扫描 `1018–1032` 与 `1200–1235` 两处都无非白像素），这个差异就是上面那条报障能出现的物理原因。（这个"14px 实心槽"的中间态后来被 §10-39 换掉了 —— 用户报"突兀、难看"；换掉的正是这条自创，不是采集值。）
+    - **残留**：列铺满 pane 时（pane ≤ 约 766，即 §10-36 那个"列宽超过 pane"的窄窗态；开着结果面板则更早）条仍会压在列的右缘上。此时它在 z-order 的**最上层**（overlay 最后加、且不 pass-through），所以拖那 14px 滚的是转录而不是消息内的卡片 —— 报障的"滚不动"在这两种宽度下都不会再出现。
+    - 验证：`EB_LOAD_TEST` / `EB_RESIZE_TEST` 配长会话存档（`docs/make_heavy_state.py 1 30`）出图，PIL 读右缘 15px；`column=752`、`stack=1159`、`drift=0px,0px` 三条不变量不变。
+
+38. **空白 padding 也要能滚转录：事件窗口只覆盖列，catcher 必须是 `GtkEventBox` 并自己申报 expand** —— 报障"鼠标在空白区域，也应该能滚动对话消息"。成因不在滚动策略而在**事件窗口的覆盖范围**：列由 scroller 居中（§10-36），scroller 只有它那 752px 的输入窗口；1440 宽的 pane 里左右两侧各约 204/189px 的空白属于上层的 `GtkOverlay`/`GtkBox`，它们没有输入窗口，滚轮事件到了那儿就没人接 —— 指针必须压在文字上才翻页。
+    - 改法：在 scroller 外面垫一层铺满 pane 的 `GtkEventBox`（`conversation.transcript_hits`），`connect_scroll_event` 里用 `scroll.event(&**event)` 把同一个事件原样交给 scroller，让 GTK 自己的 `gtk_scrolled_window_scroll_event()` 去算滚轮单位、smooth delta、kinetic 收尾、overshoot 与 clamp —— 不在这儿复制它那份数学。
+    - **为什么不直接把 scroller 拉宽到整条 pane**：`GtkViewport` 给子控件的宽度是视口宽（§10-36），列会被撑到 1159；把列钉在 752 靠的是 scroller 的 `max_content_width`，前提是 scroller 自己就窄。
+    - **`GtkEventBox` 没有 `compute_expand`**：expand 提示是从子控件推导出来的（`GtkBox` 会、`GtkEventBox` 不会），所以这层必须显式 `set_hexpand(true)` + `set_vexpand(true)`。漏掉的话提示就断在这里，上面一串（`GtkOverlay` 的主子控件 → stack → paned）把转录读成一条 752 宽、不 expand 的带子，overlay 子控件重新按请求宽定位 —— 结果就是 §10-37 刚修掉的那个"条落回列边缘"。垫的这层包住的是 §10-37 那层 expand 的 `hbox`，转发仍在最外层。
+    - 覆盖范围：**光有 catcher 不够，catcher 的 GdkWindow 必须自己申报滚轮掩码**（§10-38 的原始实现就是漏在这一步，用户复测"margin 还是滚不动"）。`GtkEventBox` realize 时只 `attributes.event_mask = gtk_widget_get_events(w) | GDK_EXPOSURE_MASK`，加上按钮与进出掩码，实测它的窗口掩码是 `EXPOSURE | BUTTON_MOTION | BUTTON_PRESS | BUTTON_RELEASE | ENTER_NOTIFY | LEAVE_NOTIFY` —— **没有** `SCROLL_MASK/SMOOTH_SCROLL_MASK`。GDK 在 `gdk_event_translate` 里按窗口掩码就把事件丢了，控件链根本不会启动，所以 `connect_scroll_event` 写得再对也是死代码。修法：`add_events(SCROLL_EVENTS)`（`GtkScrolledWindow` 自己也是取这两位）。**harness 为什么没抓到**：`gtk::propagate_event` 是直接递给控件的，绕过了窗口那一层过滤 —— 凡是"用 propagate 模拟真实输入"的 harness 都有这个盲区，所以 `EB_PAD_SCROLL` 现在先断言 `hits.window().events()` 含这两位，再谈位移。
+    - 覆盖范围到整页：转录那一段由 `transcript_hits`（overlay 的主子控件，兼作 §10-37 的 expand 提示）接，composer 那一段另有一个铺满 `body` 的 `page_hits`。输入卡是居中放在远宽于它的 pane 里的，左右两条空白同样没人接滚轮；只垫转录那一段，用户从输入框边上滚就还是没反应。自己有窗口的控件（列的 scroller、输入框的 textview）先吃掉事件，catcher 只接没人要的。顶栏那 64px 不在 `body` 里，不参与。
+    - z-order 上 catcher 在 fade 遮罩与转录条之下：那两处仍各自处理自己的事件，遮罩本来 pass-through。
+    - 验证 `EB_PAD_SCROLL=1`（配长会话存档）：先断言两个 catcher 的窗口掩码，再上滚 400（pane catcher）、下滚 250（同一个）、上滚 300（**page catcher**，即 composer 那一段），逐步断言 `vadjustment` 的位移，实测 `pad-scroll: ok the pane scrolls 18376 -> 17976 -> 18226 -> 17926 of 18980`；中途还断言转录条已经带上 `eb-bar-active`（§10-39），否则"条变粗"这件事只能靠人眼。断言只咬位移（±8px），绝对 `upper` 不必复现：同一份 2×12 轮存档两次跑分别读到 18980 与 22140，差别只在测量那一刻惰性 attach 已经挂了多少轮，转发路径本身与挂载量无关。两条负向对照都是必要的：把转发摘掉 ⇒ `FAIL … moved the transcript 0px, not -400px`；把 `add_events` 注释掉 ⇒ `FAIL the pane catcher's window selects EventMask(EXPOSURE | BUTTON_* | ENTER/LEAVE), which is missing SCROLL_MASK/SMOOTH_SCROLL_MASK`（实测过，掩码断言不是摆设）。几何不变量另跑复核：`EB_RESIZE_TEST=1440 EB_RESIZE_TASK=1` 给 `column=752`、`stack=1159`，`EB_LOAD_TEST` 给 `drift=0px,0px`。
+    - **自创部分**：产品采集里没有"指针停在 padding 上滚滚轮"这一帧，也没有可对照的条行为；"空白处也能滚"是按用户对照 WorkBuddy 的观察实现的，属交互补齐而非像素比对。
+    - **调查记录（免得再走一遍）**：这条改动一度被 `EB_RESIZE_TEST` 的 grow 失败拖累，当时假设是"composer 的 margin 把会话最小宽顶到 pane 之外、configure 被当成 undersized 丢掉"，还为它写过 margin 钳制 + `size-allocate` 重绘钩子。用真实的 harness 机制复测后 product 代码原样回退（`refresh` 里仍是从 `pane_width` 算 `input_margin`），grow 仍 3/3 通过 —— 假设不成立。真正的原因记在下面这条 harness 坑里。
+    - **harness 坑：`surface.resize()` 只让 GTK *知道*新 frame，不会让树重排**。把 frame 变成新分配的是 `gtk_window_process_updates`，而它挂在 GDK frame clock 上；`cargo run` 起的进程不是活动应用，clock 不 tick，于是 `window.size()` 动了、`window.allocation()` 不动，整棵树停在旧分配上，harness 兜底等到 10s 仍读到 `stack=1159`（假失败）。`gtk::WindowExt::process_updates` 在 gtk-rs 0.19 / gtk-sys 里没有绑定，所以配方 29 现在每个 tick 比较 `size()` 与 `allocation()`，不一致就自己 `size_allocate()` 一次 —— 真实拖拽下一帧做的就是这件事。也试过三条路，都不成立：`window.resize()`（macOS 干脆不回 configure）、在 tick 里 pump `MainContext`（没有 pending 源，pump 了个空）、只测一次 `window.preferred_height()`（靠 measure 的副作用碰运气，时序不稳，只有 3/3 显式分配是确定的）。
+    - 另一处 harness 事实：缩放 harness 必须**配长会话存档**（`EB_STATE=<tasks.json>`）才有意义。不带存档时 `EB_RESIZE_TASK` 走"自己新建三个短任务"的分支，转录没有可滚内容，`upper==page` ⇒ 条隐藏、滚轮断言也失去对象。
+
+39. **右缘转录条改成细滑块** —— 报障"右侧滚动条比较突兀、难看"。成因：§10-37 那根条是独立的 `GtkScrollbar`，不在任何 scroller 里，拿不到主题的 overlay 样式，于是整条 14px 都是实心槽（离屏快照右缘逐行扫描 `1426–1439` 全是 `#cecece`，只有滑块那 38 行深一点）。读者看到的不是"一条滚动条"，是窗体右缘一条洗不掉的灰带。
+    - 改法（`ui/gtk.css` 的 `.eb-transcript-bar`）：槽与控件自身背景清空、去掉边框/阴影/步进按钮，滑块收成 3px 圆头、`alpha(#000,.13)`、右边留 4px 内缩（实测滑块像素 `1433–1435`，其余全白）；hover 或滚动时升到 5px / `alpha(#000,.26)`，拖动中 `:active` 再到 `alpha(#000,.38)`。控件本身仍占 12px 宽，所以那 12px 还是可以点、可以拖 —— 变细只是不画槽。
+    - **"滚动时变粗"是 `vadjustment` 的 `value-changed` 加 `eb-bar-active` 类、900ms 一次性定时器摘掉**。两处刻意的省法：类已经在了就不重复 `add_class`（重复加同名类会让节点样式失效并排一次重绘，流式回答是每个 token 一次 `value-changed`）；每次改动都 `remove()` 旧源再挂新的（微秒级），否则连续滚动会在开始 900ms 后自己先暗下去。这条路径由 `EB_PAD_SCROLL` 的掩码断言之后顺带验一次（滚完立刻查 `has_class`）。
+    - **CSS 坑：`>` 在这里不成立**。第一版写的是 `scrollbar.eb-transcript-bar > trough > slider`，结果控件自身那条规则生效（灰带变白）、滑块完全没变（还是主题的 `#7e7e7e`、10px 宽）—— GTK 在 `scrollbar` 与 `trough` 之间还夹了节点，主题的 CSS 用的是后代写法所以不受影响。改成空格后代选择器（`scrollbar.eb-transcript-bar slider`）后实测生效。判据别看错：`background-color` 是不是 `alpha(#000,.13)` 折算的 `#dedede`（222），而不是主题的 127。
+    - **自创部分**：12px 槽宽、3/5px 滑块、`.13/.26/.38` 三档灰、900ms 回落全是自创。产品那侧的条是 fade-out overlay，静止帧采不到几何与颜色（§10-21），只有"贴在窗口右缘"（§10-37）有采集依据；这一条是把"常驻 14px 实心槽"这个没有采集依据的中间态改回接近 overlay 观感，方向按用户对照产品的观察。
+    - 验证：`EB_LOAD_TEST=1 EB_LOAD_SHOT=…` 出图 + PIL 扫右缘 20px（静止态实测只有 `1433–1435` 三列非白，值 222；`1426–1432`、`1436–1439` 全白），`EB_PAD_SCROLL` 验 `eb-bar-active`；`column=752`/`stack=1159`/`drift=0px,0px` 三条不变量不变，`EB_ASSERT`（含 `EB_ARTIFACT=1`）与 33 步点击审计同批通过。
 
 **下一步**
 

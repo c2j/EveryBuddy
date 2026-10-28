@@ -16,6 +16,10 @@ OUT = 48
 BLACK = (0, 0, 0, 205)
 GREEN = (0, 194, 154, 255)
 DARK = (22, 43, 38, 255)
+# Measured from the artifact-card capture: the file badge is a #7A95F8 rounded
+# square with a white glyph.
+ARTIFACT_BLUE = (122, 149, 248, 255)
+WHITE = (255, 255, 255, 245)
 
 
 def canvas():
@@ -84,11 +88,32 @@ def search():
     return im
 
 
-def share():
+def search_dim():
+    """The pill's magnifier: measured #797979 over white ≈ 52% black."""
     im = canvas(); d = ImageDraw.Draw(im)
-    d.arc((18, 40, 78, 88), 180, 360, fill=BLACK, width=6)
-    line(d, [(52, 58), (52, 14)], width=6)
-    line(d, [(34, 30), (52, 12), (70, 30)], width=6)
+    gray = (0, 0, 0, 134)
+    d.ellipse((16, 16, 62, 62), outline=gray, width=7)
+    line(d, [(58, 58), (82, 82)], fill=gray, width=7)
+    return im
+
+
+def share():
+    """The topbar share glyph (2026-10-24 capture): a curved forward arrow —
+    tail at the bottom, sweeping left and over the top, head pointing right."""
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.arc((16, 20, 64, 88), 90, 270, fill=BLACK, width=6)
+    # The arc ends at the top of the box travelling right; the head is an
+    # open chevron continuing in that direction.
+    line(d, [(44, 6), (64, 20), (42, 36)], width=6)
+    return im
+
+
+def panel_right():
+    """The right-panel toggle (2026-10-24 capture): a rounded rectangle whose
+    right rail is a filled capsule."""
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((14, 22, 82, 74), radius=10, outline=BLACK, width=6)
+    d.rounded_rectangle((60, 32, 71, 64), radius=5, fill=BLACK)
     return im
 
 
@@ -129,6 +154,37 @@ def code():
     line(d, [(58, 26), (78, 48), (58, 70)], width=6)
     line(d, [(52, 18), (44, 78)], width=6)
     return im
+
+
+def pencil():
+    im = canvas(); d = ImageDraw.Draw(im)
+    line(d, [(32, 68), (70, 30)], width=12)
+    line(d, [(20, 80), (32, 68)], width=5)
+    line(d, [(60, 20), (78, 38)], width=6)
+    return im
+
+
+def regenerate():
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.arc((20, 20, 76, 76), 75, 375, fill=BLACK, width=7)
+    # Arrowhead where the arc ends (75 deg ≈ top-right of the circle).
+    d.polygon([(74, 34), (86, 40), (72, 48)], fill=BLACK)
+    return im
+
+
+def like():
+    im = canvas(); d = ImageDraw.Draw(im)
+    # Wrist block, then a filled hand with the thumb raised.
+    d.rounded_rectangle((16, 46, 32, 80), radius=5, fill=BLACK)
+    d.polygon(
+        [(38, 78), (38, 48), (50, 44), (56, 20), (66, 20), (70, 44), (82, 48), (80, 72), (70, 78)],
+        fill=BLACK,
+    )
+    return im
+
+
+def dislike():
+    return like().rotate(180)
 
 
 def send():
@@ -190,6 +246,12 @@ def user():
     return im
 
 
+def chevron_up():
+    im = canvas(); d = ImageDraw.Draw(im)
+    line(d, [(28, 58), (48, 38), (68, 58)], width=7)
+    return im
+
+
 def chevron_down():
     im = canvas(); d = ImageDraw.Draw(im)
     line(d, [(28, 38), (48, 58), (68, 38)], width=7)
@@ -233,6 +295,27 @@ def agent():
     return im
 
 
+def artifact_code():
+    """Blue badge with a white </> glyph: a file whose extension is code."""
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((8, 8, 88, 88), radius=24, fill=ARTIFACT_BLUE)
+    d.line((40, 34, 26, 48, 40, 62), fill=WHITE, width=6, joint="curve")
+    d.line((56, 34, 70, 48, 56, 62), fill=WHITE, width=6, joint="curve")
+    d.line((52, 28, 44, 68), fill=WHITE, width=5)
+    return im
+
+
+def artifact_unknown():
+    """Blue badge with a white ? glyph: any other file."""
+    im = canvas(); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((8, 8, 88, 88), radius=24, fill=ARTIFACT_BLUE)
+    d.arc((34, 26, 62, 52), 200, 360, fill=WHITE, width=6)
+    d.arc((34, 26, 62, 52), 0, 30, fill=WHITE, width=6)
+    line(d, [(57, 49), (48, 57)], fill=WHITE, width=6)
+    d.ellipse((43, 64, 53, 74), fill=WHITE)
+    return im
+
+
 def mascot():
     im = Image.new("RGBA", (240, 240), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
     d.rounded_rectangle((36, 52, 204, 208), radius=48, fill=GREEN)
@@ -272,11 +355,14 @@ def main():
     (HERE / "icons").mkdir(exist_ok=True)
     icons = {
         "plus": plus(), "assistant": assistant(), "grid": grid(), "calendar": calendar(),
-        "library": library(), "folder": folder(), "search": search(), "share": share(), "copy": copy(),
+        "library": library(), "folder": folder(), "search": search(), "search-dim": search_dim(),
+        "share": share(), "panel-right": panel_right(), "copy": copy(),
         "expand": expand(), "collapse": collapse(), "close": close(), "code": code(),
         "pin": pin(), "send": send(), "send-light": send_light(), "stop": stop(), "stop-light": stop_light(), "menu": menu(), "filter": filter(),
-        "user": user(), "chevron-down": chevron_down(), "chevron-right": chevron_right(),
+        "user": user(), "chevron-up": chevron_up(), "chevron-down": chevron_down(), "chevron-right": chevron_right(),
         "check": check(), "ring": ring(), "logo": logo(), "agent": agent(),
+        "pencil": pencil(), "regenerate": regenerate(), "like": like(), "dislike": dislike(),
+        "artifact-code": artifact_code(), "artifact-unknown": artifact_unknown(),
     }
     for name, image in icons.items():
         save(image, name)

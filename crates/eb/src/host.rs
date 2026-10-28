@@ -20,7 +20,11 @@ pub fn acp_enabled() -> bool {
     ACP_ACTIVE.load(Ordering::SeqCst)
 }
 
-fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option<eb_plugin_acp_agent::AcpAgent> {
+fn acp_command(
+    program: std::path::PathBuf,
+    args: &[String],
+    name: &str,
+) -> Option<eb_plugin_acp_agent::AcpAgent> {
     if !program.is_file() {
         return None;
     }
@@ -29,13 +33,15 @@ fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option
         .unwrap_or(false);
     Some(eb_plugin_acp_agent::AcpAgent::new(eb_plugin_acp_agent::AcpConfig {
         program: program.to_string_lossy().to_string(),
-        args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        args: args.to_vec(),
         cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         auto_approve,
         name: name.into(),
         debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
         env: crate::agents::external_env(),
         auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
+        tail: eb_plugin_acp_agent::TailPolicy::from_env(),
+        log: eb_plugin_acp_agent::AcpConfig::log_from_env(),
     }))
 }
 
@@ -44,17 +50,17 @@ fn acp_command(program: std::path::PathBuf, args: &[&str], name: &str) -> Option
 fn default_acp_agent() -> Option<eb_plugin_acp_agent::AcpAgent> {
     let selected = crate::agents::selected();
     let build = |agent: crate::agents::AcpAgent| {
-        acp_command(agent.program(), &agent.args(), agent.label())
+        let (program, args) = agent.launch();
+        acp_command(program, &args, agent.label())
     };
-    match selected {
-        crate::agents::AcpAgent::Grok => build(selected),
-        crate::agents::AcpAgent::Opencode => build(selected).or_else(|| {
-            acp_command(
-                crate::agents::AcpAgent::Grok.program(),
-                &crate::agents::AcpAgent::Grok.args(),
-                "Grok build",
-            )
-        }),
+    match build(selected) {
+        Some(agent) => Some(agent),
+        // Only the historical default falls back; an explicitly chosen agent
+        // that is missing should surface as missing, not silently become Grok.
+        None if selected == crate::agents::AcpAgent::Opencode => {
+            build(crate::agents::AcpAgent::Grok)
+        }
+        None => None,
     }
 }
 
