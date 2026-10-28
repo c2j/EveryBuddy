@@ -381,11 +381,29 @@ pub fn build(
             crate::widgets::class(&column, "eb-menu-body");
             column.set_size_request(520, -1);
 
-            let entry = gtk::SearchEntry::new();
+            // GtkSearchEntry paints `edit-find-symbolic`, then
+            // `edit-clear-symbolic` once the field has text. The bare Debian 10
+            // bundle ships neither icon. GTK falls back to its built-in
+            // missing-image PNG, fails to decode that too, and aborts in
+            // `gtk_icon_helper`. A plain entry never asks the icon theme; our
+            // own pixbufs are optional and simply omitted when they do not decode.
+            let entry = gtk::Entry::new();
             entry.set_placeholder_text(Some("Search"));
             entry.set_margin_top(10);
             entry.set_margin_start(12);
             entry.set_margin_end(12);
+            let entry_icon = |name: &str| {
+                crate::icons::image(name, 16).and_then(|widget| widget.pixbuf())
+            };
+            let clear_icon = entry_icon("close");
+            if let Some(icon) = entry_icon("search") {
+                entry.set_icon_from_pixbuf(gtk::EntryIconPosition::Primary, Some(&icon));
+            }
+            entry.connect_icon_press(|entry, position, _| {
+                if position == gtk::EntryIconPosition::Secondary {
+                    entry.set_text("");
+                }
+            });
             column.pack_start(&entry, false, false, 0);
 
             let tab_state: Rc<Cell<usize>> = Rc::new(Cell::new(0));
@@ -515,7 +533,18 @@ pub fn build(
             };
             {
                 let rebuild = rebuild.clone();
-                entry.connect_changed(move |_| rebuild());
+                let clear_icon = clear_icon.clone();
+                entry.connect_changed(move |entry| {
+                    entry.set_icon_from_pixbuf(
+                        gtk::EntryIconPosition::Secondary,
+                        if entry.text().is_empty() {
+                            None
+                        } else {
+                            clear_icon.as_ref()
+                        },
+                    );
+                    rebuild();
+                });
             }
             {
                 let rebuild = rebuild.clone();

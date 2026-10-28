@@ -6,10 +6,12 @@
 
 use gtk::prelude::*;
 
-use crate::widgets::{class, icon_button, text};
+use crate::widgets::{class, icon_button, text, wrap_column};
 
 pub fn render(value: &str) -> gtk::Box {
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 9);
+    // `wrap_column` reports a 1px minimum. A text view's own minimum is the
+    // longest line, which the message scroller would otherwise scroll sideways.
+    let root = wrap_column(9);
     class(&root, "eb-markdown");
 
     // Text stays in one selectable TextView until a fenced code card, so a drag
@@ -333,6 +335,10 @@ fn code_block(language: &str, code: &str) -> gtk::Box {
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
     scroll.set_propagate_natural_width(false);
+    // The label does not wrap; the card scrolls it. Without a content minimum
+    // the long line becomes the card's minimum and the transcript scrolls too.
+    scroll.set_min_content_width(1);
+    scroll.set_hexpand(true);
     scroll.set_max_content_width(crate::spec::MESSAGE_WIDTH_CLOSED);
     let lines = code.lines().count().max(1) as i32;
     let height = (lines * 20 + 24).clamp(48, 360);

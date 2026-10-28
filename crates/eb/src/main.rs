@@ -207,12 +207,13 @@ fn ensure_gtk_im_modules() {
 #[cfg(not(target_os = "macos"))]
 fn ensure_gtk_im_modules() {}
 
-/// The mascot, embedded: window managers and docks take a running window's
-/// icon from the app, not from the desktop entry, so an AppImage or an unpacked
-/// bundle (Kylin's dock among them) would otherwise show a generic gear.
+/// The application mark (`assets/logo.png`, resampled into this file). Window
+/// managers and docks take a running window's icon from the app, not from the
+/// desktop entry, so an AppImage or an unpacked bundle (Kylin's dock among
+/// them) would otherwise show a generic gear.
 const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/appicon.png"));
 
-/// Installs the embedded mascot as the default icon for every window.
+/// Installs the embedded mark as the default icon for every window.
 fn load_app_icon() {
     // Manual loader rather than `Pixbuf::from_read`: the upstream
     // gdk_pixbuf_new_from_stream path never closes its internal loader, and
@@ -236,7 +237,7 @@ fn load_app_icon() {
 
 /// macOS: the Dock takes its icon from NSApplication, not from the GTK window,
 /// so a bare `cargo run` binary shows the generic executable icon. Feed the
-/// embedded mascot straight to NSApp.
+/// embedded mark straight to NSApp.
 #[cfg(target_os = "macos")]
 fn apply_macos_dock_icon() {
     use objc2::AnyThread;
