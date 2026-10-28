@@ -982,13 +982,23 @@ fn markdown_text(block: &Block) -> String {
 /// rebuilding the tail, so thinking does not flicker (same discipline as
 /// streamed text).
 fn rewrite_thought(widget: &gtk::Widget, value: &str) -> bool {
-    match widget.clone().downcast::<gtk::Label>() {
-        Ok(label) if label.style_context().has_class("eb-thought") => {
-            label.set_text(value);
-            true
+    let Some(label) = thought_label(widget) else {
+        return false;
+    };
+    label.set_text(value);
+    true
+}
+
+fn thought_label(widget: &gtk::Widget) -> Option<gtk::Label> {
+    if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+        if label.style_context().has_class("eb-thought") {
+            return Some(label);
         }
-        _ => false,
     }
+    let Ok(container) = widget.clone().downcast::<gtk::Container>() else {
+        return None;
+    };
+    container.children().into_iter().find_map(|child| thought_label(&child))
 }
 
 /// Rewrite an already-packed markdown text view with fresh content. Fails for
@@ -1608,7 +1618,10 @@ fn user_turn(value: &str, time: &str, actions: &TurnActions) -> gtk::Box {
     let line = hbox(0);
     line.set_halign(gtk::Align::Fill);
 
-    let bubble = vbox(0);
+    // Same clamp as agent prose: a pasted URL or a CJK run has no spaces, and
+    // the label's minimum is then the whole run. The bubble stays one pixel
+    // of minimum and rewraps to the width the column actually gives it.
+    let bubble = wrap_column(0);
     class(&bubble, "eb-bubble");
     bubble.set_halign(gtk::Align::End);
     bubble.set_hexpand(false);
@@ -2091,7 +2104,7 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
 /// nested blocks below. The header is a flat button; the group starts in the
 /// state the plugin declared and toggles locally.
 fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
-    let card = vbox(4);
+    let card = wrap_column(4);
     class(&card, "eb-plan");
     let title = text("Plan", "eb-plan-title");
     card.pack_start(&title, false, false, 0);
@@ -2106,6 +2119,7 @@ fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
         row.pack_start(&crate::icons::named(icon, 16, "eb-plan-icon"), false, false, 0);
         let label = text(&entry.content, "eb-plan-text");
         label.set_line_wrap(true);
+        label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
         label.set_width_chars(1);
         label.set_xalign(0.0);
         row.pack_start(&label, true, true, 0);
@@ -2117,13 +2131,16 @@ fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
 /// The host's rendering of streamed reasoning: one muted italic block with a
 /// soft left rule. The product look is uncaptured, so this stays intentionally
 /// light — same discipline as the plan card.
-fn thought_block(value: &str) -> gtk::Label {
+fn thought_block(value: &str) -> gtk::Box {
     let label = text(value, "eb-thought");
     label.set_line_wrap(true);
+    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     label.set_width_chars(1);
     label.set_xalign(0.0);
     label.set_tooltip_text(Some("Agent reasoning, not part of the answer"));
-    label
+    let block = wrap_column(0);
+    block.pack_start(&label, false, false, 0);
+    block
 }
 
 fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
@@ -2290,6 +2307,146 @@ mod tests {
         assert_eq!(short.right_gap, 0, "a short bubble is right-aligned");
         assert_eq!(long.right_gap, 0, "a long bubble is right-aligned");
         assert_eq!(narrowed.right_gap, 0, "a narrowed bubble is right-aligned");
+    }
+
+    /// A pasted URL and a CJK run have no spaces. They used to set the message
+    /// column's minimum to the whole line, so the transcript grew a horizontal
+    /// scrollbar instead of wrapping. Code stays on one line and scrolls inside
+    /// its own card.
+    #[test]
+    fn long_history_text_wraps_inside_the_column() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        ensure_shell_css();
+        let url = format!("https://example.com/{}", "segment".repeat(40));
+        let cjk = "甲".repeat(120);
+        let code = "x".repeat(400);
+        let agent = format!("{cjk}\n\n```\n{code}\n```");
+
+        for width in [752, 420] {
+            let messages = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            messages.pack_start(&user_turn(&url, "12:00", &TurnActions::detached()), false, false, 0);
+            messages.pack_start(&block_widget(&Block::Text(agent.clone())), false, false, 0);
+            messages.pack_start(
+                &block_widget(&Block::Thought {
+                    text: url.clone(),
+                }),
+                false,
+                false,
+                0,
+            );
+            messages.pack_start(
+                &block_widget(&Block::Plan {
+                    entries: vec![PlanEntry {
+                        content: url.clone(),
+                        status: "pending".into(),
+                    }],
+                }),
+                false,
+                false,
+                0,
+            );
+            messages.set_size_request(width, -1);
+
+            let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+            scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::External);
+            scroll.set_propagate_natural_width(true);
+            scroll.set_min_content_width(1);
+            scroll.set_max_content_width(width);
+            scroll.add(&messages);
+
+            let window = gtk::OffscreenWindow::new();
+            window.add(&scroll);
+            window.set_default_size(width, 800);
+            window.show_all();
+            drain_gtk();
+
+            let mut height = 800;
+            for _ in 0..6 {
+                scroll.size_allocate(&gtk::Allocation::new(0, 0, width, height));
+                drain_gtk();
+                let (_, nat) = messages.preferred_height();
+                height = nat.clamp(200, 4000);
+            }
+
+            let horizontal = scroll.hadjustment();
+            assert!(
+                horizontal.upper() <= horizontal.page_size() + 1.0,
+                "column {width} scrolls sideways: page {:.0} upper {:.0}",
+                horizontal.page_size(),
+                horizontal.upper()
+            );
+
+            let bubble = widget_by_class(messages.upcast_ref(), "eb-bubble").expect("user bubble");
+            assert!(
+                bubble.allocation().width() <= width - USER_BUBBLE_INSET,
+                "user bubble is wider than the {width} column: {}",
+                bubble.allocation().width()
+            );
+            let label = widget_by_class(messages.upcast_ref(), "eb-bubble-text")
+                .expect("bubble text")
+                .downcast::<gtk::Label>()
+                .expect("bubble text is a label");
+            let lines = label.layout().map(|layout| layout.line_count()).unwrap_or(1);
+            assert!(
+                lines > 1,
+                "user URL stayed on {lines} line(s) in a {width} column"
+            );
+
+            let view = widget_by_class(messages.upcast_ref(), "eb-md-view")
+                .expect("agent prose")
+                .downcast::<gtk::TextView>()
+                .expect("agent prose is a text view");
+            assert!(
+                view.allocation().width() <= width,
+                "agent prose is wider than the {width} column: {}",
+                view.allocation().width()
+            );
+            let (_, prose_height) = view.preferred_height();
+            assert!(
+                prose_height > 40,
+                "agent prose did not wrap in a {width} column (height {prose_height})"
+            );
+
+            let card = widget_by_class(messages.upcast_ref(), "eb-code-block").expect("code card");
+            assert!(
+                card.allocation().width() <= width,
+                "code card is wider than the {width} column: {}",
+                card.allocation().width()
+            );
+            let code_scroll = card
+                .clone()
+                .downcast::<gtk::Container>()
+                .expect("code card")
+                .children()
+                .into_iter()
+                .find_map(|child| child.downcast::<gtk::ScrolledWindow>().ok())
+                .expect("code card scroller");
+            for class_name in ["eb-thought", "eb-plan-text"] {
+                let label = widget_by_class(messages.upcast_ref(), class_name)
+                    .unwrap_or_else(|| panic!("missing {class_name}"))
+                    .downcast::<gtk::Label>()
+                    .unwrap_or_else(|_| panic!("{class_name} is not a label"));
+                let lines = label.layout().map(|layout| layout.line_count()).unwrap_or(1);
+                assert!(
+                    lines > 1,
+                    "{class_name} stayed on {lines} line(s) in a {width} column"
+                );
+            }
+
+            let code_h = code_scroll.hadjustment();
+            assert!(
+                code_h.upper() > code_h.page_size() + 8.0,
+                "long code should scroll inside its card at {width}: page {:.0} upper {:.0}",
+                code_h.page_size(),
+                code_h.upper()
+            );
+
+            window.close();
+            drain_gtk();
+        }
     }
 
     /// Screen CSS matches the app, so the 15px label and the bubble's 12px

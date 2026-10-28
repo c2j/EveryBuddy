@@ -260,11 +260,18 @@ cp -r "$prefix/share/icons/hicolor" "$res/share/icons/" 2>/dev/null || true
 cp "$here/fonts.conf.template" "$res/etc/fonts.conf.template"
 
 echo "== icon =="
+# assets/logo.png is the mark. appicon.png is the same image at 1024, which is
+# the largest slot iconutil asks for, and it is what the binary embeds.
+icon_src="$root/assets/logo.png"
+if [ ! -f "$icon_src" ]; then
+  icon_src="$root/crates/eb/assets/appicon.png"
+fi
+[ -f "$icon_src" ] || die "missing application icon (assets/logo.png)"
 iconset="$(mktemp -d)/$app.iconset"
 mkdir -p "$iconset"
 for s in 16 32 128 256 512; do
-  rsvg-convert -w "$s" -h "$s" -o "$iconset/icon_${s}x${s}.png" "$here/../evobuddy.svg"
-  rsvg-convert -w $((s * 2)) -h $((s * 2)) -o "$iconset/icon_${s}x${s}@2x.png" "$here/../evobuddy.svg"
+  sips -z "$s" "$s" "$icon_src" --out "$iconset/icon_${s}x${s}.png" >/dev/null
+  sips -z $((s * 2)) $((s * 2)) "$icon_src" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$res/$app.icns"
 

@@ -362,6 +362,99 @@ pub fn attach_menu(
     popover
 }
 
+/// A vertical box that can shrink to one pixel, then wraps children that asked
+/// to be wider than the width they were actually given.
+///
+/// `GtkTextView` reports the longest line as its minimum width, and that
+/// minimum is what the message scroller turns into a horizontal scrollbar.
+/// A wrapping label with `width_chars(1)` usually does not, but a run with no
+/// break still can. Callers that put prose in the message column use this so
+/// the column stays the design width and the text wraps inside it.
+pub fn wrap_column(spacing: i32) -> gtk::Box {
+    WrapColumn::new(spacing).upcast()
+}
+
+mod column {
+    use gtk::glib;
+    use gtk::prelude::*;
+    use gtk::subclass::prelude::*;
+
+    glib::wrapper! {
+        pub struct WrapColumn(ObjectSubclass<imp::WrapColumn>)
+            @extends gtk::Box, gtk::Container, gtk::Widget,
+            @implements gtk::Buildable, gtk::Orientable;
+    }
+
+    impl WrapColumn {
+        pub fn new(spacing: i32) -> Self {
+            glib::Object::builder()
+                .property("orientation", gtk::Orientation::Vertical)
+                .property("spacing", spacing)
+                .build()
+        }
+    }
+
+    mod imp {
+        use super::*;
+
+        #[derive(Default)]
+        pub struct WrapColumn;
+
+        #[glib::object_subclass]
+        impl ObjectSubclass for WrapColumn {
+            const NAME: &'static str = "EbWrapColumn";
+            type Type = super::WrapColumn;
+            type ParentType = gtk::Box;
+        }
+
+        impl ObjectImpl for WrapColumn {}
+
+        impl WidgetImpl for WrapColumn {
+            fn preferred_width(&self) -> (i32, i32) {
+                let (_min, nat) = self.parent_preferred_width();
+                (1, nat.max(1))
+            }
+
+            fn preferred_width_for_height(&self, height: i32) -> (i32, i32) {
+                let (_min, nat) = self.parent_preferred_width_for_height(height);
+                (1, nat.max(1))
+            }
+
+            fn size_allocate(&self, allocation: &gtk::Allocation) {
+                self.parent_size_allocate(allocation);
+                let width = allocation.width();
+                if width <= 1 {
+                    return;
+                }
+                for child in self.obj().children() {
+                    if !child.is_visible() {
+                        continue;
+                    }
+                    let current = child.allocation();
+                    // Already inside the column: leave short text at its own
+                    // width so a user bubble still hugs.
+                    if current.width() <= width {
+                        continue;
+                    }
+                    let start = (current.x() - allocation.x()).max(0);
+                    let child_width = (width - start * 2).max(1);
+                    child.size_allocate(&gtk::Allocation::new(
+                        current.x(),
+                        current.y(),
+                        child_width,
+                        current.height().max(1),
+                    ));
+                }
+            }
+        }
+
+        impl ContainerImpl for WrapColumn {}
+        impl BoxImpl for WrapColumn {}
+    }
+}
+
+use column::WrapColumn;
+
 /// Initialise GTK once for widget tests, and only on the thread that won the
 /// race: macOS aborts `gtk_init` off the main thread, and CI has no display.
 /// `None` means "skipping is required".

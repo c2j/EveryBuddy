@@ -31,11 +31,10 @@ strip --strip-unneeded "$prefix/bin/$app" 2>/dev/null || true
 
 # Icon and menu entry. The desktop file's Exec is the bare name, resolved
 # through PATH, which install.sh arranges.
+# The mark is assets/logo.png, resampled to packaging/evobuddy.png (256) and
+# embedded in packaging/evobuddy.svg. Copy both; do not redraw the old mascot.
+cp "$here/../evobuddy.png" "$prefix/share/icons/hicolor/256x256/apps/$app.png"
 cp "$here/../evobuddy.svg" "$prefix/share/icons/hicolor/scalable/apps/$app.svg"
-if command -v rsvg-convert >/dev/null 2>&1; then
-  rsvg-convert -w 256 -h 256 -o "$prefix/share/icons/hicolor/256x256/apps/$app.png" \
-    "$here/../evobuddy.svg"
-fi
 cp "$here/com.evobuddy.app.desktop" "$prefix/share/applications/com.evobuddy.app.desktop"
 install -m755 "$here/install.sh" "$prefix/install.sh"
 sed "s|@VERSION@|$version|; s|@ARCH@|$arch|" "$here/README.txt.in" > "$prefix/README.txt"
