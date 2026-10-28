@@ -32,6 +32,12 @@ struct Active {
     stream: AgentStream,
 }
 
+/// How long the main thread waits for `AnswerSource::start` to hand back a
+/// handle. Generous compared with a well-behaved source (which returns after a
+/// spawn), small enough that a contract-breaking source surfaces as an error
+/// bubble instead of a frozen window.
+const START_ACK_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// A single thread that owns the agent runtime. `AnswerSource::start` runs here,
 /// not on the GTK main thread; the current-thread tokio runtime also stays
 /// alive so an agent that spawns tasks can make progress between starts.
@@ -68,6 +74,10 @@ impl AgentRuntime {
     /// Run `source.start` on the runtime thread and wait for its handle. The
     /// contract says `start` returns promptly; the wait keeps the handle/stream
     /// handoff synchronous, which the rest of the host relies on.
+    ///
+    /// The wait is bounded: a source that ignores the contract and blocks
+    /// inside `start` would otherwise freeze the GTK main thread here forever,
+    /// which is how the intermittent hangs used to present.
     pub fn start(
         &self,
         source: Arc<dyn AnswerSource>,
@@ -90,10 +100,25 @@ impl AgentRuntime {
             let _ = reply_tx.send(result);
         }))
         .map_err(|_| "the agent runtime is gone".to_string())?;
-        reply_rx
-            .recv()
-            .map_err(|_| "the agent runtime dropped the start request".to_string())?
+        await_start(reply_rx, START_ACK_TIMEOUT)
     }
+}
+
+/// Wait for `source.start` to hand back its handle, with a bound. The wait
+/// happens on the GTK main thread, so a source that blocks inside `start`
+/// would otherwise freeze the window indefinitely — which is how the
+/// intermittent hangs used to present.
+fn await_start(
+    reply: Receiver<Result<Box<dyn AnswerHandle>, String>>,
+    budget: Duration,
+) -> Result<Box<dyn AnswerHandle>, String> {
+    reply.recv_timeout(budget).map_err(|error| match error {
+        mpsc::RecvTimeoutError::Disconnected => "the agent runtime dropped the start request".to_string(),
+        mpsc::RecvTimeoutError::Timeout => {
+            "the agent did not acknowledge the start; it may still be running in the background"
+                .to_string()
+        }
+    })?
 }
 
 impl Drop for AgentRuntime {
@@ -155,6 +180,9 @@ fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
                             body.push_str(&format!("\n[plan: {} steps]", entries.len()));
                         }
                         crate::model::Block::Table { .. } => body.push_str("\n[table]"),
+                        // Reasoning is deliberately not replayed into the next
+                        // agent's context; only the answer's substance migrates.
+                        crate::model::Block::Thought { .. } => {}
                     }
                 }
                 if !body.trim().is_empty() {
@@ -185,9 +213,12 @@ pub struct Runner {
     refresher: Refresher,
     source: Arc<dyn AnswerSource>,
     runtime: Arc<AgentRuntime>,
-    active: RefCell<Option<Active>>,
-    /// One timer serves whichever answer is current; starting another timer per
-    /// submit would double-drain the same stream.
+    /// Every in-flight turn, one per task that is currently streaming. The
+    /// list is ordered oldest-submit first; a new submit never displaces an
+    /// earlier task's turn.
+    active: RefCell<Vec<Active>>,
+    /// One timer drains every active stream; starting another timer per
+    /// submit would double-drain the same streams.
     polling: Cell<bool>,
     window: gtk::ApplicationWindow,
     permission_rx: RefCell<Receiver<PermissionJob>>,
@@ -229,10 +260,24 @@ fn collect_written_paths(block: &crate::model::Block) -> Vec<String> {
             let trimmed = primary.trim();
             for prefix in ["Write ", "Edit ", "Create ", "Wrote ", "Created "] {
                 if let Some(path) = trimmed.strip_prefix(prefix) {
-                    let path = path.trim();
-                    if !path.is_empty() && !path.contains(' ') {
-                        return vec![path.to_string()];
+                    let path = path.trim().trim_matches('"');
+                    if path.is_empty() {
+                        return Vec::new();
                     }
+                    // Candidates in report order; `resolve_file_artifact`
+                    // walks them newest-first and keeps only paths that exist
+                    // on disk, so a wrong guess is harmless. The whole
+                    // remainder catches paths with spaces ("Write /App
+                    // Support/x.py"); the first token catches trailing notes
+                    // ("Write /x.py created").
+                    let mut candidates = Vec::new();
+                    if let Some(token) = path.split_whitespace().next() {
+                        if token != path {
+                            candidates.push(token.to_string());
+                        }
+                    }
+                    candidates.push(path.to_string());
+                    return candidates;
                 }
             }
             Vec::new()
@@ -253,6 +298,7 @@ fn resolve_file_artifact(
     paths: &[String],
     bases: &[std::path::PathBuf],
 ) -> Option<Artifact> {
+    const MAX: usize = 512 * 1024;
     for path in paths.iter().rev() {
         for base in bases {
             let resolved = if std::path::Path::new(path).is_absolute() {
@@ -260,18 +306,36 @@ fn resolve_file_artifact(
             } else {
                 base.join(path)
             };
-            if let Ok(content) = std::fs::read_to_string(&resolved) {
-                const MAX: usize = 512 * 1024;
-                let mut content = content;
-                if content.len() > MAX {
-                    content.truncate(MAX);
-                }
-                let name = resolved
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| path.clone());
-                return Some(Artifact { name, code: content });
+            // This runs on the GTK main thread while a turn drains, so the read
+            // is bounded up front: slurping a multi-gigabyte log first and
+            // slicing afterwards would freeze the window (and clipping a String
+            // mid-character panics).
+            let Ok(file) = std::fs::File::open(&resolved) else { continue };
+            let mut buffer = Vec::new();
+            let mut preview = std::io::Read::take(file, MAX as u64);
+            if std::io::Read::read_to_end(&mut preview, &mut buffer).is_err() {
+                continue;
             }
+            let content = match String::from_utf8(buffer) {
+                Ok(text) => text,
+                Err(error) => {
+                    let valid = error.utf8_error().valid_up_to();
+                    let bytes = error.into_bytes();
+                    // A clipped final character is still a text file; a break
+                    // deeper in means it is binary, so keep looking.
+                    if bytes.len() - valid > 3 {
+                        continue;
+                    }
+                    std::str::from_utf8(&bytes[..valid])
+                        .unwrap_or_default()
+                        .to_string()
+                }
+            };
+            let name = resolved
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone());
+            return Some(Artifact { name, code: content });
         }
     }
     None
@@ -292,7 +356,7 @@ impl Runner {
             refresher,
             source,
             runtime,
-            active: RefCell::new(None),
+            active: RefCell::new(Vec::new()),
             polling: Cell::new(false),
             window,
             permission_rx: RefCell::new(permission_rx),
@@ -334,9 +398,10 @@ impl Runner {
         }
     }
 
-    /// Start an answer for `text`. A previous in-flight answer is marked
-    /// cancelled before the new task is created, so a task can never be left
-    /// "streaming" after the user moves on.
+    /// Start an answer for `text`. Turns already streaming in *other* tasks
+    /// keep running; they drain into their own task in the background. Only a
+    /// send into the very task that is mid-stream replaces that turn: it is
+    /// marked cancelled before the new turn begins.
     pub fn submit(self: &Rc<Self>, text: String) {
         self.submit_inner(text, false);
     }
@@ -351,7 +416,21 @@ impl Runner {
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("runner: submit start {:?}", std::thread::current().id());
         }
-        self.supersede();
+        // Supersede only the turn belonging to the task this send continues.
+        // A fresh task (welcome page, "New Task") leaves every background turn
+        // running.
+        {
+            let app = self.store.borrow();
+            match app.route {
+                crate::model::Route::Task(index)
+                    if !force_new_task && app.tasks.get(index).is_some() =>
+                {
+                    drop(app);
+                    self.supersede_task(index);
+                }
+                _ => {}
+            }
+        }
 
         let task = {
             let mut app = self.store.borrow_mut();
@@ -437,6 +516,10 @@ impl Runner {
                 }
             }
         };
+        // Show the user's message before the bridge round-trips below: a wedged
+        // dsh bridge can cost the main thread a bounded second per call, and a
+        // window that appears to ignore the keystroke reads as a hang.
+        self.refresh_now();
         // Bind a stable dsh session to this task before the first event, unless
         // an external ACP agent owns the conversation.
         let session_id = format!("task-{task}-{}", std::time::SystemTime::now()
@@ -517,7 +600,7 @@ impl Runner {
             task_ref.last_route = Some(route.clone());
         }
         crate::state::save(&self.store);
-        *self.active.borrow_mut() = Some(Active {
+        self.active.borrow_mut().push(Active {
             task,
             handle,
             stream,
@@ -536,13 +619,19 @@ impl Runner {
         }
     }
 
-    /// Cancel the in-flight answer; the producer reports the terminal event and
-    /// the normal drain path marks the turn finished.
+    /// Cancel the turn streaming in the task the user is looking at; the
+    /// producer reports the terminal event and the normal drain path marks the
+    /// turn finished. Background turns in other tasks are untouched.
     pub fn cancel(&self) {
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("agent: cancel requested");
         }
-        if let Some(active) = self.active.borrow().as_ref() {
+        let task = match self.store.borrow().route {
+            crate::model::Route::Task(index) => index,
+            _ => return,
+        };
+        let slot = self.active.borrow();
+        if let Some(active) = slot.iter().rev().find(|active| active.task == task) {
             active.handle.cancel();
         }
     }
@@ -736,23 +825,33 @@ impl Runner {
         let _ = job.reply.send(decision);
     }
 
-    /// Whether an answer is still streaming. The fake-agent harness polls this
-    /// and quits when the stream reaches a terminal event.
+    /// Whether any answer is still streaming. The fake-agent harness polls
+    /// this and quits when every stream reaches a terminal event.
     pub fn is_busy(&self) -> bool {
-        self.active.borrow().is_some()
+        !self.active.borrow().is_empty()
     }
 
-    fn supersede(&self) {
-        let task = self.active.borrow().as_ref().map(|active| active.task);
-        if let Some(task) = task {
+    fn supersede_task(&self, task: usize) {
+        let stale: Vec<Active> = {
+            let mut slot = self.active.borrow_mut();
+            let mut stale = Vec::new();
+            let mut index = 0;
+            while index < slot.len() {
+                if slot[index].task == task {
+                    stale.push(slot.remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            stale
+        };
+        for active in stale {
             self.store.borrow_mut().apply_agent_event(
                 task,
                 AgentEvent::Failed {
                     message: "Cancelled".to_string(),
                 },
             );
-        }
-        if let Some(active) = self.active.borrow_mut().take() {
             active.handle.cancel();
         }
     }
@@ -785,110 +884,112 @@ impl Runner {
     }
 
     fn drain(self: &Rc<Self>) {
-        let mut closed = false;
         let mut applied = false;
+        let mut closed_tasks: Vec<usize> = Vec::new();
         {
             let mut slot = self.active.borrow_mut();
-            let Some(active) = slot.as_mut() else {
-                return;
-            };
-            loop {
-                match active.stream.try_recv() {
-                    Ok(event) => {
-                        if std::env::var_os("EB_DEBUG").is_some() {
-                            eprintln!("agent: task {} event {event:?}", active.task);
-                        }
-                        let done =
-                            matches!(event, AgentEvent::Finished | AgentEvent::Failed { .. });
-                        // WorkBuddy surfaces every file the agent writes in the
-                        // artifact panel. Do the same: when a block names a
-                        // written file, read it and pop the panel open.
-                        self.store
-                            .borrow_mut()
-                            .apply_agent_event(active.task, event.clone());
-                        if let Some(artifact) = self.written_file_artifact(active.task, &event) {
-                            self.store.borrow_mut().apply_agent_event(
-                                active.task,
-                                AgentEvent::Artifact { artifact },
+            let mut index = 0;
+            while index < slot.len() {
+                let task = slot[index].task;
+                // The dsh bridge projects one session at a time. Only the turn
+                // whose task still owns the bridge's active session may write
+                // its live deltas there; a background task must not append
+                // into the conversation the user is looking at.
+                let mirrored = !crate::dsh_agent::enabled() && {
+                    let app = self.store.borrow();
+                    app.tasks
+                        .get(task)
+                        .and_then(|task| task.session_id.clone())
+                        .is_some_and(|id| {
+                            crate::bridge::active_session().as_deref() == Some(id.as_str())
+                        })
+                };
+                let mut closed = false;
+                loop {
+                    match slot[index].stream.try_recv() {
+                        Ok(event) => {
+                            if std::env::var_os("EB_DEBUG").is_some() {
+                                eprintln!("agent: task {task} event {event:?}");
+                            }
+                            let done = matches!(
+                                event,
+                                AgentEvent::Finished | AgentEvent::Failed { .. }
                             );
-                        }
-                        if !done && !crate::dsh_agent::enabled() {
-                            let text = self.store.borrow().tasks.get(active.task).and_then(|task| {
-                                task.turns.iter().rev().find_map(|turn| match turn {
-                                    crate::model::Turn::Agent { blocks, .. } => Some(
-                                        blocks.iter().filter_map(|block| match block {
-                                            crate::model::Block::Text(text) => Some(text.clone()),
+                            // WorkBuddy surfaces every file the agent writes in
+                            // the artifact panel. Do the same: when a block
+                            // names a written file, read it and pop the panel.
+                            self.store
+                                .borrow_mut()
+                                .apply_agent_event(task, event.clone());
+                            if let Some(artifact) = self.written_file_artifact(task, &event) {
+                                self.store.borrow_mut().apply_agent_event(
+                                    task,
+                                    AgentEvent::Artifact { artifact },
+                                );
+                            }
+                            if !done && mirrored {
+                                let text = self
+                                    .store
+                                    .borrow()
+                                    .tasks
+                                    .get(task)
+                                    .and_then(|task| {
+                                        task.turns.iter().rev().find_map(|turn| match turn {
+                                            crate::model::Turn::Agent { blocks, .. } => Some(
+                                                blocks
+                                                    .iter()
+                                                    .filter_map(|block| match block {
+                                                        crate::model::Block::Text(text) => {
+                                                            Some(text.clone())
+                                                        }
+                                                        _ => None,
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                                    .join("\n"),
+                                            ),
                                             _ => None,
-                                        }).collect::<Vec<_>>().join("\n"),
-                                    ),
-                                    _ => None,
-                                })
-                            }).unwrap_or_default();
-                            if !text.is_empty() {
-                                let _ = crate::bridge::append_attempt(&text);
+                                        })
+                                    })
+                                    .unwrap_or_default();
+                                if !text.is_empty() {
+                                    let _ = crate::bridge::append_attempt(&text);
+                                }
+                            }
+                            applied = true;
+                            if done {
+                                closed = true;
+                                break;
                             }
                         }
-                        applied = true;
-                        if done {
+                        Err(AgentStreamError::Empty | AgentStreamError::Timeout) => break,
+                        Err(AgentStreamError::Closed) => {
+                            self.store.borrow_mut().apply_agent_event(
+                                task,
+                                AgentEvent::Failed {
+                                    message: "agent stream closed".to_string(),
+                                },
+                            );
+                            applied = true;
                             closed = true;
                             break;
                         }
                     }
-                    Err(AgentStreamError::Empty | AgentStreamError::Timeout) => break,
-                    Err(AgentStreamError::Closed) => {
-                        self.store.borrow_mut().apply_agent_event(
-                            active.task,
-                            AgentEvent::Failed {
-                                message: "agent stream closed".to_string(),
-                            },
-                        );
-                        applied = true;
-                        closed = true;
-                        break;
-                    }
+                }
+                if closed {
+                    slot.remove(index);
+                    closed_tasks.push(task);
+                } else {
+                    index += 1;
                 }
             }
         }
-        if closed {
-            let finished = self.active.borrow().as_ref().map(|active| active.task);
-            self.active.borrow_mut().take();
-            // Commit the finished turn to the task's dsh session.
-            let (session_id, prompt, answer, tools) = {
-                let app = self.store.borrow();
-                let Some(active) = finished else { return };
-                let Some(task) = app.tasks.get(active) else { return };
-                let prompt = task
-                    .turns
-                    .iter()
-                    .rev()
-                    .find_map(|turn| match turn {
-                        crate::model::Turn::User { text, .. } => Some(text.clone()),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                let mut answer = String::new();
-                let mut tools: Vec<(String, String, String)> = Vec::new();
-                if let Some(crate::model::Turn::Agent { blocks, .. }) = task
-                    .turns
-                    .iter()
-                    .rev()
-                    .find(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
-                {
-                    collect_blocks(blocks, &mut answer, &mut tools);
-                }
-                (task.session_id.clone(), prompt, answer, tools)
-            };
-            if !crate::dsh_agent::enabled() {
-                if let Some(_session_id) = session_id {
-                    if !answer.is_empty() {
-                        let _ = crate::bridge::finish_turn(&answer, &tools);
-                    }
-                }
-            }
+        let closed_any = !closed_tasks.is_empty();
+        for task in closed_tasks {
+            self.commit_finished_turn(task);
         }
-        if closed {
-            // Persist the completed turn so switching tasks after a restart
-            // shows the conversation, not just the title.
+        if closed_any {
+            // Persist the completed turns so switching tasks after a restart
+            // shows the conversations, not just the titles.
             crate::state::save(&self.store);
         }
         if applied {
@@ -899,8 +1000,50 @@ impl Runner {
         }
     }
 
+    /// Commit a finished turn to the task's dsh session — but only while that
+    /// session is still the bridge's active one. If the user has since opened
+    /// another task, the bridge has moved on and this projection is skipped.
+    fn commit_finished_turn(&self, task: usize) {
+        if crate::dsh_agent::enabled() {
+            return;
+        }
+        let (session_id, prompt, answer, tools) = {
+            let app = self.store.borrow();
+            let Some(task_ref) = app.tasks.get(task) else {
+                return;
+            };
+            let prompt = task_ref
+                .turns
+                .iter()
+                .rev()
+                .find_map(|turn| match turn {
+                    crate::model::Turn::User { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let mut answer = String::new();
+            let mut tools: Vec<(String, String, String)> = Vec::new();
+            if let Some(crate::model::Turn::Agent { blocks, .. }) = task_ref
+                .turns
+                .iter()
+                .rev()
+                .find(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
+            {
+                collect_blocks(blocks, &mut answer, &mut tools);
+            }
+            (task_ref.session_id.clone(), prompt, answer, tools)
+        };
+        if let Some(session_id) = session_id {
+            if crate::bridge::active_session().as_deref() == Some(session_id.as_str())
+                && !answer.is_empty()
+            {
+                let _ = crate::bridge::finish_turn(&answer, &tools);
+            }
+        }
+    }
+
     fn schedule(self: &Rc<Self>) {
-        if self.active.borrow().is_none() || self.polling.replace(true) {
+        if self.active.borrow().is_empty() || self.polling.replace(true) {
             return;
         }
         let runner = self.clone();
@@ -921,6 +1064,16 @@ impl Runner {
                     static FAKE_FILE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
                     if !FAKE_FILE.get().copied().unwrap_or(false) {
                         let _ = FAKE_FILE.set(true);
+                        // Exercise the streamed-thought render path (the same
+                        // shape ACP's agent_thought_chunk produces).
+                        if let Some(active) = runner.active.borrow().last() {
+                            runner.store.borrow_mut().apply_agent_event(
+                                active.task,
+                                eb_api::AgentEvent::Thought {
+                                    text: "Considering the edit… ".into(),
+                                },
+                            );
+                        }
                         let dir = std::env::temp_dir().join("evobuddy-fake-stream");
                         let _ = std::fs::create_dir_all(&dir);
                         let file = dir.join("quine.c");
@@ -936,7 +1089,7 @@ impl Runner {
                                 lines: Vec::new(),
                             },
                         };
-                        if let Some(active) = runner.active.borrow().as_ref() {
+                        if let Some(active) = runner.active.borrow().last() {
                             let task = active.task;
                             runner.store.borrow_mut().apply_agent_event(task, fake_block.clone());
                             // Same interception the drain applies to real
@@ -951,7 +1104,7 @@ impl Runner {
                             }
                         }
                     }
-                    let applied = if let Some(active) = runner.active.borrow().as_ref() {
+                    let applied = if let Some(active) = runner.active.borrow().last() {
                         runner.store.borrow_mut().apply_agent_event(
                             active.task,
                             eb_api::AgentEvent::Delta { text: " tick".into() },
@@ -965,7 +1118,7 @@ impl Runner {
                 }
                 runner.refresher.request();
             }
-            if runner.active.borrow().is_some() {
+            if !runner.active.borrow().is_empty() {
                 gtk::glib::ControlFlow::Continue
             } else {
                 runner.polling.set(false);
@@ -977,7 +1130,7 @@ impl Runner {
 
 impl Drop for Runner {
     fn drop(&mut self) {
-        if let Some(active) = self.active.get_mut().take() {
+        for active in std::mem::take(self.active.get_mut()) {
             active.handle.cancel();
         }
     }
@@ -1063,6 +1216,7 @@ mod tests {
                 },
             ],
             artifact: None,
+            artifacts: Vec::new(),
             session_id: None,
             workspace_id: None,
             agent_route: Some("acp:grok".into()),
@@ -1096,6 +1250,68 @@ mod tests {
         let prompt = migrated_prompt(&task, "next");
         assert!(prompt.len() < 30_000);
         assert!(prompt.contains("earlier context omitted"));
+    }
+
+    /// The regression the intermittent hangs came from: a source that blocks
+    /// inside `start` must cost the main thread its budget, not the window.
+    #[test]
+    fn the_start_handshake_wait_is_bounded() {
+        let (_tx, rx) = mpsc::sync_channel(1);
+        let started = std::time::Instant::now();
+        let error = match await_start(rx, Duration::from_millis(30)) {
+            Ok(_) => panic!("a silent agent must not hang the caller"),
+            Err(error) => error,
+        };
+        assert!(error.contains("did not acknowledge"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+
+        let (tx, rx) = mpsc::sync_channel(1);
+        tx.send(Ok(Box::new(eb_api::NoopHandle) as Box<dyn AnswerHandle>))
+            .unwrap();
+        assert!(await_start(rx, Duration::from_secs(1)).is_ok());
+
+        let (_tx, rx) = mpsc::sync_channel::<Result<Box<dyn AnswerHandle>, String>>(1);
+        drop(_tx);
+        let error = match await_start(rx, Duration::from_secs(1)) {
+            Ok(_) => panic!("a dropped reply is an error"),
+            Err(error) => error,
+        };
+        assert!(error.contains("dropped the start request"), "{error}");
+    }
+
+    /// Artifact resolution reads on the main thread, so a huge or binary file
+    /// must cost a bounded read instead of an allocation, a panic, or a stall.
+    #[test]
+    fn artifact_reads_are_bounded_and_character_safe() {
+        const MAX: usize = 512 * 1024;
+        let dir = std::env::temp_dir().join("evobuddy-bounded-artifact");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // A multi-byte character straddling the read limit used to make
+        // `String::truncate` panic on the UI thread.
+        let big = dir.join("huge.txt");
+        let mut text = "a".repeat(MAX - 1);
+        text.push_str("éé");
+        std::fs::write(&big, &text).unwrap();
+        let artifact = resolve_file_artifact(
+            &[big.display().to_string()],
+            &[std::path::PathBuf::from(".")],
+        )
+        .expect("the bounded prefix is still text");
+        assert!(artifact.code.len() < MAX);
+        assert_eq!(artifact.name, "huge.txt");
+
+        // Invalid UTF-8 deeper in the file means it is not a preview at all.
+        let binary = dir.join("blob.bin");
+        let mut bytes = vec![b'x'; 64];
+        bytes[32] = 0xff;
+        bytes[33] = 0xfe;
+        std::fs::write(&binary, &bytes).unwrap();
+        assert!(resolve_file_artifact(
+            &[binary.display().to_string()],
+            &[std::path::PathBuf::from(".")],
+        )
+        .is_none());
     }
 }
 
@@ -1137,6 +1353,49 @@ mod tests {
             collect_written_paths(&block),
             vec!["/tmp/evobuddy-tool-path/example.txt".to_string()]
         );
+        // A path with spaces used to be dropped outright; now the whole
+        // remainder is a candidate and existence decides.
+        let spaced = std::env::temp_dir()
+            .join("evobuddy tool path")
+            .join("example.txt")
+            .display()
+            .to_string();
+        let block = crate::model::Block::Tool {
+            status: "Ran".into(),
+            primary: format!("Write {spaced}"),
+            detail: None,
+        };
+        assert_eq!(
+            collect_written_paths(&block),
+            vec![
+                spaced.split(' ').next().unwrap().to_string(),
+                spaced.clone(),
+            ]
+        );
+        let dir = std::env::temp_dir().join("evobuddy tool path");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("example.txt"), "spaced").unwrap();
+        let artifact = resolve_file_artifact(&collect_written_paths(&block), &[std::path::PathBuf::from(".")])
+            .expect("spaced path resolves");
+        assert_eq!(artifact.name, "example.txt");
+        assert_eq!(artifact.code, "spaced");
+        // A trailing note after the path still resolves via the first token.
+        let plain = std::env::temp_dir()
+            .join("evobuddy-note")
+            .join("x.txt")
+            .display()
+            .to_string();
+        let dir = std::env::temp_dir().join("evobuddy-note");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("x.txt"), "noted").unwrap();
+        let block = crate::model::Block::Tool {
+            status: "Ran".into(),
+            primary: format!("Write {plain} created"),
+            detail: None,
+        };
+        let artifact = resolve_file_artifact(&collect_written_paths(&block), &[std::path::PathBuf::from(".")])
+            .expect("noted path resolves");
+        assert_eq!(artifact.code, "noted");
         // relative paths resolve against the given bases
         let block = crate::model::Block::Diff {
             path: "src/main.rs".into(),

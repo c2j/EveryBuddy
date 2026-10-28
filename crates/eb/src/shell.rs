@@ -41,8 +41,6 @@ fn note(probes: &mut Probes, name: &'static str, widget: &impl WidgetExt) {
 ///
 /// The widget builders need a "something changed, repaint" callback, but the
 /// repaint needs the view tree that those same builders are still producing.
-/// Handlers therefore capture a `Refresher` and call `request()`; the real
-/// closure is installed in one step once the tree exists.
 #[derive(Clone)]
 pub struct Refresher {
     deferred: Rc<RefCell<Option<Rc<dyn Fn()>>>>,
@@ -125,16 +123,20 @@ pub struct Views {
     /// Owns the in-flight agent turn and its event drain loop.
     pub agent: Rc<Runner>,
     refresher: Refresher,
-    open_task: Rc<dyn Fn(usize)>,
+    /// Sidebar row click: show that task's conversation. Public so the switch
+    /// harness can drive the same path a click does.
+    pub open_task: Rc<dyn Fn(usize)>,
+    /// The topbar right-panel toggle, reused by the ⇧⌘B accelerator.
+    toggle_artifact: Rc<dyn Fn()>,
     /// A sidebar section header was clicked.
     section_toggle: Rc<dyn Fn(usize)>,
     workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)>,
     new_workspace: Rc<dyn Fn()>,
     task_action: Rc<dyn Fn(crate::sidebar::TaskAction, usize)>,
-    /// The last `(sidebar_visible, artifact_open, artifact_maximised)` triple
-    /// that positioned the panes. Tracking it keeps a repaint from undoing a
-    /// sash the user dragged.
-    laid_out: Cell<Option<(bool, bool, bool)>>,
+    /// The last `(sidebar_visible, artifact_open, artifact_maximised,
+    /// window_width, artifact_min_width)` tuple that positioned the panes.
+    /// Tracking it keeps a repaint from undoing a sash the user dragged.
+    laid_out: Cell<Option<(bool, bool, bool, i32, i32)>>,
 }
 
 /// A pane for a nav row whose screen has not been built.
@@ -312,7 +314,225 @@ pub fn build(
             base();
         })
     };
-    let filter = act1(store, &refresher, |_app, _: usize| {});
+    // A tab's `×` drops that one file from the task's strip. Closing the last
+    // tab hides the panel (without the header close's permanent-dismiss flag,
+    // so the next written file still opens it); the reopen affordance covers
+    // the rest.
+    let close_tab: Rc<dyn Fn(usize)> = act1(store, &refresher, |app, index| {
+        let Route::Task(task) = app.route.clone() else {
+            return;
+        };
+        let Some(entry) = app.tasks.get_mut(task) else { return };
+        if index >= entry.artifacts.len() {
+            return;
+        }
+        entry.artifacts.remove(index);
+        entry.artifact = entry.artifacts.last().cloned();
+        let empty = entry.artifacts.is_empty();
+        if empty {
+            app.detail_visible = false;
+        }
+    });
+    let filter_state: Rc<dyn Fn() -> (usize, usize)> = {
+        let store = store.clone();
+        Rc::new(move || {
+            let app = store.borrow();
+            (app.filter_status, app.filter_time)
+        })
+    };
+    let filter_select: Rc<dyn Fn(usize, usize)> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move |kind, index| {
+            {
+                let mut app = store.borrow_mut();
+                match kind {
+                    0 => app.filter_status = index,
+                    _ => app.filter_time = index,
+                }
+            }
+            refresher.request();
+        })
+    };
+    let filter_reset: Rc<dyn Fn()> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move || {
+            {
+                let mut app = store.borrow_mut();
+                app.filter_status = 0;
+                app.filter_time = 0;
+            }
+            refresher.request();
+        })
+    };
+    /// The WorkBuddy-style global search popover: an entry, All / Tasks /
+    /// Spaces / Artifacts / Library tabs, live results, and the keyboard
+    /// hints footer.
+    let global_search: Rc<dyn Fn(&gtk::Button)> = {
+        let store = store.clone();
+        let open_task = open_task.clone();
+        let refresher = std::rc::Rc::new(refresher.clone());
+        Rc::new(move |anchor: &gtk::Button| {
+            let popover = gtk::Popover::new(Some(anchor));
+            popover.set_position(gtk::PositionType::Bottom);
+            crate::widgets::class(&popover, "eb-menu");
+            let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            crate::widgets::class(&column, "eb-menu-body");
+            column.set_size_request(520, -1);
+
+            let entry = gtk::SearchEntry::new();
+            entry.set_placeholder_text(Some("Search"));
+            entry.set_margin_top(10);
+            entry.set_margin_start(12);
+            entry.set_margin_end(12);
+            column.pack_start(&entry, false, false, 0);
+
+            let tab_state: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+            let tabs = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            crate::widgets::class(&tabs, "eb-search-tabs");
+            for (index, label) in ["All", "Tasks", "Spaces", "Artifacts", "Library"]
+                .iter()
+                .enumerate()
+            {
+                let tab = flat_button("eb-menu-item");
+                tab.add(&text(label, "eb-menu-item-label"));
+                let tab_state = tab_state.clone();
+                let label = (*label).to_string();
+                tab.connect_clicked(move |_| {
+                    // Tab order mirrors the labels above.
+                    let index = match label.as_str() {
+                        "All" => 0,
+                        "Tasks" => 1,
+                        "Spaces" => 2,
+                        "Artifacts" => 3,
+                        _ => 4,
+                    };
+                    tab_state.set(index);
+                });
+                tabs.pack_start(&tab, false, false, 0);
+            }
+            tabs.set_margin_top(8);
+            tabs.set_margin_start(12);
+            tabs.set_margin_end(12);
+            column.pack_start(&tabs, false, false, 0);
+
+            let results = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            crate::widgets::class(&results, "eb-search-results");
+            column.pack_start(&results, false, false, 0);
+
+            let hints = text(
+                "↑↓ Navigate   ↵ Open   ESC Close",
+                "eb-search-hints",
+            );
+            hints.set_halign(gtk::Align::Center);
+            hints.set_margin_top(8);
+            hints.set_margin_bottom(8);
+            column.pack_start(&hints, false, false, 0);
+
+            let rebuild: Rc<dyn Fn()> = {
+                let store = store.clone();
+                let entry = entry.clone();
+                let tab_state = tab_state.clone();
+                let results = results.clone();
+                let open_task = open_task.clone();
+                let refresher = refresher.clone();
+                Rc::new(move || {
+                    for child in results.children() {
+                        results.remove(&child);
+                    }
+                    let query = entry.text().to_lowercase();
+                    let tab = tab_state.get();
+                    let app = store.borrow();
+                    let matches = |text: &str| {
+                        !query.is_empty() && text.to_lowercase().contains(&query)
+                    };
+                    let turn_text = |turn: &eb_api::model::Turn| match turn {
+                        eb_api::model::Turn::User { text, .. } => text.clone(),
+                        eb_api::model::Turn::Agent { blocks, .. } => blocks
+                            .iter()
+                            .filter_map(|block| match block {
+                                eb_api::model::Block::Text(text) => Some(text.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    };
+                    let mut rows: Vec<(String, usize)> = Vec::new();
+                    if tab == 0 || tab == 1 {
+                        for (index, task) in app.tasks.iter().enumerate() {
+                            if matches(&task.title)
+                                || task
+                                    .turns
+                                    .iter()
+                                    .any(|turn| matches(&turn_text(turn)))
+                            {
+                                rows.push((task.title.clone(), index));
+                            }
+                        }
+                    }
+                    if tab == 0 || tab == 2 {
+                        for workspace in &app.workspaces {
+                            let name = crate::workspace::display_name(workspace);
+                            if matches(&name) {
+                                rows.push((name, usize::MAX));
+                            }
+                        }
+                    }
+                    if tab == 0 || tab == 3 {
+                        for task in &app.tasks {
+                            if let Some(artifact) = &task.artifact {
+                                if matches(&artifact.name) {
+                                    rows.push((artifact.name.clone(), usize::MAX));
+                                }
+                            }
+                        }
+                    }
+                    if rows.is_empty() {
+                        let empty = text("Type a keyword to search", "eb-search-empty");
+                        empty.set_halign(gtk::Align::Center);
+                        empty.set_margin_top(24);
+                        empty.set_margin_bottom(24);
+                        results.pack_start(&empty, false, false, 0);
+                    }
+                    for (label, index) in rows {
+                        let row = flat_button("eb-menu-item");
+                        row.add(&text(&label, "eb-menu-item-label"));
+                        let store = store.clone();
+                        let open_task = open_task.clone();
+                        let refresher = refresher.clone();
+                        row.connect_clicked(move |_| {
+                            if index != usize::MAX {
+                                store.borrow_mut().route =
+                                    eb_api::model::Route::Task(index);
+                                refresher.request();
+                            }
+                        });
+                        results.pack_start(&row, false, false, 0);
+                    }
+                    results.show_all();
+                })
+            };
+            {
+                let rebuild = rebuild.clone();
+                entry.connect_changed(move |_| rebuild());
+            }
+            {
+                let rebuild = rebuild.clone();
+                for tab in tabs.children() {
+                    if let Some(tab) = tab.downcast_ref::<gtk::Button>() {
+                        let rebuild = rebuild.clone();
+                        tab.connect_clicked(move |_| rebuild());
+                    }
+                }
+            }
+            rebuild();
+            popover.add(&column);
+            column.show_all();
+            crate::widgets::hide_from_show_all(&popover);
+            popover.popup();
+        })
+    };
     let section = act1(store, &refresher, |app, index: usize| {
         if let Some(slot) = app.collapsed.get_mut(index) {
             *slot = !*slot;
@@ -401,7 +621,10 @@ pub fn build(
         &sidebar::Wiring {
             nav: nav.clone(),
             collapse: collapse.clone(),
-            filter,
+            filter_state: filter_state.clone(),
+            filter_select: filter_select.clone(),
+            filter_reset: filter_reset.clone(),
+            search: global_search.clone(),
             account: std::rc::Rc::new(|index| {
                 if index == 0 {
                     crate::settings::open();
@@ -464,10 +687,76 @@ pub fn build(
             refresher.request();
         })
     };
+    // An artifact card (or "View all artifacts") in a message: open the panel
+    // and take the tab pick with it, consumed by the next paint.
+    let open_artifact_at: Rc<dyn Fn(usize)> = {
+        let store = store.clone();
+        let refresher = refresher.clone();
+        Rc::new(move |index| {
+            {
+                let mut app = store.borrow_mut();
+                app.artifact_dismissed = false;
+                app.artifact_select = Some(index);
+                let has = match &app.route {
+                    crate::model::Route::Task(index) => app
+                        .tasks
+                        .get(*index)
+                        .and_then(|task| task.artifact.as_ref())
+                        .is_some(),
+                    _ => false,
+                };
+                app.detail_visible = has;
+            }
+            refresher.request();
+        })
+    };
+    // The topbar panel toggle: close when open, open when dismissed (and a
+    // no-op on a task with no files, same as `open_artifact`).
+    let toggle_artifact: Rc<dyn Fn()> = {
+        let store = store.clone();
+        let open = open_artifact.clone();
+        let hide = hide_detail.clone();
+        Rc::new(move || {
+            let open_now = {
+                let app = store.borrow();
+                match &app.route {
+                    crate::model::Route::Task(index) => {
+                        app.detail_visible
+                            && app
+                                .tasks
+                                .get(*index)
+                                .and_then(|task| task.artifact.as_ref())
+                                .is_some()
+                    }
+                    _ => false,
+                }
+            };
+            if open_now {
+                hide();
+            } else {
+                open();
+            }
+        })
+    };
     let conversation = conversation::build(
         &conversation::Wiring {
             reveal: reveal.clone(),
-            open_artifact: open_artifact.clone(),
+            toggle_artifact: toggle_artifact.clone(),
+            open_artifact_at: open_artifact_at.clone(),
+            // "Edit and resend" refills the chat composer, exactly as if the
+            // user had typed the message again; "Regenerate" resubmits the
+            // prompt through the normal submit path.
+            edit: {
+                let composer = chat_composer.clone();
+                Rc::new(move |text: String| composer.fill(&text))
+            },
+            submit: submit.clone(),
+            // Scrolling to the top of a long conversation asks for a repaint,
+            // which is where the earlier slice of the transcript is attached.
+            load_more: {
+                let refresher = refresher.clone();
+                Rc::new(move || refresher.request())
+            },
         },
         &chat_composer,
     );
@@ -516,6 +805,7 @@ pub fn build(
     let detail = detail::build(
         &detail::Wiring {
             close: hide_detail.clone(),
+            tab_close: close_tab,
             expand: maximise,
             plugin: open_feedback,
         },
@@ -549,8 +839,14 @@ pub fn build(
     outer.set_position(spec::WINDOW_WIDTH);
     *feedback_outer.borrow_mut() = Some(outer.clone());
     class(&outer, "eb-split");
-    outer.pack1(&inner, true, false);
-    outer.pack2(&detail.root, false, false);
+    // Packing: the artifact panel is the *resize* child of the outer paned.
+    // GtkPaned's allocation (gtkpaned.c, `gtk_paned_calc_position`) rewrites
+    // the position on every frame: a `resize=false` second child silently
+    // pulls the sash back to `window - its natural width`, overriding
+    // `set_position`. With the panel as the resize child we own the sash:
+    // position = window - 580 leaves the panel the remaining 580.
+    outer.pack1(&inner, false, false);
+    outer.pack2(&detail.root, true, true);
 
     window.add(&outer);
 
@@ -581,6 +877,7 @@ pub fn build(
         agent,
         refresher,
         open_task,
+        toggle_artifact,
         section_toggle: section,
         workspace_action,
         new_workspace,
@@ -617,21 +914,31 @@ fn relative_age(updated_at: u64) -> String {
 }
 
 fn fit_to_workarea(window: &gtk::ApplicationWindow) {
-    let area = gtk::gdk::Display::default()
-        .and_then(|display| display.primary_monitor().or_else(|| display.monitor(0)))
-        .map(|monitor| monitor.workarea());
-    let (width, height) = match area {
-        Some(area) if area.width() >= spec::WINDOW_WIDTH
-            && area.height() >= spec::WINDOW_HEIGHT =>
-        {
-            (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT)
-        }
-        Some(area) => (
-            (area.width() - 16).clamp(640, spec::WINDOW_WIDTH),
-            (area.height() - 56).clamp(480, spec::WINDOW_HEIGHT),
-        ),
-        None => (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT),
+    // EB_WINDOW_WIDTH/EB_WINDOW_HEIGHT override the fitted size so the
+    // resize-sensitive layout can be screenshotted and asserted at a chosen
+    // width (the sash positions derive from the window width).
+    let override_size = || -> Option<(i32, i32)> {
+        let width = std::env::var("EB_WINDOW_WIDTH").ok()?.parse::<i32>().ok()?;
+        let height = std::env::var("EB_WINDOW_HEIGHT").ok()?.parse::<i32>().ok()?;
+        Some((width, height))
     };
+    let (width, height) = override_size().unwrap_or_else(|| {
+        let area = gtk::gdk::Display::default()
+            .and_then(|display| display.primary_monitor().or_else(|| display.monitor(0)))
+            .map(|monitor| monitor.workarea());
+        match area {
+            Some(area) if area.width() >= spec::WINDOW_WIDTH
+                && area.height() >= spec::WINDOW_HEIGHT =>
+            {
+                (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT)
+            }
+            Some(area) => (
+                (area.width() - 16).clamp(640, spec::WINDOW_WIDTH),
+                (area.height() - 56).clamp(480, spec::WINDOW_HEIGHT),
+            ),
+            None => (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT),
+        }
+    });
     window.set_default_size(width, height);
     window.set_position(gtk::WindowPosition::Center);
 }
@@ -662,6 +969,64 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
     };
     views.refresher.install_immediate(immediate.clone());
     views.agent.set_immediate_refresh(immediate);
+
+    // The panes are positioned from the window width, so a resize has to
+    // repaint. Without this the sash keeps the position from the last layout
+    // and, say, an artifact panel opened after maximising swallows the extra
+    // width. Two rules the handler has to get right:
+    //   * Return `false`. configure-event is RUN_LAST, so a handler that returns
+    //     true stops GTK's own `gtk_window_configure_event` — the only place the
+    //     toplevel records the new frame size. The window server then stretches
+    //     the stale surface over the resized frame: the "sidebar fills the whole
+    //     window, no conversation" report, where 280px of sidebar was drawn
+    //     across a 1470px window.
+    //   * Compare the width the *event* carries, not `window.size()`. This
+    //     handler runs before the default one, so the cached size is still the
+    //     previous frame's; comparing stale against stale misses a resize
+    //     outright and repaints one event late. The repaint itself is
+    //     idle-deferred, so `refresh` reads the window after GTK has recorded
+    //     the new size.
+    // Configure events also fire on moves; only a width change counts.
+    let last_width = std::cell::Cell::new(0i32);
+    views.window.connect_configure_event({
+        let refresher = views.refresher.clone();
+        move |_window, event| {
+            let width = event.size().0 as i32;
+            if last_width.replace(width) != width {
+                refresher.request();
+            }
+            false
+        }
+    });
+
+    // The shortcuts the captured tooltips advertise: ⌘F expands the
+    // conversation search, ⇧⌘B toggles the right panel. GTK on macOS reports
+    // ⌘ as CONTROL_MASK.
+    {
+        let bar = views.conversation.search_bar.clone();
+        let button = views.conversation.search_button.clone();
+        let entry = views.conversation.search_entry.clone();
+        let toggle = views.toggle_artifact.clone();
+        views.window.connect_key_press_event(move |_, event| {
+            let mods = event.state();
+            if !mods.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                return gtk::glib::Propagation::Proceed;
+            }
+            let shift = mods.contains(gtk::gdk::ModifierType::SHIFT_MASK);
+            let key = event.keyval();
+            if key == gtk::gdk::keys::constants::f && !shift {
+                button.set_visible(false);
+                bar.set_visible(true);
+                entry.grab_focus();
+                gtk::glib::Propagation::Stop
+            } else if key == gtk::gdk::keys::constants::b && shift {
+                toggle();
+                gtk::glib::Propagation::Stop
+            } else {
+                gtk::glib::Propagation::Proceed
+            }
+        });
+    }
 
     // Poll the persisted schedule queue. A due job becomes a normal task, so
     // it uses the same workspace/session/agent path as a typed prompt.
@@ -715,9 +1080,14 @@ impl Views {
         // The task's own `turns` are the source of truth. The dsh bridge
         // projection is global (one live session), so consuming it here used
         // to overwrite the selected task with another task's transcript.
-        if std::env::var_os("EB_DEBUG").is_some() {
+        let debug = std::env::var_os("EB_DEBUG").is_some();
+        let started_at = std::time::Instant::now();
+        if debug {
             eprintln!("refresh: enter {:?}", std::thread::current().id());
         }
+        // The one-shot tab pick from a clicked artifact card, taken before the
+        // state borrow below pins the store.
+        let artifact_select = store.borrow_mut().artifact_select.take();
         let app = store.borrow();
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresh: begin tasks={}", app.tasks.len());
@@ -797,11 +1167,20 @@ impl Views {
         self.chat_composer.set_usage(usage);
 
         // ---- sidebar list ------------------------------------------------
+        let stage = std::time::Instant::now();
         let rows: Vec<TaskRow> = app
             .tasks
             .iter()
             .enumerate()
             .rev()
+            .filter(|(_, task)| {
+                eb_api::model::task_matches_filters(
+                    task,
+                    app.filter_status,
+                    app.filter_time,
+                    eb_api::model::unix_now(),
+                )
+            })
             .map(|(index, task)| TaskRow {
                 title: task.title.clone(),
                 meta: task
@@ -810,6 +1189,7 @@ impl Views {
                     .map(relative_age)
                     .unwrap_or_else(|| task.meta.clone()),
                 active: matches!(app.route, Route::Task(active) if active == index),
+                running: eb_api::model::task_is_running(task),
                 index,
                 workspace_id: task.workspace_id.clone(),
                 pinned: task.pinned,
@@ -832,57 +1212,38 @@ impl Views {
             &self.new_workspace,
             &self.task_action,
         );
+        let sidebar_ms = if debug {
+            Some(stage.elapsed().as_secs_f64() * 1000.0)
+        } else {
+            None
+        };
 
         // ---- content pane ------------------------------------------------
-        // The product caps the message column at 752 with the artifact panel
-        // closed and 500 with it open; the pane is 1160 / 580 respectively.
-        // Set the margins before filling messages so the first layout pass
-        // already sees the right width.
-        let artifact_open = match &app.route {
-            Route::Task(index) => {
-                app.detail_visible
-                    && app
-                        .tasks
-                        .get(*index)
-                        .and_then(|task| task.artifact.as_ref())
-                        .is_some()
-            }
-            _ => false,
-        };
         let sidebar = if app.sidebar_visible {
             spec::SIDEBAR_WIDTH
         } else {
             0
         };
-        let pane_width = spec::WINDOW_WIDTH
-            - sidebar
-            - if artifact_open {
-                spec::CONVERSATION_WIDTH
-            } else {
-                0
-            };
-        let message_width = if artifact_open {
-            spec::MESSAGE_WIDTH
-        } else {
-            spec::MESSAGE_WIDTH_CLOSED
-        };
-        let margin = ((pane_width - message_width) / 2).max(0);
-        self.conversation.messages.set_margin_start(margin);
-        self.conversation.messages.set_margin_end(margin);
-
-        // The input area is capped too: 832 with the panel closed (a 784 card),
-        // and the full 580 pane with it open.
-        let input_width = if artifact_open {
-            spec::CONVERSATION_WIDTH
-        } else {
-            spec::CHAT_INPUT_AREA_WIDTH_CLOSED
-        };
-        let input_margin = ((pane_width - input_width) / 2).max(0);
-        self.chat_composer.root.set_margin_start(input_margin);
-        self.chat_composer.root.set_margin_end(input_margin);
-
+        // From the *actual* window width, not the captured 1440: the artifact
+        // panel keeps its fixed share and the conversation column absorbs the
+        // slack, so a resized window cannot hand the panel 1000+ pixels.
+        let width = self.window.size().0.max(spec::SIDEBAR_WIDTH + 360);
         let mut artifact = None;
         let mut shown = "welcome";
+        let mut conversation_ms: Option<f64> = None;
+        let mut detail_ms: Option<f64> = None;
+        // Which task the message list should be showing, so arriving from the
+        // welcome page or from another task re-pins the scroll to the bottom.
+        let opened = match &app.route {
+            Route::Task(index) => Some(*index),
+            _ => None,
+        };
+        // Whether the conversation pane was on screen before this repaint.
+        // `painted_task` only tracks which frames are attached, so coming back
+        // from the landing page has to be spotted here: the frames are the
+        // same ones, and the user still expects the newest message.
+        let was_conversation =
+            self.stack.visible_child_name().as_deref() == Some("conversation");
         match &app.route {
             Route::Unbuilt(name) => {
                 self.unbuilt_title.set_text(name);
@@ -918,7 +1279,12 @@ impl Views {
             Route::Task(index) => match app.tasks.get(*index) {
                 Some(task) => {
                     self.conversation.title.set_text(&task.title);
-                    conversation::fill_messages(&self.conversation, task);
+                    if !was_conversation || self.conversation.painted_task.get() != opened {
+                        self.conversation.follow_now();
+                    }
+                    let paint_started = std::time::Instant::now();
+                    conversation::fill_messages(&self.conversation, task, opened);
+                    conversation_ms = Some(paint_started.elapsed().as_secs_f64() * 1000.0);
                     artifact = task.artifact.as_ref();
                     shown = "conversation";
                 }
@@ -928,6 +1294,10 @@ impl Views {
             },
             Route::Welcome => {}
         }
+
+        // Which task's frames are attached is `fill_messages`' business now: a
+        // switch moves them into the off-screen cache, and the landing page or
+        // an unbuilt pane leaves them where they are.
 
         // GtkStack measures every *visible* child, so leaving the landing
         // column's 800px minimum on screen would stop the conversation pane
@@ -944,18 +1314,41 @@ impl Views {
         }
 
         // ---- artifact panel ----------------------------------------------
+        let detail_started = std::time::Instant::now();
         let open = app.detail_visible && artifact.is_some();
-        if let Some(artifact) = artifact {
-            if open {
-                detail::fill(&self.detail, artifact);
+        if open {
+            // The tab strip shows every file the task has written; the
+            // newest one arrives selected.
+            let files = match &app.route {
+                Route::Task(index) => app
+                    .tasks
+                    .get(*index)
+                    .map(|task| task.artifacts.as_slice())
+                    .unwrap_or_default(),
+                _ => &[][..],
+            };
+            let files: Vec<crate::model::Artifact> = if files.is_empty() {
+                artifact.into_iter().cloned().collect()
+            } else {
+                files.to_vec()
+            };
+            detail::fill(&self.detail, &files);
+            // A card click named the tab it wants; `fill` above has already
+            // settled the file list, so the pick lands on top of it.
+            if let Some(index) = artifact_select {
+                detail::select(&self.detail, index);
             }
         }
         self.detail.root.set_visible(open);
-        // While the panel is dismissed but files exist, offer the reopen
-        // affordance in the chat topbar.
+        // The toggle is always on the topbar (capture 1); only its tooltip
+        // follows the panel state.
         self.conversation
             .artifact_button
-            .set_visible(!open && artifact.is_some());
+            .set_tooltip_text(Some(if open {
+                "Close right panel ⇧⌘B"
+            } else {
+                "Open right panel ⇧⌘B"
+            }));
 
         // ---- panes --------------------------------------------------------
         self.sidebar.root.set_visible(app.sidebar_visible);
@@ -963,30 +1356,114 @@ impl Views {
             button.set_visible(!app.sidebar_visible);
         }
 
-        // Only reposition when the *layout* changed, so a sash the user dragged
-        // survives the next repaint.
-        let layout = (app.sidebar_visible, open, app.detail_maximised);
-        if self.laid_out.get() != Some(layout) {
-            let sidebar = if app.sidebar_visible {
-                spec::SIDEBAR_WIDTH
-            } else {
-                0
-            };
+        // The panel's own content minimum is what GtkPaned clamps the sash to.
+        // Reading it here — after `detail::fill` rebuilt the tab strip — lets the
+        // sash and the message margins agree: at a 1082px window the sash really
+        // lands on 750, and centring the messages for 804 let the bubbles spill
+        // past the divider into the panel.
+        let panel_floor = if open { self.detail.root.preferred_width().0 } else { 0 };
+        detail_ms = Some(detail_started.elapsed().as_secs_f64() * 1000.0);
+        let sash = outer_sash(width, sidebar, open, app.detail_maximised, panel_floor);
+
+        // Reposition when the *settled* layout changed: a sash the user
+        // dragged survives the next repaint. A refresh that runs before the
+        // window's real allocation (the `EB_ARTIFACT` seed does) reports the
+        // default or a zero size; latching the key then would swallow the one
+        // reposition that matters, because the configure-event repaint sees an
+        // unchanged key. So an unallocated width positions but never latches.
+        let settled = self.window.is_realized() && self.window.size().0 > 1;
+        let layout = (app.sidebar_visible, open, app.detail_maximised, width, panel_floor);
+        if settled && self.laid_out.get() != Some(layout) || !settled {
             self.inner.set_position(sidebar);
-            self.outer.set_position(if open {
-                // Maximised, the artifact panel keeps what the sidebar does not
-                // use and the conversation column is squeezed to nothing.
-                let conversation = if app.detail_maximised {
-                    0
-                } else {
-                    spec::CONVERSATION_WIDTH
-                };
-                sidebar + conversation
-            } else {
-                spec::WINDOW_WIDTH
-            });
-            self.laid_out.set(Some(layout));
+            self.outer.set_position(sash);
+            if settled {
+                self.laid_out.set(Some(layout));
+            }
+            if std::env::var_os("EB_DEBUG").is_some() {
+                let (min_w, nat_w) = self.detail.root.preferred_width();
+                let (cmin, cnat) = self.conversation.root.preferred_width();
+                eprintln!(
+                    "layout: width={width} open={open} maximised={} pos={} detail_min={min_w} detail_nat={nat_w} conv_min={cmin} conv_nat={cnat} inner={} side={} stack={}",
+                    app.detail_maximised,
+                    self.outer.position(),
+                    self.inner.position(),
+                    self.sidebar.root.allocation().width(),
+                    self.stack.allocation().width(),
+                );
+            }
         }
+
+        // The message column and the composer card centre themselves in the
+        // pane the sash actually leaves: 500 wide with the panel open, 752
+        // without it, and the 832/580 input area cap.
+        //
+        // The column is centred by its scroller — a content width plus `halign` —
+        // because margins inside a viewport ratchet: see conversation.rs. The
+        // composer is a direct child of the column, so margins are stable there.
+        //
+        // `max_content_width` only *truncates*, so a short transcript (the
+        // artifact demo asks for 500 and draws 276) would leave the column at
+        // its content's natural width. The width request on the column pins the
+        // natural up to the design width. It costs nothing in shrinkability:
+        // the scroller scrolls horizontally, so it advertises its own minimum
+        // (`min_content_width`, 1) and never the child's.
+        let pane_width = sash - sidebar;
+        let message_width = if open {
+            spec::MESSAGE_WIDTH
+        } else {
+            spec::MESSAGE_WIDTH_CLOSED
+        }
+        .min(pane_width);
+        self.conversation.scroll.set_max_content_width(message_width);
+        self.conversation.messages.set_size_request(message_width, -1);
+        let input_width = if open {
+            spec::CONVERSATION_WIDTH
+        } else {
+            spec::CHAT_INPUT_AREA_WIDTH_CLOSED
+        };
+        let input_margin = ((pane_width - input_width) / 2).max(0);
+        self.chat_composer.root.set_margin_start(input_margin);
+        self.chat_composer.root.set_margin_end(input_margin);
+        if debug {
+            eprintln!(
+                "refresh: done in {:.1}ms (shown={shown} children={} sidebar={:.1} conv={:.1} detail={:.1})",
+                started_at.elapsed().as_secs_f64() * 1000.0,
+                self.conversation.messages.children().len(),
+                sidebar_ms.unwrap_or_default(),
+                conversation_ms.unwrap_or_default(),
+                detail_ms.unwrap_or_default(),
+            );
+        }
+    }
+}
+
+/// The outer sash for one layout state. The pane margins below are derived from
+/// its return value, so the sash and the centring can never disagree.
+///
+/// The panel keeps its captured 580px share; the conversation column takes what
+/// the window has left, but never so little that the 500px message bubbles
+/// collapse (a 1100px window used to leave the message list 1px wide).
+/// Below that the panel keeps its own content minimum so its header buttons
+/// stay reachable (§10-31).
+fn outer_sash(
+    width: i32,
+    sidebar: i32,
+    open: bool,
+    maximised: bool,
+    panel_floor: i32,
+) -> i32 {
+    if !open {
+        width
+    } else if maximised {
+        // Maximised, the artifact panel keeps what the sidebar does not use
+        // and the conversation column is squeezed to nothing.
+        sidebar
+    } else {
+        let conversation_floor = sidebar + spec::MESSAGE_WIDTH + 24;
+        let sash = (width - spec::ARTIFACT_PANEL_WIDTH).max(conversation_floor);
+        let panel_room =
+            (width - panel_floor).max(sidebar + spec::CONVERSATION_MIN_WIDTH);
+        sash.min(panel_room)
     }
 }
 
@@ -1687,15 +2164,59 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
             let refresher = refresher.clone();
             let name = card_name.clone();
             test.connect_clicked(move |_| {
-                let outcome = crate::catalog::configured_connectors()
-                    .into_iter()
-                    .find(|entry| entry.name == name)
-                    .map(|entry| match entry.test() {
-                        Ok(message) => (name.clone(), message),
-                        Err(message) => (name.clone(), format!("failed: {message}")),
-                    });
-                store.borrow_mut().connector_test = outcome;
+                // A connector handshake can take up to ten seconds (stdio) or
+                // four (http). Running it here would stop the window painting
+                // for that whole time, so the probe runs on a worker thread and
+                // reports back through this panel's short poll.
+                store.borrow_mut().connector_test =
+                    Some((name.clone(), "testing…".to_string()));
                 refresher.request();
+                let outcome: Arc<std::sync::Mutex<Option<(String, String)>>> =
+                    Arc::new(std::sync::Mutex::new(None));
+                {
+                    let outcome = outcome.clone();
+                    let probed = name.clone();
+                    std::thread::Builder::new()
+                        .name("evobuddy-connector-test".into())
+                        .spawn(move || {
+                            let result = crate::catalog::configured_connectors()
+                                .into_iter()
+                                .find(|entry| entry.name == probed)
+                                .map(|entry| match entry.test() {
+                                    Ok(message) => (probed.clone(), message),
+                                    Err(message) => {
+                                        (probed.clone(), format!("failed: {message}"))
+                                    }
+                                })
+                                .unwrap_or_else(|| {
+                                    (probed.clone(), "failed: connector is not configured".into())
+                                });
+                            *outcome.lock().unwrap() = Some(result);
+                        })
+                        .expect("spawn connector test");
+                }
+                let started = std::time::Instant::now();
+                let poll_outcome = outcome.clone();
+                let poll_store = store.clone();
+                let poll_refresher = refresher.clone();
+                let poll_name = name.clone();
+                gtk::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    let mut app = poll_store.borrow_mut();
+                    if let Some(result) = poll_outcome.lock().unwrap().take() {
+                        app.connector_test = Some(result);
+                        drop(app);
+                        poll_refresher.request();
+                        return gtk::glib::ControlFlow::Break;
+                    }
+                    if started.elapsed() > std::time::Duration::from_secs(30) {
+                        app.connector_test =
+                            Some((poll_name.clone(), "failed: test is still running".to_string()));
+                        drop(app);
+                        poll_refresher.request();
+                        return gtk::glib::ControlFlow::Break;
+                    }
+                    gtk::glib::ControlFlow::Continue
+                });
             });
             head.pack_end(&test, false, false, 0);
         } else {
@@ -2231,4 +2752,40 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     }
     row.pack_start(&main, true, true, 0);
     container.pack_start(&row, false, false, 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The 1440 baseline is a captured number (ui-spec §4.4) and must not move;
+    /// the narrow-window floors are the invented rule recorded in §10-31.
+    /// `panel_floor` is the panel's live content minimum, 332 with the two-file
+    /// tab strip the `EB_ARTIFACT` seed produces.
+    #[test]
+    fn the_outer_sash_holds_the_captured_share_then_the_two_floors() {
+        let sidebar = spec::SIDEBAR_WIDTH;
+        let panel = 332;
+        let sash = |width: i32| outer_sash(width, sidebar, true, false, panel);
+        assert_eq!(sash(1920), 1340, "the panel keeps 580 while there is room");
+        assert_eq!(sash(1440), 860, "captured baseline: sash 860, panel 580");
+        assert_eq!(sash(1136), 804, "the conversation keeps its 500+24 floor");
+        assert_eq!(sash(1100), 768, "then the panel keeps its content minimum");
+        assert_eq!(sash(1082), 750, "the number GtkPaned was clamping to anyway");
+        assert_eq!(sash(900), 568);
+        assert_eq!(
+            sash(800),
+            sidebar + spec::CONVERSATION_MIN_WIDTH,
+            "the conversation floor is the one that wins last"
+        );
+        assert_eq!(outer_sash(1440, sidebar, false, false, panel), 1440);
+        assert_eq!(outer_sash(1440, sidebar, true, true, panel), sidebar);
+        for width in (640..=1920).step_by(20) {
+            let sash = sash(width);
+            assert!(
+                (sidebar..=width).contains(&sash),
+                "width {width} put the sash at {sash}"
+            );
+        }
+    }
 }

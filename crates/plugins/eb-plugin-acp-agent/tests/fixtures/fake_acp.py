@@ -28,10 +28,39 @@ def update(session_id, payload):
     })
 
 
+def private_update(session_id, payload):
+    """The envelope Grok really uses: same params, private method name."""
+    send({
+        "jsonrpc": "2.0",
+        "method": "_x.ai/session_notification",
+        "params": {"sessionId": session_id, "update": payload},
+    })
+
+
+def activity(session_id, state):
+    """Grok's `_x.ai/sessions/changed`: the session row, with `activity` set."""
+    send({
+        "jsonrpc": "2.0",
+        "method": "_x.ai/sessions/changed",
+        "params": {
+            "upserted": [{"sessionId": session_id, "activity": state}],
+            "removed": [],
+        },
+    })
+
+
 def main():
     session_id = "sess_fake"
     prompt_id = None
+    prompt_count = 0
     cancel = False
+    # Scenarios come from FAKE_ACP_SCENARIO (what the Rust suite sets); the
+    # older FAKE_ACP_* variables still work so manual harness runs keep working.
+    scenario = os.environ.get("FAKE_ACP_SCENARIO", "")
+
+    def mode(name):
+        return scenario == name or os.environ.get("FAKE_ACP_" + name.upper()) == "1"
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -55,7 +84,16 @@ def main():
             respond(request_id, {"sessionId": session_id})
         elif method == "session/prompt":
             prompt_id = request_id
-            if os.environ.get("FAKE_ACP_CANCEL") == "1":
+            prompt_count += 1
+            if (
+                mode("tail_busy")
+                or mode("backlog")
+                or (mode("idle_between") and prompt_count == 1)
+                or (mode("resume") and prompt_count == 1)
+            ):
+                # Grok announces the running prompt before it says anything else.
+                activity(session_id, "working")
+            if mode("cancel"):
                 update(session_id, {
                     "sessionUpdate": "agent_message_chunk",
                     "content": {"type": "text", "text": "waiting"},
@@ -73,7 +111,7 @@ def main():
                         prompt_id = None
                         break
                 continue
-            if os.environ.get("FAKE_ACP_CODE") == "1":
+            if mode("code"):
                 update(session_id, {
                     "sessionUpdate": "agent_message_chunk",
                     "content": {"type": "text", "text": (
@@ -92,6 +130,14 @@ def main():
                 })
             else:
                 update(session_id, {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": "Thinking: "},
+                })
+                update(session_id, {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": "greet the user."},
+                })
+                update(session_id, {
                     "sessionUpdate": "agent_message_chunk",
                     "content": {"type": "text", "text": "Hello "},
                 })
@@ -99,7 +145,7 @@ def main():
                     "sessionUpdate": "agent_message_chunk",
                     "content": {"type": "text", "text": "from ACP."},
                 })
-            if os.environ.get("FAKE_ACP_LONG") == "1":
+            if mode("long"):
                 update(session_id, {
                     "sessionUpdate": "agent_message_chunk",
                     "content": {"type": "text", "text": "A" * 4000},
@@ -161,7 +207,7 @@ def main():
                 "status": "completed",
                 "content": [{"type": "content", "content": {
                     "type": "text",
-                    "text": ("hi\n" if os.environ.get("FAKE_ACP_LONG") != "1" else ("L" * 4000 + "\n")),
+                    "text": ("hi\n" if not mode("long") else ("L" * 4000 + "\n")),
                 }}],
             })
             update(session_id, {
@@ -182,8 +228,156 @@ def main():
                     "newText": "a\nB\n",
                 }],
             })
+            if mode("retry"):
+                # A provider-side retry, in the two shapes seen in the wild:
+                # Grok wraps it in a private notification, other agents use the
+                # spec method. The client must show either or the UI looks hung.
+                private_update(session_id, {
+                    "sessionUpdate": "retry_state",
+                    "type": "retrying",
+                    "attempt": 1,
+                    "max_retries": 15,
+                    "reason": "request error: Connection reset by peer",
+                })
+                update(session_id, {
+                    "sessionUpdate": "retry_state",
+                    "type": "retrying",
+                    "attempt": 2,
+                    "max_retries": 15,
+                    "reason": "request error: Connection reset by peer",
+                })
             respond(prompt_id, {"stopReason": "end_turn"})
             prompt_id = None
+            if mode("tail"):
+                # Background work: the agent answers its own turn first, then
+                # keeps streaming. A client that stops reading at the response
+                # loses all of this.
+                import time
+                time.sleep(0.2)
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "\n\nresearch: part one."},
+                })
+                send({
+                    "jsonrpc": "2.0",
+                    "id": 901,
+                    "method": "session/request_permission",
+                    "params": {
+                        "sessionId": session_id,
+                        "toolCall": {"toolCallId": "call_tail"},
+                        "options": [
+                            {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                            {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+                        ],
+                    },
+                })
+                while True:
+                    tail_line = sys.stdin.readline()
+                    if not tail_line:
+                        return
+                    try:
+                        tail_response = json.loads(tail_line)
+                    except json.JSONDecodeError:
+                        continue
+                    if tail_response.get("id") == 901:
+                        break
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": " research: part two."},
+                })
+                # Grok emits this alongside the (already-consumed) response. A
+                # client that treats it as the end of the turn would cut the
+                # continuation off after the first chunk.
+                private_update(session_id, {
+                    "sessionUpdate": "turn_completed",
+                    "prompt_id": "p_tail",
+                    "stop_reason": "end_turn",
+                    "elapsed_ms": 400,
+                })
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": " research: part three."},
+                })
+            if mode("tail_error"):
+                # The background work died after the planning turn answered, so
+                # the only signal left is the private failure notice.
+                import time
+                time.sleep(0.2)
+                private_update(session_id, {
+                    "sessionUpdate": "turn_completed",
+                    "prompt_id": "p_tail_error",
+                    "stop_reason": "error",
+                    "agent_result": "reqwest error stream: Connection reset by peer",
+                    "elapsed_ms": 1402086,
+                })
+            if mode("tail_busy"):
+                # Grok's deep-research shape: the answer arrives in bursts that
+                # are longer apart than any silence probe can wait, while the
+                # session keeps saying it is working. Only `idle` ends it.
+                import time
+                time.sleep(0.6)
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "\n\nresearch: after the first silence."},
+                })
+                time.sleep(0.6)
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": " after the second."},
+                })
+                activity(session_id, "idle")
+            if mode("past_idle"):
+                # The other ordering, which a client must also survive: `idle`
+                # first, then the answer. The first chunk revives the
+                # continuation window, so the second one is not cut off at
+                # half a probe.
+                import time
+                activity(session_id, "idle")
+                time.sleep(0.2)
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": "\n\nresearch: after idle,"},
+                })
+                time.sleep(0.6)
+                update(session_id, {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": " still streaming."},
+                })
+            if mode("backlog"):
+                # Work the client has already given up on: it answers, says idle,
+                # and only then keeps talking. Whatever lands in the pipe after
+                # the turn closed belongs to nobody, and must not be read out as
+                # the next turn's answer.
+                import time
+                activity(session_id, "idle")
+                time.sleep(1.5)
+                for index in range(3):
+                    update(session_id, {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": " LEFTOVER%d" % index},
+                    })
+            if mode("resume") and prompt_count > 1:
+                # Turn two: nothing announces it. The session is *already*
+                # `working` from the turn the client gave up on, and the row only
+                # changes when the state does — a client that waits for a fresh
+                # flip ends this turn at the probe and loses the late chunk.
+                # Turn three: `idle` landed in between, so this one must close at
+                # the probe instead of riding the busy window.
+                import time
+                if prompt_count == 2:
+                    time.sleep(0.7)
+                    update(session_id, {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "\n\nresearch: still running."},
+                    })
+                    activity(session_id, "idle")
+            if mode("idle_between") and prompt_count == 1:
+                # The client gave up while the session still said `working`, and
+                # the work really did finish a moment later. That `idle` lands
+                # with nobody reading, and it is still the agent's last word.
+                import time
+                time.sleep(4.0)
+                activity(session_id, "idle")
         elif method == "session/cancel":
             cancel = True
             if prompt_id is not None:
@@ -192,8 +386,6 @@ def main():
         elif request_id == 900 and "result" in message:
             # Permission response: don't block; the scenario ignores the choice.
             continue
-
-    _ = os.environ.get("FAKE_ACP_SCENARIO", "basic")
     _ = cancel
 
 

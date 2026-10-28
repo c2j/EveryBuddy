@@ -25,7 +25,7 @@ const NOTICES: &[(&str, &str)] = &[
     ),
     (
         "detail.new_tab",
-        "Only the one artifact a task produced is shown in this UI-only build.",
+        "Create an artifact tab in a blank artifact is not part of this UI-only build.",
     ),
     (
         "composer.code_assist",

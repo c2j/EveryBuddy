@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use eb_api::{AgentSink, AnswerHandle, AnswerSource, PermissionPrompter};
-use eb_plugin_acp_agent::{AcpAgent, AcpConfig};
+use eb_plugin_acp_agent::{AcpAgent, AcpConfig, TailPolicy};
 
 use crate::agents::{self, AcpAgent as AcpChoice};
 use crate::custom_model::{CustomConfig, CustomModel};
@@ -61,24 +61,22 @@ pub struct RouterConfig {
 impl Default for RouterConfig {
     fn default() -> Self {
         let env_agent = std::env::var("EVOBUDDY_ACP_AGENT").ok();
+        let acp = env_agent
+            .as_deref()
+            .and_then(AcpChoice::parse)
+            .unwrap_or(AcpChoice::Opencode);
         let default = if std::env::var("EB_AGENT").ok().as_deref() == Some("demo")
             || crate::selftest::requested()
         {
             DefaultRoute::Demo
         } else if std::env::var("EB_AGENT").ok().as_deref() == Some("dsh") {
             DefaultRoute::Dsh
-        } else if env_agent.as_deref() == Some("grok") {
-            DefaultRoute::Acp
         } else {
             DefaultRoute::Acp
         };
         Self {
             default,
-            acp: if env_agent.as_deref() == Some("grok") {
-                AcpChoice::Grok
-            } else {
-                AcpChoice::Opencode
-            },
+            acp,
             custom: CustomConfig::default(),
         }
     }
@@ -105,12 +103,8 @@ pub fn load() -> RouterConfig {
             if let Some(default) = value["default"].as_str() {
                 config.default = DefaultRoute::parse(default);
             }
-            if let Some(acp) = value["acp"].as_str() {
-                config.acp = if acp == "grok" {
-                    AcpChoice::Grok
-                } else {
-                    AcpChoice::Opencode
-                };
+            if let Some(acp) = value["acp"].as_str().and_then(AcpChoice::parse) {
+                config.acp = acp;
             }
             if let Ok(custom) = serde_json::from_value::<CustomConfig>(value["custom"].clone()) {
                 config.custom = custom;
@@ -118,13 +112,20 @@ pub fn load() -> RouterConfig {
         }
     }
     config.custom.api_key = credential("CUSTOM_MODEL_API_KEY");
-    if crate::selftest::requested() || std::env::var("EB_AGENT").ok().as_deref() == Some("demo") {
+    // An explicit agent choice outranks the harness default: EB_SHOT and
+    // friends force Demo so screenshots are deterministic, but the ACP
+    // verification recipe sets EVOBUDDY_ACP_AGENT precisely to *not* get Demo.
+    if let Ok(agent) = std::env::var("EVOBUDDY_ACP_AGENT") {
+        config.default = DefaultRoute::Acp;
+        if let Some(choice) = AcpChoice::parse(&agent) {
+            config.acp = choice;
+        }
+    } else if crate::selftest::requested()
+        || std::env::var("EB_AGENT").ok().as_deref() == Some("demo")
+    {
         config.default = DefaultRoute::Demo;
     } else if std::env::var("EB_AGENT").ok().as_deref() == Some("dsh") {
         config.default = DefaultRoute::Dsh;
-    } else if let Ok(agent) = std::env::var("EVOBUDDY_ACP_AGENT") {
-        config.default = DefaultRoute::Acp;
-        config.acp = if agent == "grok" { AcpChoice::Grok } else { AcpChoice::Opencode };
     }
     config
 }
@@ -175,6 +176,31 @@ fn save(config: &RouterConfig) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The spawn configuration for one ACP slot. Shared by the router's session
+/// cache and the `EB_ACP_PROBE` harness, so a probe tests exactly what a real
+/// turn would run.
+pub fn acp_config(choice: AcpChoice) -> AcpConfig {
+    let (program, args) = choice.launch();
+    AcpConfig {
+        program: program.to_string_lossy().to_string(),
+        args,
+        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        auto_approve: std::env::var("EVOBUDDY_ACP_AUTO_APPROVE")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false),
+        name: choice.label().into(),
+        debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
+        env: crate::agents::external_env(),
+        auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
+        tail: TailPolicy::from_env(),
+        log: AcpConfig::log_from_env(),
+    }
+}
+
+fn acp_source(choice: AcpChoice) -> Arc<AcpAgent> {
+    Arc::new(AcpAgent::new(acp_config(choice)))
 }
 
 pub struct AgentRouter {
@@ -233,23 +259,7 @@ impl AgentRouter {
 
     fn acp_source(&self, choice: AcpChoice) -> Arc<AcpAgent> {
         let mut cache = self.acp.lock().unwrap();
-        cache
-            .entry(choice)
-            .or_insert_with(|| {
-                Arc::new(AcpAgent::new(AcpConfig {
-                    program: choice.program().to_string_lossy().to_string(),
-                    args: choice.args().iter().map(|arg| (*arg).to_string()).collect(),
-                    cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-                    auto_approve: std::env::var("EVOBUDDY_ACP_AUTO_APPROVE")
-                        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
-                        .unwrap_or(false),
-                    name: choice.label().into(),
-                    debug: std::env::var_os("EVOBUDDY_ACP_DEBUG").is_some(),
-                    env: crate::agents::external_env(),
-                    auth_method: std::env::var("EVOBUDDY_ACP_AUTH_METHOD").ok(),
-                }))
-            })
-            .clone()
+        cache.entry(choice).or_insert_with(|| acp_source(choice)).clone()
     }
 
     fn source(&self, config: &RouterConfig) -> Arc<dyn AnswerSource> {
@@ -291,13 +301,24 @@ impl AnswerSource for AgentRouter {
     ) -> Box<dyn AnswerHandle> {
         let config = self.config();
         let source: Arc<dyn AnswerSource> = match route {
-            Some("acp:opencode") => self.acp_source(AcpChoice::Opencode),
-            Some("acp:grok") => self.acp_source(AcpChoice::Grok),
-            Some("dsh") => self.dsh.clone(),
-            Some("custom") => Arc::new(CustomModel::new(config.custom.clone())),
-            _ => self.source(&config),
+            Some(route) => match route.strip_prefix("acp:").and_then(AcpChoice::parse) {
+                Some(choice) => self.acp_source(choice),
+                None => self.fallback(route, &config),
+            },
+            None => self.source(&config),
         };
         source.start_in(prompt, sink, permissions, workspace)
+    }
+}
+
+impl AgentRouter {
+    /// The non-ACP route ids; anything unknown keeps the configured default.
+    fn fallback(&self, route: &str, config: &RouterConfig) -> Arc<dyn AnswerSource> {
+        match route {
+            "dsh" => self.dsh.clone(),
+            "custom" => Arc::new(CustomModel::new(config.custom.clone())),
+            _ => self.source(config),
+        }
     }
 }
 
@@ -363,47 +384,86 @@ mod tests {
             assert_eq!(DefaultRoute::parse(route.id()), route);
         }
     }
+
+    /// The route menu is built from a table, so a new ACP slot has to show up in
+    /// it — and the labels must be the ones `AcpAgent` reports.
+    #[test]
+    fn the_route_menu_lists_every_acp_slot() {
+        for (position, agent) in agents::all().iter().enumerate() {
+            let (route, label) = ACP_MENU[position];
+            assert_eq!(route, format!("acp:{}", agent.id()));
+            assert_eq!(label, format!("ACP · {}", agent.label()));
+        }
+        assert_eq!(menu_labels().len(), ACP_MENU.len() + 3);
+        for index in 0..menu_labels().len() {
+            let route = route_for_menu(index).map(str::to_string);
+            assert_eq!(menu_index(route.as_deref()), index, "menu index {index}");
+        }
+        assert_eq!(route_label(Some("acp:jcode")), "ACP · jcode");
+        assert_eq!(route_label(Some("acp:pi")), "ACP · pi");
+        assert_eq!(menu_index(Some("acp:gone")), 0);
+    }
 }
 
 
+/// The ACP rows of the route menu, in menu order: route id plus label. Keeping
+/// them in one table is what stops the composer's index-based lookup and
+/// `route_label` from drifting apart when a slot is added.
+const ACP_MENU: [(&str, &str); 4] = [
+    ("acp:opencode", "ACP · opencode"),
+    ("acp:grok", "ACP · Grok Build"),
+    ("acp:jcode", "ACP · jcode"),
+    ("acp:pi", "ACP · pi"),
+];
+const DSH_MENU_INDEX: usize = ACP_MENU.len() + 1;
+const CUSTOM_MENU_INDEX: usize = DSH_MENU_INDEX + 1;
+
 /// Menu order shared by the composer selector and Settings labels.
 pub fn menu_labels() -> Vec<&'static str> {
-    vec![
-        "Default",
-        "ACP · opencode",
-        "ACP · Grok Build",
-        "dsh",
-        "Custom Model",
-    ]
+    let mut labels = vec!["Default"];
+    labels.extend(ACP_MENU.iter().map(|(_, label)| *label));
+    labels.extend(["dsh", "Custom Model"]);
+    labels
 }
 
 pub fn route_for_menu(index: usize) -> Option<&'static str> {
     match index {
-        1 => Some("acp:opencode"),
-        2 => Some("acp:grok"),
-        3 => Some("dsh"),
-        4 => Some("custom"),
+        0 => None,
+        i if i <= ACP_MENU.len() => Some(ACP_MENU[i - 1].0),
+        i if i == DSH_MENU_INDEX => Some("dsh"),
+        i if i == CUSTOM_MENU_INDEX => Some("custom"),
         _ => None,
     }
 }
 
 pub fn menu_index(route: Option<&str>) -> usize {
-    match route {
-        Some("acp:opencode") => 1,
-        Some("acp:grok") => 2,
-        Some("dsh") => 3,
-        Some("custom") => 4,
-        _ => 0,
-    }
+    let route = match route {
+        Some(route) => route,
+        None => return 0,
+    };
+    ACP_MENU
+        .iter()
+        .position(|(id, _)| *id == route)
+        .map_or_else(
+            || match route {
+                "dsh" => DSH_MENU_INDEX,
+                "custom" => CUSTOM_MENU_INDEX,
+                _ => 0,
+            },
+            |position| position + 1,
+        )
 }
 
 pub fn route_label(route: Option<&str>) -> String {
     match route {
-        Some("acp:opencode") => "ACP · opencode".into(),
-        Some("acp:grok") => "ACP · Grok Build".into(),
         Some("dsh") => "dsh".into(),
         Some("custom") => "Custom Model".into(),
-        _ => format!("Default · {}", label()),
+        Some(route) => ACP_MENU
+            .iter()
+            .find(|(id, _)| *id == route)
+            .map(|(_, label)| (*label).to_string())
+            .unwrap_or_else(|| format!("Default · {}", label())),
+        None => format!("Default · {}", label()),
     }
 }
 

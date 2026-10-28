@@ -65,6 +65,12 @@ pub enum AgentEvent {
     Delta {
         text: String,
     },
+    /// A reasoning/streaming thought increment (ACP `agent_thought_chunk`).
+    /// The host appends it to the current thought block, kept visually apart
+    /// from the answer.
+    Thought {
+        text: String,
+    },
     /// A complete block (tool row, table, …).
     Block {
         block: model::Block,

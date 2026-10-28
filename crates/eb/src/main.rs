@@ -87,6 +87,10 @@ const METRICS_CSS: &str = include_str!(concat!(
 const DEMO_PROMPT: &str = "Show me what a task's conversation looks like.";
 
 fn main() {
+    if let Ok(requested) = std::env::var("EB_ACP_PROBE") {
+        std::process::exit(acp_probe(&requested));
+    }
+
     ensure_gtk_im_modules();
 
     let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
@@ -99,6 +103,49 @@ fn main() {
     preview_server::ensure();
     application.run();
     bridge::stop();
+}
+
+/// `EB_ACP_PROBE=1` probes the selected ACP slot; `EB_ACP_PROBE=jcode` probes a
+/// named one. Handshake only — `initialize` and `session/new`, never
+/// `session/prompt` — so it answers "does this agent speak ACP here?" without
+/// spending a token or needing GTK. Exit 0 on a completed handshake, 1 when the
+/// agent refuses, 2 on an unknown slot.
+fn acp_probe(requested: &str) -> i32 {
+    let choice = match requested {
+        "" | "1" => agents::selected(),
+        other => match agents::AcpAgent::parse(other) {
+            Some(agent) => agent,
+            None => {
+                let ids: Vec<&str> = agents::all().iter().map(|agent| agent.id()).collect();
+                eprintln!("acp-probe: unknown agent '{other}' (try: {})", ids.join(" "));
+                return 2;
+            }
+        },
+    };
+    let (program, args) = choice.launch();
+    println!(
+        "acp-probe: {} -> {} {}",
+        choice.id(),
+        program.display(),
+        args.join(" ")
+    );
+    if !program.is_file() {
+        eprintln!("acp-probe: {} failed: {} is not an executable file", choice.id(), program.display());
+        return 1;
+    }
+    let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let agent = eb_plugin_acp_agent::AcpAgent::new(router::acp_config(choice));
+    match agent.probe(&workspace) {
+        Ok(probe) => {
+            println!("acp-probe: {} ok name={}", choice.id(), probe.agent_name);
+            println!("acp-probe: {} capabilities={}", choice.id(), probe.capabilities);
+            0
+        }
+        Err(error) => {
+            eprintln!("acp-probe: {} failed: {error}", choice.id());
+            1
+        }
+    }
 }
 
 /// Point GTK at its input-method module cache, so IME input works.
@@ -366,6 +413,18 @@ fn build_ui(application: &gtk::Application) {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),
                 }),
+                // Two files so the tab strip's multi-file path is exercised
+                // by the audit and the screenshots; the newest is selected.
+                artifacts: vec![
+                    model::Artifact {
+                        name: "notes.md".into(),
+                        code: "# Notes\n\nThe demo writes two files.\n".into(),
+                    },
+                    model::Artifact {
+                        name: "demo.py".into(),
+                        code: "print('hello')\n".into(),
+                    },
+                ],
                 session_id: None,
                 workspace_id: None,
                 usage: None,
@@ -510,6 +569,1007 @@ fn build_ui(application: &gtk::Application) {
         }
     }
 
+    // Background-streaming harness: task A starts, and task B is submitted
+    // while A is still streaming. A must keep running to its own terminal
+    // event — the second submit may not cancel it. Exits 1 on any regression;
+    // pair with EB_FAKE_AGENT so the streams overlap.
+    if std::env::var_os("EB_TWO_TASK_TEST").is_some() {
+        views.agent.submit(DEMO_PROMPT.to_string());
+        let second_views = views.clone();
+        gtk::glib::timeout_add_local_once(Duration::from_millis(250), move || {
+            second_views.agent.submit_as_new("second task prompt".to_string());
+        });
+        let poll_views = views.clone();
+        let poll_store = store.clone();
+        let application = application.clone();
+        gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
+            if poll_views.agent.is_busy() {
+                return gtk::glib::ControlFlow::Continue;
+            }
+            let app = poll_store.borrow();
+            let mut problems: Vec<String> = Vec::new();
+            if app.tasks.len() != 2 {
+                problems.push(format!("expected 2 tasks, got {}", app.tasks.len()));
+            }
+            for (index, task) in app.tasks.iter().enumerate() {
+                match task.turns.last() {
+                    Some(model::Turn::Agent {
+                        streaming,
+                        status,
+                        blocks,
+                        ..
+                    }) => {
+                        if *streaming {
+                            problems.push(format!("task {index} is still streaming"));
+                        }
+                        if let Some(status) = status {
+                            if status.contains("Cancelled") || status.starts_with("Failed") {
+                                problems.push(format!("task {index} terminal status {status:?}"));
+                            }
+                        }
+                        if blocks.is_empty() {
+                            problems.push(format!("task {index} has no answer blocks"));
+                        }
+                    }
+                    _ => problems.push(format!("task {index} has no agent turn")),
+                }
+            }
+            drop(app);
+            if !problems.is_empty() {
+                for problem in &problems {
+                    eprintln!("two-task: FAIL {problem}");
+                }
+                std::process::exit(1);
+            }
+            println!("two-task: finished");
+            application.quit();
+            gtk::glib::ControlFlow::Break
+        });
+    }
+
+    // Scroll-follow harness. Reading history during a long run used to be
+    // impossible: every streamed delta re-jumped the message list to the
+    // bottom. This flicks the view up mid-stream, requires the deltas to leave
+    // it alone, then checks that scrolling back down resumes following. Pair
+    // with EB_FAKE_AGENT and a slow, long stream.
+    if std::env::var_os("EB_FOLLOW_TEST").is_some() {
+        // The prompt, not the answer, is what makes the transcript taller than
+        // the viewport: the flick below scrolls it, and with the short demo
+        // prompt there is no scroll range to move. The harness brings its own
+        // height so it does not depend on whatever the state file happens to
+        // hold.
+        let prompt = format!(
+            "{DEMO_PROMPT}\n{}",
+            "scroll-follow harness context line. ".repeat(120)
+        );
+        views.agent.submit(prompt);
+        let scroll = views.conversation.scroll.clone();
+        let pinned = views.conversation.pinned.clone();
+        let agent = views.agent.clone();
+        let store = store.clone();
+        let application = application.clone();
+        let painted = views.conversation.painted_task.clone();
+        // How much answer text is on screen. Growing text is the event under
+        // test; whether it happens to add a layout line is beside the point.
+        let streamed = move || -> usize {
+            let app = store.borrow();
+            let task = match painted.get() {
+                Some(index) => app.tasks.get(index),
+                None => app.tasks.last(),
+            };
+            task.and_then(|task| task.turns.last())
+                .map(|turn| match turn {
+                    model::Turn::Agent { blocks, .. } => blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            model::Block::Text(text) => Some(text.len()),
+                            _ => None,
+                        })
+                        .sum(),
+                    _ => 0,
+                })
+                .unwrap_or(0)
+        };
+        let phase = std::rc::Rc::new(std::cell::Cell::new(0u8));
+        let since = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let held = std::rc::Rc::new(std::cell::Cell::new((0.0f64, 0usize)));
+        gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
+            since.set(since.get() + 200);
+            let adjustment = scroll.vadjustment();
+            match phase.get() {
+                0 if since.get() >= 600 => {
+                    if !agent.is_busy() {
+                        eprintln!("follow-test: FAIL the stream ended before the scroll");
+                        std::process::exit(1);
+                    }
+                    adjustment.set_value((adjustment.upper() - adjustment.page_size() - 300.0).max(0.0));
+                    let below = adjustment.upper() - adjustment.value() - adjustment.page_size();
+                    if pinned.get() || below < 100.0 {
+                        eprintln!(
+                            "follow-test: FAIL scrolling up left pinned={} at {below:.0}px from the \
+                             bottom (scroll range {:.0}px, page {:.0}px)",
+                            pinned.get(),
+                            adjustment.upper() - adjustment.page_size(),
+                            adjustment.page_size()
+                        );
+                        std::process::exit(1);
+                    }
+                    held.set((adjustment.value(), streamed()));
+                    phase.set(1);
+                    gtk::glib::ControlFlow::Continue
+                }
+                0 | 1 => {
+                    if phase.get() == 1 && since.get() >= 1400 {
+                        let (value_before, text_before) = held.get();
+                        if !agent.is_busy() {
+                            eprintln!("follow-test: FAIL the stream ended before the hold check");
+                            std::process::exit(1);
+                        }
+                        let text_now = streamed();
+                        if text_now <= text_before {
+                            eprintln!("follow-test: FAIL nothing streamed to interrupt the reader");
+                            std::process::exit(1);
+                        }
+                        let moved = adjustment.value() - value_before;
+                        if moved.abs() > 1.0 {
+                            eprintln!(
+                                "follow-test: FAIL a delta yanked the view {moved:+.0}px while \
+                                 {text_now} chars streamed in"
+                            );
+                            std::process::exit(1);
+                        }
+                        adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                        phase.set(2);
+                    }
+                    gtk::glib::ControlFlow::Continue
+                }
+                2 if since.get() >= 2200 => {
+                    let below = adjustment.upper() - adjustment.value() - adjustment.page_size();
+                    if agent.is_busy() && below > 24.0 {
+                        eprintln!(
+                            "follow-test: FAIL following never resumed, {below:.0}px below the bottom"
+                        );
+                        std::process::exit(1);
+                    }
+                    println!("follow-test: finished");
+                    application.quit();
+                    gtk::glib::ControlFlow::Break
+                }
+                _ => gtk::glib::ControlFlow::Continue,
+            }
+        });
+    }
+
+    // Lazy-window harness. A long conversation renders only its newest turns.
+    // This reaches the top of that window twice and checks, per flick, that an
+    // earlier slice arrives (exactly `ATTACH_STEP` turns, so one flick is one
+    // slice and cannot walk the transcript), that the render state and the
+    // container agree, and that the reader is left on the line they were
+    // looking at. That line is measured as the anchor frame's offset in the
+    // message list minus the scroll value — the content pixel under the top edge
+    // of the viewport — so the pane's own position and the frame's margins cancel
+    // between the two samples.
+    //
+    // Measured against the frames themselves, not the height of the content: the
+    // reveal negotiates with provisional wrapped-text heights and the transcript
+    // above the reader grows again a pass or two later, which is exactly the push
+    // the anchor has to absorb. Both flicks are therefore required to land within
+    // 4px of the line the reader had.
+    //
+    // Needs EB_STATE=<tasks.json> from docs/make_heavy_state.py with a
+    // conversation longer than two slices; EB_LOAD_SHOT=<path> captures it.
+    if std::env::var_os("EB_LOAD_TEST").is_some() {
+        let step = conversation::ATTACH_STEP;
+        let needed = conversation::ATTACH_TURNS + 2 * step;
+        let index = match store
+            .borrow()
+            .tasks
+            .iter()
+            .position(|task| task.turns.len() > needed)
+        {
+            Some(index) => index,
+            None => {
+                eprintln!(
+                    "load-test: FAIL needs a saved task with more than {needed} turns — \
+                     python3 docs/make_heavy_state.py /tmp/eb-heavy/tasks.orig.json 3 24 (each \
+                     round is two turns), then EB_STATE a scratch copy of it"
+                );
+                std::process::exit(1);
+            }
+        };
+        let open_task = views.open_task.clone();
+        open_task(index);
+        let messages = views.conversation.messages.clone();
+        let scroll = views.conversation.scroll.clone();
+        let application = application.clone();
+        let shot = std::env::var("EB_LOAD_SHOT").ok();
+        let shot_views = views.clone();
+        let probe = {
+            let views = views.clone();
+            move || views.conversation.window()
+        };
+        // The frame the reader has under the top edge of the viewport. The
+        // oldest mounted frame is that one once the view is at the top;
+        // `Container::children()` walks a GtkBox in reverse, so it is the last
+        // child here.
+        let anchor: std::rc::Rc<std::cell::RefCell<Option<gtk::Widget>>> =
+            std::rc::Rc::new(std::cell::RefCell::new(None));
+        let before = std::rc::Rc::new(std::cell::Cell::new((0usize, 0usize, 0i32)));
+        let drifts = std::rc::Rc::new(std::cell::Cell::new((0i32, 0i32)));
+        let phase = std::rc::Rc::new(std::cell::Cell::new(0u8));
+        let since = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
+            since.set(since.get() + 200);
+            let adjustment = scroll.vadjustment();
+            let line = |widget: &gtk::Widget| -> i32 {
+                widget.allocation().y() - adjustment.value() as i32
+            };
+            let anchor_widget = || -> gtk::Widget {
+                anchor
+                    .borrow()
+                    .as_ref()
+                    .cloned()
+                    .expect("the flick picked an anchor frame")
+            };
+            // The gesture under test: `value_changed` raises the load request and
+            // asks the shell to repaint; the repaint attaches the slice and the
+            // idle after it moves the view back down by exactly its height.
+            let flick = |first: usize, mounted: usize| -> (usize, usize, i32) {
+                *anchor.borrow_mut() = Some(
+                    messages
+                        .children()
+                        .last()
+                        .cloned()
+                        .expect("the message list holds its window"),
+                );
+                adjustment.set_value(if adjustment.value() > 1.0 { 0.0 } else { 2.0 });
+                (first, mounted, line(&anchor_widget()))
+            };
+            let fail = |message: String| -> ! {
+                eprintln!("load-test: FAIL {message}");
+                std::process::exit(1)
+            };
+            match phase.get() {
+                0 if since.get() >= 700 => {
+                    let (first, mounted) = probe();
+                    let children = messages.children();
+                    if mounted != children.len() || first < 2 * step {
+                        eprintln!(
+                            "load-test: FAIL task {index} paints window {first}+{mounted} over {} \
+                             children: a window within two slices of turn 0 cannot show two loads",
+                            children.len()
+                        );
+                        std::process::exit(1);
+                    }
+                    if adjustment.upper() - adjustment.page_size() < 200.0 {
+                        eprintln!(
+                            "load-test: FAIL the rendered window does not overflow the viewport \
+                             (range {:.0}px), so there is no top edge to reach",
+                            adjustment.upper() - adjustment.page_size()
+                        );
+                        std::process::exit(1);
+                    }
+                    before.set(flick(first, mounted));
+                    phase.set(1);
+                }
+                1 if since.get() >= 1300 => {
+                    let (first, mounted, landing) = before.get();
+                    let loaded = probe();
+                    let children = messages.children().len();
+                    if let Some(message) = slice_imbalance((first, mounted), loaded, children, step)
+                    {
+                        fail(format!("first flick: {message}"));
+                    }
+                    let drift = line(&anchor_widget()) - landing;
+                    // The cold load is the case the anchor exists for: the
+                    // reveal's own measure is not final, so without the late
+                    // corrections the reader is left a slice-height from their
+                    // line. With them the line holds on the first flick too.
+                    if drift.abs() > 4 {
+                        fail(format!(
+                            "the first flick left the reader {drift}px off their line \
+                             ({first}+{mounted} -> {}+{}, the view is {:.0}px down the content \
+                             it just grew)",
+                            loaded.0, loaded.1, adjustment.value()
+                        ));
+                    }
+                    drifts.set((drift, 0));
+                    before.set(flick(loaded.0, loaded.1));
+                    phase.set(2);
+                }
+                2 if since.get() >= 1900 => {
+                    let (first, mounted, landing) = before.get();
+                    let loaded = probe();
+                    let children = messages.children().len();
+                    if let Some(message) = slice_imbalance((first, mounted), loaded, children, step)
+                    {
+                        fail(format!("second flick: {message}"));
+                    }
+                    let drift = line(&anchor_widget()) - landing;
+                    // The warm case: the transcript has been measured once
+                    // already, so nothing grows under this slice at all.
+                    if drift.abs() > 4 {
+                        fail(format!(
+                            "the second flick moved the reader {drift}px off their line \
+                             ({first}+{mounted} -> {}+{}, first flick drifted {}px)",
+                            loaded.0,
+                            loaded.1,
+                            drifts.get().0
+                        ));
+                    }
+                    let (first_drift, _) = drifts.get();
+                    match shot.clone() {
+                        Some(path) => {
+                            selftest::snapshot(&shot_views, &path);
+                            println!(
+                                "load-test: finished task={index} window={}+{}->{}+{} \
+                                 drift={first_drift}px,{drift}px shot={path}",
+                                first, mounted, loaded.0, loaded.1
+                            );
+                        }
+                        None => println!(
+                            "load-test: finished task={index} window={}+{}->{}+{} \
+                             drift={first_drift}px,{drift}px",
+                            first, mounted, loaded.0, loaded.1
+                        ),
+                    }
+                    application.quit();
+                    return gtk::glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            gtk::glib::ControlFlow::Continue
+        });
+    }
+
+    // Window-resize harness. The window server resizes the frame under us and
+    // GTK learns the new size only inside its own configure-event handler, so a
+    // connected handler that returns `true` (stop emission) leaves the widget
+    // tree allocated at the old width while the server stretches the stale
+    // surface over the new frame — that is the report "switch to a task and the
+    // sidebar fills the whole window, no conversation". Resizing the GdkWindow
+    // directly reproduces the one-sided resize: GtkWindow is not told about it,
+    // GDK answers with a configure event.
+    // A resize is a request, and the layout trails it by more than one round:
+    // the server answers with a configure event, GTK re-lays out the paned, and
+    // the viewport re-allocates its child on a pass of its own. So each move is
+    // asked for until the *frame* lands, then measured only once two consecutive
+    // reads of the pane and the message column agree. Two things that buys: a
+    // minimum-width hint that is one layout behind never fails the run (GTK
+    // publishes the smaller hint after it has laid out at the new size, and a
+    // user dragging keeps asking, so the lag is invisible), and the numbers
+    // checked are the settled ones. Invariants on both the way down and the way
+    // back up: GTK's cached size and the surface drawn into agree, the frame
+    // lands on the requested width, the sidebar keeps its fixed 280px, the
+    // content stack takes the slack, and the message column is re-centred for
+    // the pane it was given (the one number that can still exceed the pane is
+    // reported as a note, see `verify`).
+    // EB_RESIZE_TEST=<width> (default 1000); EB_RESIZE_TASK=1 mounts a saved
+    // conversation first, which is the situation in the report;
+    // EB_RESIZE_SHOT=<prefix> writes <prefix>-narrow.png / -wide.png.
+    if std::env::var_os("EB_RESIZE_TEST").is_some() {
+        let width: i32 = std::env::var("EB_RESIZE_TEST")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1000);
+        let wide = width + 470;
+        let mount = std::env::var_os("EB_RESIZE_TASK").is_some();
+        let views = views.clone();
+        let store = store.clone();
+        let application = application.clone();
+        let phase = std::rc::Rc::new(std::cell::Cell::new(0u8));
+        let since = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let settled = std::rc::Rc::new(std::cell::Cell::new((-1i32, -1i32)));
+        gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
+            since.set(since.get() + 200);
+            // A configure event only becomes a new allocation inside GTK's window
+            // update handler, and that handler runs from the GDK frame clock - a
+            // clock that does not tick for a process which is not the active app,
+            // which a bare `cargo run` never is. The frame itself arrives
+            // (`window.size()` moves) and the tree keeps its old allocation, so the
+            // harness hands it over the way `gtk_window_process_updates` would:
+            // allocate the toplevel at the frame GTK was told about.
+            let (frame_w, frame_h) = views.window.size();
+            let alloc = views.window.allocation();
+            if alloc.width() != frame_w || alloc.height() != frame_h {
+                views.window.size_allocate(&gtk::gdk::Rectangle::new(0, 0, frame_w, frame_h));
+            }
+            let fail = |message: String| -> ! {
+                eprintln!("resize-test: FAIL {message}");
+                std::process::exit(1)
+            };
+            let ask = |want: i32| {
+                let Some(surface) = views.window.window() else {
+                    fail("the window has no GdkWindow to resize".into());
+                };
+                surface.resize(want, views.window.size().1);
+            };
+            // (frame GTK believes, surface drawn into, content stack, message column)
+            let measure = || -> (i32, i32, i32, i32) {
+                let Some(surface) = views.window.window() else {
+                    fail("the window has no GdkWindow to measure".into());
+                };
+                // The column's own allocation is the width the transcript is
+                // wrapped at: it is centred by its scroller, so it has no margins
+                // to add back, and it must never exceed the pane.
+                let column = views.conversation.messages.allocation().width();
+                (
+                    views.window.size().0,
+                    surface.width(),
+                    views.stack.allocation().width(),
+                    column,
+                )
+            };
+            let verify = |label: &str, want: i32, state: (i32, i32, i32, i32)| {
+                let (toplevel, drawn, stack, column) = state;
+                if (toplevel - drawn).abs() > 2 {
+                    fail(format!(
+                        "{label}: the surface is {drawn}px wide but GTK lays out {toplevel}px; the \
+                         configure event never reached GtkWindow, so the window server stretches a \
+                         stale surface over the frame"
+                    ));
+                }
+                if (toplevel - want).abs() > 2 {
+                    fail(format!(
+                        "{label}: asked for a {want}px window and GTK has {toplevel}px \
+                         (surface {drawn}px) after {}ms",
+                        since.get()
+                    ));
+                }
+                if views.sidebar.root.allocation().width() != crate::spec::SIDEBAR_WIDTH {
+                    fail(format!(
+                        "{label}: the sidebar was allocated {}, not its fixed {}",
+                        views.sidebar.root.allocation().width(),
+                        crate::spec::SIDEBAR_WIDTH
+                    ));
+                }
+                let want_stack = want - crate::spec::SIDEBAR_WIDTH - 20;
+                if stack < want_stack {
+                    fail(format!(
+                        "{label}: the content stack got {stack}px of a {toplevel}px window \
+                         (expected at least {want_stack}px)"
+                    ));
+                }
+                if column > stack {
+                    // Reported, not failed: `_gtk_text_layout_get_min_width` walks
+                    // the *wrapped* display lines and only breaks at spaces, so a
+                    // Chinese paragraph looks like one unbreakable word and the
+                    // text view's minimum width is stuck at the last width it was
+                    // laid out at (~752). Below a ~1030px window the column
+                    // therefore overflows its pane and the scroller scrolls
+                    // sideways. The alternatives were a window that could not
+                    // shrink at all (the report) or a minimum width of
+                    // sidebar + 752; re-wrapping needs fresh text views.
+                    eprintln!(
+                        "resize-test: note {label}: the message column is {column}px wide inside a \
+                         {stack}px pane"
+                    );
+                }
+                println!(
+                    "resize-test: {label} width={want} toplevel={toplevel} surface={drawn} \
+                     sidebar={} stack={stack} column={column} after={}ms",
+                    views.sidebar.root.allocation().width(),
+                    since.get()
+                );
+            };
+            // True once the pane and the column stop moving between two reads
+            // *and* the pane agrees with the frame. Two identical reads are not
+            // enough on their own: the tree can hand back the same stale
+            // allocation twice while the relayout that the configure event
+            // queued is still pending, and measuring there reads a mid-flight
+            // frame as the "sidebar fills the window" symptom.
+            let steady = |state: (i32, i32, i32, i32)| {
+                let pane = state.0 - crate::spec::SIDEBAR_WIDTH;
+                settled.get() == (state.2, state.3) && (state.2 - pane).abs() <= 40
+            };
+            let note = |state: (i32, i32, i32, i32)| settled.set((state.2, state.3));
+            let shot = |suffix: &str| {
+                if let Some(path) = std::env::var("EB_RESIZE_SHOT").ok() {
+                    selftest::snapshot(&views, &format!("{path}-{suffix}.png"));
+                }
+            };
+            match phase.get() {
+                0 if since.get() >= 600 => {
+                    if mount && !store.borrow().tasks.is_empty() {
+                        (*views.open_task)(0);
+                    }
+                    ask(width);
+                    phase.set(1);
+                }
+                1 if since.get() >= 800 => {
+                    if (views.window.size().0 - width).abs() <= 2 || since.get() >= 5000 {
+                        phase.set(2);
+                    } else {
+                        ask(width);
+                    }
+                }
+                // One tick after the frame landed the tree is still reallocating,
+                // so wait for a pair of identical reads before measuring.
+                2 if since.get() >= 1000 => {
+                    let state = measure();
+                    if steady(state) || since.get() >= 6000 {
+                        verify("shrink", width, state);
+                        shot("narrow");
+                        ask(wide);
+                        settled.set((-1, -1));
+                        phase.set(3);
+                    } else {
+                        note(state);
+                    }
+                }
+                3 if since.get() >= 1400 => {
+                    if (views.window.size().0 - wide).abs() <= 2 || since.get() >= 8000 {
+                        phase.set(4);
+                    } else {
+                        ask(wide);
+                    }
+                }
+                4 if since.get() >= 1600 => {
+                    let state = measure();
+                    if steady(state) || since.get() >= 10000 {
+                        verify("grow", wide, state);
+                        shot("wide");
+                        application.quit();
+                        return gtk::glib::ControlFlow::Break;
+                    }
+                    note(state);
+                }
+                _ => {}
+            }
+            gtk::glib::ControlFlow::Continue
+        });
+    }
+    // Padding-scroll harness, `EB_PAD_SCROLL=1` (ui-spec §10-38). The transcript
+    // column is 752 wide inside a much wider pane, and the scroller's input
+    // window ends with the column, so a wheel event over the padding used to
+    // land on nothing: the pointer had to be on the text for the page to move.
+    // Mount the saved conversation, put one smooth wheel event at the pane-wide
+    // catcher under the column, and require the transcript's own adjustment to
+    // answer in both directions. Pair with `EB_STATE=<long tasks.json>`; the
+    // harness fails outright if the mounted conversation has nothing to scroll,
+    // so it cannot quietly degrade into a passing no-op.
+    if std::env::var_os("EB_PAD_SCROLL").is_some() {
+        let views = views.clone();
+        let store = store.clone();
+        let application = application.clone();
+        let phase = std::rc::Rc::new(std::cell::Cell::new(0u8));
+        let since = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let at = std::rc::Rc::new(std::cell::Cell::new(0f64));
+        gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
+            since.set(since.get() + 200);
+            let fail = |message: String| -> ! {
+                eprintln!("pad-scroll: FAIL {message}");
+                std::process::exit(1);
+            };
+            let value = || views.conversation.scroll.vadjustment().value();
+            match phase.get() {
+                0 if since.get() >= 600 => {
+                    if store.borrow().tasks.is_empty() {
+                        fail("needs a saved conversation with something to scroll (set EB_STATE)".into());
+                    }
+                    (*views.open_task)(0);
+                    phase.set(1);
+                }
+                1 if since.get() >= 1200 => {
+                    let adj = views.conversation.scroll.vadjustment();
+                    if adj.upper() <= adj.page_size() + 1.0 {
+                        fail(format!(
+                            "the mounted transcript has nothing to scroll ({:.0} of {:.0})",
+                            adj.page_size(),
+                            adj.upper()
+                        ));
+                    }
+                    // A fresh mount is pinned to the newest turn, so the only
+                    // direction with room is up; the second notch comes back
+                    // down and proves the clamp is the reason, not the path.
+                    at.set(adj.value());
+                    if at.get() < 400.0 {
+                        fail(format!("the view is only {:.0}px from the top", at.get()));
+                    }
+                    // The handler is only half of it. GDK drops an event at the
+                    // GdkWindow when that window's event mask does not select the
+                    // event type, so a catcher whose window never asked for the
+                    // scroll masks has a perfectly good handler that no real
+                    // pointer can reach. `propagate_event` - what this harness
+                    // uses - delivers to the widget and skips that filter, which
+                    // is how the padding test stayed green while the user's wheel
+                    // did nothing. Assert the mask, not just the behaviour.
+                    let want = gtk::gdk::EventMask::SCROLL_MASK
+                        | gtk::gdk::EventMask::SMOOTH_SCROLL_MASK;
+                    for (label, hits) in [
+                        ("the pane catcher", &views.conversation.transcript_hits),
+                        ("the page catcher", &views.conversation.page_hits),
+                    ] {
+                        let Some(window) = hits.window() else {
+                            fail(format!("{label} has no GdkWindow to select events on"));
+                        };
+                        let have = window.events();
+                        if !have.contains(want) {
+                            fail(format!(
+                                "{label}'s window selects {have:?}, which is missing \
+                                 SCROLL_MASK/SMOOTH_SCROLL_MASK: a real wheel over it is \
+                                 dropped by GDK before any widget sees it"
+                            ));
+                        }
+                    }
+                    selftest::scroll_wheel(&views.conversation.transcript_hits, -400.0);
+                    phase.set(2);
+                }
+                2 if since.get() >= 1400 => {
+                    let up = value();
+                    if (up - (at.get() - 400.0)).abs() > 8.0 {
+                        fail(format!(
+                            "a wheel event over the padding moved the transcript {:.0}px, not -400px",
+                            up - at.get()
+                        ));
+                    }
+                    // The bar thickens while the transcript moves (spec §10-39), so
+                    // the wheel that just moved it has to have left the class
+                    // behind. Without this the dim rule could silently stop
+                    // matching and the only evidence would be a user calling the
+                    // bar invisible.
+                    if !views
+                        .conversation
+                        .transcript_bar
+                        .style_context()
+                        .has_class("eb-bar-active")
+                    {
+                        fail("scrolling left the bar in its resting state".into());
+                    }
+                    selftest::scroll_wheel(&views.conversation.transcript_hits, 250.0);
+                    let down = value();
+                    if (down - (up + 250.0)).abs() > 8.0 {
+                        fail(format!(
+                            "scrolling back down over the padding moved the transcript {:.0}px, not 250px",
+                            down - up
+                        ));
+                    }
+                    // Third notch on the *page* catcher, which covers the band the
+                    // transcript's own catcher stops above: the composer card is
+                    // centred in the pane, so its left and right margins are blank
+                    // pixels too, and a wheel there belongs to nothing else.
+                    selftest::scroll_wheel(&views.conversation.page_hits, -300.0);
+                    let page = value();
+                    if (page - (down - 300.0)).abs() > 8.0 {
+                        fail(format!(
+                            "a wheel event over the composer band moved the transcript {:.0}px, \
+                             not -300px",
+                            page - down
+                        ));
+                    }
+                    println!(
+                        "pad-scroll: ok the pane scrolls {:.0} -> {:.0} -> {:.0} -> {:.0} of {:.0}",
+                        at.get(),
+                        up,
+                        down,
+                        page,
+                        views.conversation.scroll.vadjustment().upper()
+                    );
+                    application.quit();
+                    return gtk::glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            gtk::glib::ControlFlow::Continue
+        });
+    }
+    // Task-switch harness. Three tasks stream at once while the user clicks
+    // between them, which is the shape of the report "switch a few times
+    // between running tasks and the window hangs". Three invariants:
+    //   * the message list holds exactly the turns the conversation says it has
+    //     mounted (a switch that leaves frames behind grows the tree every
+    //     time), and that window stays inside the painted task's turns,
+    //   * the main loop keeps meeting its own 120ms deadline, i.e. one switch
+    //     never costs more than a frame budget — the switch that rebuilds a long
+    //     transcript inline is what starved it, and
+    //   * the frames a switch re-attaches are drawn: visible, with a real
+    //     allocation, and optionally captured with `EB_SWITCH_SHOT=<path>`.
+    // Pair with EB_FAKE_AGENT; EB_SWITCH_TEST=<switches> defaults to 30.
+    // The switch targets are the three heaviest conversations on screen. With
+    // an empty state file the harness creates them itself (three streaming
+    // tasks); point EB_STATE at a saved tasks.json with three long
+    // conversations and the same clicks drive those instead, which is how the
+    // report is reproduced at production transcript sizes. Note the state only
+    // loads when no selftest flag is set, so use EB_SWITCH_SHOT rather than
+    // EB_SHOT for the capture here.
+    if std::env::var_os("EB_SWITCH_TEST").is_some() {
+        let switches: usize = std::env::var("EB_SWITCH_TEST")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(30);
+        let seeded = store.borrow().tasks.len() >= 3;
+        if seeded {
+            // A follow-up turn inside each long conversation: the transcript is
+            // heavy *and* its tail is live, so every switch has a streaming
+            // conversation to repaint — the reported situation.
+            for (delay, index) in [(150u64, 0usize), (300, 1), (450, 2)] {
+                let agent = views.agent.clone();
+                let open_task = views.open_task.clone();
+                gtk::glib::timeout_add_local_once(Duration::from_millis(delay), move || {
+                    open_task(index);
+                    agent.submit(format!("follow-up question {index}"));
+                });
+            }
+        } else {
+            views.agent.submit(DEMO_PROMPT.to_string());
+            for (delay, prompt) in [
+                (150u64, "second streaming task"),
+                (300, "third streaming task"),
+            ] {
+                let agent = views.agent.clone();
+                let text = prompt.to_string();
+                gtk::glib::timeout_add_local_once(Duration::from_millis(delay), move || {
+                    agent.submit_as_new(text);
+                });
+            }
+        }
+        let open_task = views.open_task.clone();
+        let messages = views.conversation.messages.clone();
+        let sidebar_rows = views.sidebar.content.clone();
+        let detail = views.detail.root.clone();
+        let painted_cell = views.conversation.painted_task.clone();
+        let window_probe = {
+            let views = views.clone();
+            move || views.conversation.window()
+        };
+        let shot_views = views.clone();
+        let store = store.clone();
+        let application = application.clone();
+        let started = std::time::Instant::now();
+        let mut done = 0usize;
+        let mut worst = 0u64;
+        let mut worst_switch = 0u64;
+        let mut first_tree = 0usize;
+        let mut tree = 0usize;
+        gtk::glib::timeout_add_local(Duration::from_millis(120), move || {
+            done += 1;
+            // Lateness of this tick is how long the main loop was busy: the
+            // refresh a switch triggers runs inline on the same thread.
+            let target = 450 + done as u64 * 120;
+            let late = started
+                .elapsed()
+                .as_millis()
+                .saturating_sub(target as u128) as u64;
+            worst = worst.max(late);
+            let count = store.borrow().tasks.len();
+            let ready = count >= if seeded { 3 } else { 6 };
+            let base = if seeded { 0 } else { count.saturating_sub(3) };
+            let index = (base + done % 3).min(count.saturating_sub(1));
+            let switch_started = std::time::Instant::now();
+            open_task(index);
+            let switch_ms = switch_started.elapsed().as_millis() as u64;
+            if ready {
+                worst_switch = worst_switch.max(switch_ms);
+            }
+            let app = store.borrow();
+            let turns = app
+                .tasks
+                .get(index)
+                .map(|task| task.turns.len())
+                .unwrap_or(0);
+            let children = messages.children().len();
+            let (window_first, mounted) = window_probe();
+            let painted = app
+                .tasks
+                .iter()
+                .map(|task| {
+                    task.turns
+                        .iter()
+                        .map(|turn| match turn {
+                            model::Turn::User { .. } => 'U',
+                            model::Turn::Agent { .. } => 'A',
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<String>>()
+                .join("|");
+            drop(app);
+            tree = count_widgets(&sidebar_rows.clone().upcast())
+                + count_widgets(&detail.clone().upcast())
+                + count_widgets(&messages.clone().upcast());
+            if first_tree == 0 {
+                first_tree = tree;
+            }
+            if std::env::var_os("EB_DEBUG").is_some() {
+                eprintln!(
+                    "switch: {done} task={index} ready={ready} late={late}ms switch={switch_ms}ms \
+                     children={children} turns={turns} window={window_first}..{mounted} \
+                     tree={tree} painted_now={:?} painted={painted}",
+                    painted_cell.get()
+                );
+            }
+            // The repaint a switch triggers may land on the next tick, so the
+            // invariant is stated against the task that says it is painted: the
+            // container holds exactly the frames the render state claims, and
+            // that window is still inside the transcript.
+            if let Some(painted_index) = painted_cell.get() {
+                if children != mounted {
+                    eprintln!(
+                        "switch-test: FAIL switch {done} left {children} message children while \
+                         the conversation mounted {mounted} turns"
+                    );
+                    std::process::exit(1);
+                }
+                let painted_turns = store
+                    .borrow()
+                    .tasks
+                    .get(painted_index)
+                    .map(|task| task.turns.len())
+                    .unwrap_or(usize::MAX);
+                if window_first.saturating_add(mounted) > painted_turns {
+                    eprintln!(
+                        "switch-test: FAIL switch {done} renders turns {window_first}.. of task \
+                         {painted_index}, which has {painted_turns} turns"
+                    );
+                    std::process::exit(1);
+                }
+            }
+            if done >= switches {
+                if worst_switch > 600 {
+                    eprintln!(
+                        "switch-test: FAIL one switch cost {worst_switch}ms of UI-thread time \
+                         during {switches} switches"
+                    );
+                    std::process::exit(1);
+                }
+                if worst > 600 {
+                    eprintln!(
+                        "switch-test: FAIL the main loop starved by {worst}ms during {switches} switches"
+                    );
+                    std::process::exit(1);
+                }
+                let summary = (worst, worst_switch, first_tree, tree);
+                // The last switch needs a frame of its own before its
+                // re-attached frames can be judged: GTK lays out and draws
+                // between main-loop iterations, so reading an allocation from
+                // this callback would read the previous frame's tree.
+                let messages = messages.clone();
+                let views = shot_views.clone();
+                let application = application.clone();
+                let shot = std::env::var("EB_SWITCH_SHOT").ok();
+                gtk::glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                    let (worst, worst_switch, first_tree, tree) = summary;
+                    let frames = messages.children();
+                    let drawn = frames
+                        .iter()
+                        .filter(|frame| {
+                            frame.is_visible()
+                                && frame.allocation().width() > 0
+                                && frame.allocation().height() > 0
+                        })
+                        .count();
+                    if drawn != frames.len() {
+                        eprintln!(
+                            "switch-test: FAIL {} of {} message frames are attached but not drawn",
+                            frames.len() - drawn,
+                            frames.len()
+                        );
+                        std::process::exit(1);
+                    }
+                    match shot {
+                        Some(path) => {
+                            selftest::snapshot(&views, &path);
+                            println!(
+                                "switch-test: finished switches={switches} worst_late={worst}ms \
+                                 worst_switch={worst_switch}ms tree={first_tree}->{tree} \
+                                 frames={drawn} window={:?} shot={path}",
+                                views.conversation.window()
+                            );
+                        }
+                        None => println!(
+                            "switch-test: finished switches={switches} worst_late={worst}ms \
+                             worst_switch={worst_switch}ms tree={first_tree}->{tree} \
+                             frames={drawn} window={:?}",
+                            views.conversation.window()
+                        ),
+                    }
+                    application.quit();
+                });
+                return gtk::glib::ControlFlow::Break;
+            }
+            gtk::glib::ControlFlow::Continue
+        });
+    }
+
+    // Hang harness. The dsh bridge is the one remote the GTK main thread talks
+    // to inline (session create/begin/finish around every submit), so a bridge
+    // that accepts a connection and then goes silent used to freeze the window
+    // forever. This squats on the bridge address with a black-hole listener,
+    // runs two turns, and asserts each one still reaches its terminal event
+    // inside its socket budget. Pair with EB_FAKE_AGENT=1 and point
+    // EVOBUDDY_BRIDGE_ADDR at a free port so a live bridge is not in the way.
+    if std::env::var_os("EB_HANG_TEST").is_some() {
+        let target = std::env::var("EVOBUDDY_BRIDGE_ADDR")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                eprintln!("hang-test: FAIL set EVOBUDDY_BRIDGE_ADDR=127.0.0.1:<free port>");
+                std::process::exit(1);
+            });
+        let listener = match std::net::TcpListener::bind(&target) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("hang-test: FAIL cannot squat {target}: {error}");
+                eprintln!("hang-test: choose a port the running dsh bridge does not hold");
+                std::process::exit(1);
+            }
+        };
+        let held: std::sync::Arc<std::sync::Mutex<Vec<std::net::TcpStream>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let held = held.clone();
+            std::thread::spawn(move || {
+                use std::io::Read;
+                for stream in listener.incoming().flatten() {
+                    let mut stream = stream;
+                    let mut buffer = [0u8; 4096];
+                    let _ = stream.read(&mut buffer);
+                    // Keep the socket open and unanswered: closing it would hand
+                    // the client an instant EOF instead of a read timeout.
+                    held.lock().unwrap().push(stream);
+                }
+            });
+        }
+        let started = std::time::Instant::now();
+        let turn_started = Rc::new(std::cell::RefCell::new(started));
+        let samples = Rc::new(std::cell::RefCell::new(Vec::<Duration>::new()));
+        let stage = Rc::new(std::cell::Cell::new(0usize));
+        let probe_views = views.clone();
+        let probe_store = store.clone();
+        let probe_application = application.clone();
+        let probe_turn = turn_started.clone();
+        let probe_samples = samples.clone();
+        let probe_stage = stage.clone();
+        // Both submits block the main thread inside the bridge call, which is
+        // exactly what is being measured; the first one therefore happens here
+        // rather than from the poll, so the samples line up with turns.
+        views.agent.submit(DEMO_PROMPT.to_string());
+        gtk::glib::timeout_add_local(Duration::from_millis(50), move || {
+            if started.elapsed() > Duration::from_secs(20) {
+                eprintln!("hang-test: FAIL the app never recovered; a main-thread call is wedged");
+                std::process::exit(1);
+            }
+            if probe_views.agent.is_busy() {
+                return gtk::glib::ControlFlow::Continue;
+            }
+            let elapsed = probe_turn.borrow().elapsed();
+            probe_samples.borrow_mut().push(elapsed);
+            if probe_stage.get() == 0 {
+                probe_stage.set(1);
+                *probe_turn.borrow_mut() = std::time::Instant::now();
+                probe_views.agent.submit(DEMO_PROMPT.to_string());
+                return gtk::glib::ControlFlow::Continue;
+            }
+            let samples = probe_samples.borrow().clone();
+            let (first, second) = (samples[0], samples[1]);
+            let mut problems: Vec<String> = Vec::new();
+            if first > Duration::from_secs(5) {
+                problems.push(format!("the first turn took {first:?} against a silent bridge"));
+            }
+            if second > Duration::from_secs(3) || second > first {
+                problems.push(format!(
+                    "the second turn took {second:?} against the same silent bridge (first took {first:?}); the degraded cooldown should skip it"
+                ));
+            }
+            let app = probe_store.borrow();
+            match app.tasks.last().and_then(|task| task.turns.last()) {
+                Some(model::Turn::Agent {
+                    streaming, blocks, ..
+                }) if !*streaming && !blocks.is_empty() => {}
+                _ => problems.push("the second turn never reached a finished answer".to_string()),
+            }
+            if !problems.is_empty() {
+                for problem in &problems {
+                    eprintln!("hang-test: FAIL {problem}");
+                }
+                std::process::exit(1);
+            }
+            println!("hang-test: recovered first={first:?} second={second:?}");
+            probe_application.quit();
+            gtk::glib::ControlFlow::Break
+        });
+    }
+
     // GTK owns the widgets, but `Views` is the Rust-side tree that the refresh
     // callbacks upgrade from a Weak. If this Rc is dropped when `build_ui`
     // returns, every later agent/UI update silently finds no view to repaint.
@@ -524,4 +1584,49 @@ fn build_ui(application: &gtk::Application) {
     }
 
     std::mem::forget(views);
+}
+
+/// One flick's window transition: `before` and `after` are (first, mounted), and
+/// `children` is what the message list actually holds. Returns the reason the
+/// transition was not exactly one clean slice.
+fn slice_imbalance(
+    before: (usize, usize),
+    after: (usize, usize),
+    children: usize,
+    step: usize,
+) -> Option<String> {
+    let (was_first, was_mounted) = before;
+    let (now_first, now_mounted) = after;
+    let earlier = was_first.saturating_sub(now_first);
+    let added = now_mounted.saturating_sub(was_mounted);
+    if earlier != step {
+        return Some(format!(
+            "{was_first}+{was_mounted} -> {now_first}+{now_mounted}: {earlier} turns came down \
+             from above the window, expected {step}"
+        ));
+    }
+    if added != earlier {
+        return Some(format!(
+            "{was_first}+{was_mounted} -> {now_first}+{now_mounted}: {earlier} turns unrendered \
+             above, but {added} turns mounted"
+        ));
+    }
+    if children != now_mounted {
+        return Some(format!(
+            "the container holds {children} children for {now_mounted} mounted turns"
+        ));
+    }
+    None
+}
+
+/// Every widget below `root`, including itself. The switch harness uses it to
+/// catch a repaint that leaves a pane's tree bigger than the state it renders.
+fn count_widgets(root: &gtk::Widget) -> usize {
+    let mut count = 1;
+    if let Ok(container) = root.clone().downcast::<gtk::Container>() {
+        for child in container.children() {
+            count += count_widgets(&child);
+        }
+    }
+    count
 }
