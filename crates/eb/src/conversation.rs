@@ -410,6 +410,16 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     transcript_bar.set_halign(gtk::Align::End);
     transcript_bar.set_valign(gtk::Align::Fill);
     viewport.add_overlay(&transcript_bar);
+    // Painted after the fade so the circle sits on top of it. The fade stays
+    // pass-through; this button does not, so the click reaches it.
+    attach_jump_latest(
+        &viewport,
+        &scroll,
+        &pinned,
+        &auto_scroll,
+        &anchor,
+        &pending_load,
+    );
     {
         // Read and write the position, then get out of the way: at rest the bar is
         // a hairline, and it thickens while the transcript moves and for a beat
@@ -883,12 +893,20 @@ fn build_turn(
             status,
             blocks,
             streaming,
+            time,
         } => {
             let status = status.as_deref().map(|status| {
                 status_with_elapsed(status, *streaming, started_at)
             });
-            let parts =
-                agent_turn(name, status.as_deref(), blocks, *streaming, artifacts, &actions);
+            let parts = agent_turn(
+                name,
+                status.as_deref(),
+                blocks,
+                *streaming,
+                artifacts,
+                time.as_ref().map(clock_hhmm).as_deref(),
+                &actions,
+            );
             let mut widgets: Vec<gtk::Widget> = Vec::new();
             for block in blocks {
                 let widget = block_widget(block);
@@ -1033,12 +1051,14 @@ fn turn_state(turn: &Turn) -> TurnRender {
             name,
             status,
             streaming,
+            time,
             ..
         } => {
             "agent".hash(&mut hasher);
             name.hash(&mut hasher);
             status.hash(&mut hasher);
             streaming.hash(&mut hasher);
+            time.hash(&mut hasher);
             state.blocks = match turn {
                 Turn::Agent { blocks, .. } => blocks.iter().map(block_sig).collect(),
                 _ => Vec::new(),
@@ -1300,6 +1320,116 @@ fn status_with_elapsed(status: &str, streaming: bool, started: Option<std::time:
 /// Half a line of text: enough that a trackpad flick that lands a few pixels
 /// short keeps following, but a deliberate scroll up stops it.
 const FOLLOW_SLACK: f64 = 24.0;
+
+fn distance_from_end(adjustment: &gtk::Adjustment) -> f64 {
+    adjustment.upper() - adjustment.value() - adjustment.page_size()
+}
+
+/// The arrow is for a reader who left the tail. While they are still following,
+/// new tokens grow the transcript before the view catches up, and that gap must
+/// not flash the button.
+fn jump_latest_visible(adjustment: &gtk::Adjustment, pinned: bool) -> bool {
+    !pinned && distance_from_end(adjustment) > FOLLOW_SLACK
+}
+
+/// The down arrow that brings a reader who scrolled up back to the newest
+/// message. Measured from WorkBuddy `.cr-scroll-to-bottom`: a 32px circle,
+/// 16px chevron, 20px above the composer, centred on the column. It is an
+/// overlay of the pane (the same one as the fade), not of the 752px scroller,
+/// so the centring matches the column instead of being clipped to it.
+fn attach_jump_latest(
+    viewport: &gtk::Overlay,
+    scroll: &gtk::ScrolledWindow,
+    pinned: &Rc<Cell<bool>>,
+    auto_scroll: &Rc<Cell<bool>>,
+    anchor: &Rc<RefCell<Option<(gtk::Widget, f64)>>>,
+    pending_load: &Rc<Cell<bool>>,
+) -> gtk::Button {
+    let jump = flat_button("eb-jump-latest");
+    jump.set_tooltip_text(Some("Back to latest message"));
+    jump.set_halign(gtk::Align::Center);
+    jump.set_valign(gtk::Align::End);
+    jump.set_margin_bottom(20);
+    jump.set_size_request(32, 32);
+    if let Some(icon) = crate::icons::image("chevron-down", 16) {
+        jump.add(&icon);
+    } else {
+        jump.add(&glyph("⌄"));
+    }
+    // `show_all` on the window must not reveal it: it starts hidden and only
+    // appears once the reader has left the newest message.
+    hide_from_show_all(&jump);
+    viewport.add_overlay(&jump);
+
+    let sync: Rc<dyn Fn(&gtk::Adjustment)> = Rc::new({
+        let jump = jump.clone();
+        let pinned = pinned.clone();
+        move |adjustment: &gtk::Adjustment| {
+            let show = jump_latest_visible(adjustment, pinned.get());
+            if jump.is_visible() != show {
+                jump.set_visible(show);
+            }
+        }
+    });
+    {
+        // Runs after the follow handler connected above, which is what clears
+        // the history anchor. This one only records whether the tail is in view
+        // and shows the arrow. A jump the view makes itself (`auto_scroll`) is
+        // not the reader leaving.
+        let pinned = pinned.clone();
+        let auto_scroll = auto_scroll.clone();
+        let sync = sync.clone();
+        scroll.vadjustment().connect_value_changed(move |adjustment| {
+            if !auto_scroll.get() {
+                pinned.set(distance_from_end(adjustment) <= FOLLOW_SLACK);
+            }
+            sync(adjustment);
+        });
+    }
+    {
+        let sync = sync.clone();
+        scroll.vadjustment().connect_changed(move |adjustment| {
+            sync(adjustment);
+        });
+    }
+    jump.connect_clicked({
+        let scroll = scroll.clone();
+        let pinned = pinned.clone();
+        let auto_scroll = auto_scroll.clone();
+        let anchor = anchor.clone();
+        let pending_load = pending_load.clone();
+        let jump = jump.clone();
+        move |_| {
+            reveal_latest(&scroll, &pinned, &auto_scroll, &anchor, &pending_load);
+            jump.set_visible(false);
+        }
+    });
+    jump
+}
+
+/// Re-pin and jump to the newest line. Clears a history load's anchor first:
+/// otherwise the next content-size change puts the view back on the line the
+/// reader had asked to leave.
+fn reveal_latest(
+    scroll: &gtk::ScrolledWindow,
+    pinned: &Rc<Cell<bool>>,
+    auto_scroll: &Rc<Cell<bool>>,
+    anchor: &Rc<RefCell<Option<(gtk::Widget, f64)>>>,
+    pending_load: &Rc<Cell<bool>>,
+) {
+    pinned.set(true);
+    anchor.borrow_mut().take();
+    pending_load.set(false);
+    let adjustment = scroll.vadjustment();
+    let guard = auto_scroll.clone();
+    let place = |adjustment: &gtk::Adjustment, guard: &Rc<Cell<bool>>| {
+        guard.set(true);
+        adjustment.set_value(adjustment.upper() - adjustment.page_size());
+        guard.set(false);
+    };
+    place(&adjustment, &guard);
+    gtk::glib::idle_add_local_once(move || place(&adjustment, &guard));
+}
 
 /// Conversations kept rendered while off screen. Switching between them is then
 /// a re-attach; past the cap the oldest is rebuilt on its next visit, which is
@@ -1610,10 +1740,12 @@ fn answer_text(blocks: &[Block]) -> String {
 /// padding. The bubble hugs short text and grows until it is
 /// `USER_BUBBLE_INSET` short of the message column (live: 99px and 720px
 /// inside a 752px frame).
-fn user_turn(value: &str, time: &str, actions: &TurnActions) -> gtk::Box {
+fn user_turn(value: &str, time: &str, actions: &TurnActions) -> gtk::EventBox {
+    let outer = gtk::EventBox::new();
+    class(&outer, "eb-frame");
+    class(&outer, "eb-frame-user");
+
     let frame = vbox(0);
-    class(&frame, "eb-frame");
-    class(&frame, "eb-frame-user");
 
     let line = hbox(0);
     line.set_halign(gtk::Align::Fill);
@@ -1649,7 +1781,8 @@ fn user_turn(value: &str, time: &str, actions: &TurnActions) -> gtk::Box {
     let toolbar = hbox(8);
     class(&toolbar, "eb-message-toolbar");
     toolbar.set_halign(gtk::Align::End);
-    toolbar.pack_start(&text(time, "eb-message-time"), false, false, 0);
+    let stamp = text(time, "eb-message-time");
+    toolbar.pack_start(&stamp, false, false, 0);
 
     let copy = copy_button(value, "Copy message");
     toolbar.pack_start(&copy, false, false, 0);
@@ -1662,7 +1795,39 @@ fn user_turn(value: &str, time: &str, actions: &TurnActions) -> gtk::Box {
 
     frame.pack_start(&toolbar, false, false, 0);
 
-    frame
+    outer.add(&frame);
+    attach_hover_reveal(&outer, &stamp);
+
+    outer
+}
+
+/// Reveal a turn's timestamp only while the pointer is over the message.
+///
+/// The reveal lives on the turn's `EventBox`: it owns a GdkWindow, so the
+/// crossing events fire reliably, which a plain `GtkBox` (no window, no
+/// `:hover` state) never gets. The reveal is `set_opacity`, so the label keeps
+/// its layout width and the toolbar never reflows as the pointer moves.
+fn attach_hover_reveal<W: gtk::prelude::WidgetExt>(area: &W, stamp: &gtk::Label) {
+    stamp.set_opacity(0.0);
+    area.add_events(
+        gtk::gdk::EventMask::ENTER_NOTIFY_MASK | gtk::gdk::EventMask::LEAVE_NOTIFY_MASK,
+    );
+    let reveal = stamp.clone();
+    area.connect_enter_notify_event(move |_, event| {
+        // Crossing into a child (a button, the selectable bubble) must not
+        // hide what the frame already revealed.
+        if event.detail() != gtk::gdk::NotifyType::Inferior {
+            reveal.set_opacity(1.0);
+        }
+        gtk::glib::Propagation::Proceed
+    });
+    let hide = stamp.clone();
+    area.connect_leave_notify_event(move |_, event| {
+        if event.detail() != gtk::gdk::NotifyType::Inferior {
+            hide.set_opacity(0.0);
+        }
+        gtk::glib::Propagation::Proceed
+    });
 }
 
 /// Character cap whose pixel width reaches the closed message column.
@@ -1690,8 +1855,16 @@ fn bubble_max_chars(label: &gtk::Label) -> i32 {
 /// Measured: a 500 wide frame; a 24.5px header with a 10px gap between the
 /// agent mark and its name (14px/600); then the blocks.
 struct AgentTurnParts {
-    frame: gtk::Box,
+    frame: gtk::EventBox,
     body: gtk::Box,
+}
+
+/// Local `HH:MM` for a turn's unix-second stamp, revealed under the message
+/// on hover. Out-of-range epochs fall back to no timestamp rather than 00:00.
+fn clock_hhmm(epoch: &u64) -> String {
+    gtk::glib::DateTime::from_unix_local(i64::try_from(*epoch).unwrap_or(0))
+        .map(|time| format!("{:02}:{:02}", time.hour(), time.minute()))
+        .unwrap_or_default()
 }
 
 fn agent_turn(
@@ -1700,10 +1873,15 @@ fn agent_turn(
     blocks: &[Block],
     streaming: bool,
     artifacts: &[Artifact],
+    time: Option<&str>,
     actions: &TurnActions,
 ) -> AgentTurnParts {
+    // The EventBox owns a GdkWindow, which is what the hover timestamp's
+    // crossing events hang on; a plain box would never see them.
+    let outer = gtk::EventBox::new();
+    class(&outer, "eb-frame");
+
     let frame = vbox(0);
-    class(&frame, "eb-frame");
 
     let header = hbox(10);
     header.set_valign(gtk::Align::Center);
@@ -1776,10 +1954,22 @@ fn agent_turn(
             toolbar.pack_start(&redo, false, false, 0);
         }
 
+        let mut stamp = None;
+        if let Some(time) = time {
+            let label = text(time, "eb-message-time");
+            toolbar.pack_start(&label, false, false, 0);
+            stamp = Some(label);
+        }
+
         frame.pack_start(&toolbar, false, false, 0);
+        if let Some(stamp) = &stamp {
+            attach_hover_reveal(&outer, stamp);
+        }
     }
 
-    AgentTurnParts { frame, body }
+    outer.add(&frame);
+
+    AgentTurnParts { frame: outer, body }
 }
 
 /// The last settled agent turn owns the artifact card row; earlier and
@@ -2239,6 +2429,9 @@ fn streaming_footer() -> gtk::Box {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
     use super::*;
     use crate::model::Block;
 
@@ -2449,6 +2642,121 @@ mod tests {
         }
     }
 
+    /// Scrolling up reveals a down arrow at the bottom of the transcript.
+    /// Clicking it returns to the newest line and resumes following, and a
+    /// growth of the tail while the reader is still up does not jump them or
+    /// hide the arrow.
+    #[test]
+    fn jump_arrow_returns_to_the_latest_message() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        ensure_shell_css();
+        let messages = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        messages.set_size_request(400, 2400);
+        let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+        scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+        scroll.set_propagate_natural_height(false);
+        scroll.add(&messages);
+
+        let viewport = gtk::Overlay::new();
+        viewport.set_size_request(400, 240);
+        viewport.add(&scroll);
+
+        let pinned = Rc::new(Cell::new(true));
+        let auto_scroll = Rc::new(Cell::new(false));
+        let anchor: Rc<RefCell<Option<(gtk::Widget, f64)>>> = Rc::new(RefCell::new(None));
+        let pending_load = Rc::new(Cell::new(false));
+        let jump = attach_jump_latest(
+            &viewport,
+            &scroll,
+            &pinned,
+            &auto_scroll,
+            &anchor,
+            &pending_load,
+        );
+
+        let window = gtk::OffscreenWindow::new();
+        window.add(&viewport);
+        window.set_default_size(400, 240);
+        window.show_all();
+        drain_gtk();
+        settle(&viewport, &scroll, 400, 240);
+
+        let adjustment = scroll.vadjustment();
+        adjustment.set_value(adjustment.upper() - adjustment.page_size());
+        drain_gtk();
+        let below = distance_from_end(&adjustment);
+        assert!(
+            below <= FOLLOW_SLACK,
+            "the harness should start on the newest line, {below:.0}px short (upper {:.0}, page {:.0})",
+            adjustment.upper(),
+            adjustment.page_size()
+        );
+        assert!(pinned.get(), "the tail stays followed");
+        assert!(!jump.is_visible(), "the arrow stays hidden on the newest message");
+
+        let away = (adjustment.upper() - adjustment.page_size() - 400.0).max(0.0);
+        adjustment.set_value(away);
+        drain_gtk();
+        assert!(!pinned.get(), "scrolling up leaves the tail");
+        assert!(jump.is_visible(), "the down arrow shows once the reader leaves the end");
+        settle(&viewport, &scroll, 400, 240);
+        let place = jump.allocation();
+        let view = viewport.allocation();
+        assert!(
+            (place.x() + place.width() / 2 - (view.x() + view.width() / 2)).abs() <= 4,
+            "arrow should be centred, got x={} width={} in view x={} width={}",
+            place.x(),
+            place.width(),
+            view.x(),
+            view.width()
+        );
+        let bottom_gap = view.y() + view.height() - (place.y() + place.height());
+        assert!(
+            (16..=24).contains(&bottom_gap),
+            "arrow should sit 20px above the composer edge, gap was {bottom_gap}"
+        );
+        assert_eq!(place.width(), 32, "arrow button is a 32px circle");
+        assert_eq!(place.height(), 32, "arrow button is a 32px circle");
+
+        let held = adjustment.value();
+        messages.set_size_request(400, 3200);
+        settle(&viewport, &scroll, 400, 240);
+        assert!(
+            (adjustment.value() - held).abs() <= 1.0,
+            "a growing tail must not yank a reader who scrolled up ({held:.0} -> {:.0})",
+            adjustment.value()
+        );
+        assert!(jump.is_visible(), "the arrow stays while the reader is still up");
+        assert!(!pinned.get());
+
+        let marker = gtk::Label::new(Some("anchor"));
+        *anchor.borrow_mut() = Some((marker.upcast(), 12.0));
+        pending_load.set(true);
+        jump.clicked();
+        drain_gtk();
+        let below = distance_from_end(&adjustment);
+        assert!(
+            below <= FOLLOW_SLACK + 1.0,
+            "click lands on the latest message, {below:.0}px short"
+        );
+        assert!(pinned.get(), "click resumes following");
+        assert!(!jump.is_visible(), "the arrow hides once the latest message is in view");
+        assert!(anchor.borrow().is_none(), "click drops the history anchor");
+        assert!(!pending_load.get(), "click drops a pending history load");
+
+        window.close();
+        drain_gtk();
+    }
+
+    fn settle(viewport: &gtk::Overlay, scroll: &gtk::ScrolledWindow, width: i32, height: i32) {
+        viewport.size_allocate(&gtk::Allocation::new(0, 0, width, height));
+        scroll.size_allocate(&gtk::Allocation::new(0, 0, width, height));
+        drain_gtk();
+    }
+
     /// Screen CSS matches the app, so the 15px label and the bubble's 12px
     /// horizontal padding are part of the measured width.
     fn ensure_shell_css() {
@@ -2563,6 +2871,41 @@ mod tests {
     }
 
     #[test]
+    fn hover_reveals_the_timestamp_and_leaving_hides_it() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let parts = agent_turn(
+            "EvoBuddy",
+            None,
+            &[Block::Text("hi".into())],
+            false,
+            &[],
+            Some("12:00"),
+            &TurnActions::detached(),
+        );
+        let stamp = widget_by_class(parts.frame.upcast_ref(), "eb-message-time")
+            .and_then(|widget| widget.downcast::<gtk::Label>().ok())
+            .expect("hover timestamp label");
+        assert_eq!(stamp.opacity(), 0.0, "hidden at rest");
+
+        // Feed the same crossing events GDK delivers when the pointer moves.
+        let enter = gtk::gdk::Event::new(gtk::gdk::EventType::EnterNotify);
+        let handled = parts
+            .frame
+            .emit_by_name::<bool>("enter-notify-event", &[&enter]);
+        assert!(handled, "the EventBox handles the enter crossing");
+        assert_eq!(stamp.opacity(), 1.0, "revealed on hover");
+
+        let leave = gtk::gdk::Event::new(gtk::gdk::EventType::LeaveNotify);
+        parts
+            .frame
+            .emit_by_name::<bool>("leave-notify-event", &[&leave]);
+        assert_eq!(stamp.opacity(), 0.0, "hidden again after the pointer leaves");
+    }
+
+    #[test]
     fn settled_answer_gets_actions_streaming_gets_none() {
         if crate::widgets::try_init_gtk_for_test().is_none() {
             eprintln!("skipping: gtk needs the main thread and a display");
@@ -2579,6 +2922,7 @@ mod tests {
             ],
             false,
             &[],
+            Some("12:00"),
             &actions,
         );
         assert_eq!(
@@ -2592,11 +2936,43 @@ mod tests {
             &[Block::Text("hi".into())],
             true,
             &[],
+            Some("12:00"),
             &actions,
         );
         assert!(
             mini_tooltips(&live.frame.upcast()).is_empty(),
             "no actions while the answer is still streaming"
+        );
+
+        // The hover timestamp is part of the settled toolbar; a turn without
+        // a stamp (older saved sessions) renders no time label at all.
+        let unstamped = agent_turn(
+            "EvoBuddy",
+            None,
+            &[Block::Text("hi".into())],
+            false,
+            &[],
+            None,
+            &actions,
+        );
+        assert!(
+            widget_by_class(unstamped.frame.upcast_ref(), "eb-message-time").is_none(),
+            "an unstamped turn shows no timestamp"
+        );
+
+        // A stamped turn builds the label (hidden at rest by the hover CSS).
+        let stamped = agent_turn(
+            "EvoBuddy",
+            None,
+            &[Block::Text("hi".into())],
+            false,
+            &[],
+            Some("12:00"),
+            &actions,
+        );
+        assert!(
+            widget_by_class(stamped.frame.upcast_ref(), "eb-message-time").is_some(),
+            "a stamped turn carries its hover timestamp"
         );
     }
 
@@ -2626,6 +3002,7 @@ mod tests {
             &[Block::Text("hi".into())],
             false,
             &two_files(),
+            None,
             &actions,
         );
         let first =
@@ -2646,6 +3023,7 @@ mod tests {
             &[Block::Text("hi".into())],
             false,
             &two_files()[..1],
+            None,
             &actions,
         );
         assert!(widget_by_class(parts.frame.upcast_ref(), "eb-artifact-card").is_some());
@@ -2661,6 +3039,7 @@ mod tests {
             &[Block::Text("hi".into())],
             true,
             &two_files(),
+            None,
             &actions,
         );
         assert!(

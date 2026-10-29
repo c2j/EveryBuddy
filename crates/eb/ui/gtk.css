@@ -514,6 +514,24 @@ button.eb-task.eb-task-child {
   font-size: 11px;
 }
 
+/* The unseen-failure mark in a task row's trailing 16x16 slot (spec §10-40).
+ * Everything visible lives in the PNG - the product's `TaskFailedIcon`, whose
+ * dark-theme layer is a #f64041 disc with the exclamation knocked out (that
+ * theme shows `__solid`, hides `__ring`) - so this rule only pins the slot. */
+.eb-row-alert {
+  min-width: 16px;
+  min-height: 16px;
+}
+
+/* The unread mark: 6px `--wb-accent-unread`, which the bundle resolves to
+ * #00c29a (spec §10-40). */
+.eb-row-unread {
+  min-width: 6px;
+  min-height: 6px;
+  background-color: #00c29a;
+  border-radius: 3px;
+}
+
 /* "No tasks" under the Workspaces header: 30.5px tall, `padding: 0 36px`. */
 .eb-task-placeholder {
   color: @eb_text_tertiary;
@@ -591,6 +609,25 @@ label.eb-bubble-text {
   min-height: 72px;
 }
 
+/* Back to the newest message. WorkBuddy `.cr-scroll-to-bottom`: 32px circle,
+ * 16px chevron, 20px above the composer (`margin-bottom` on the overlay),
+ * centred. The shadow is what separates it from the white fade underneath. */
+button.eb-jump-latest {
+  background-color: @color_bg_secondary_default;
+  color: @eb_text_primary;
+  border-width: 0;
+  border-radius: 16px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  box-shadow: 0 6px 24px alpha(#000, 0.04), 0 4px 6px alpha(#000, 0.04);
+}
+
+button.eb-jump-latest:hover {
+  background-color: @color_bg_secondary_default;
+  box-shadow: 0 6px 12px -4px alpha(#000, 0.08), 0 3px 6px -8px alpha(#000, 0.04);
+}
+
 /* Transcript bar (spec §10-39). The bar lives outside the scroller (§10-37), so
  * it never gets the theme's overlay-scrollbar styling and inherits a solid
  * ~14px trough - measured #cecece down the whole window edge, which reads as a
@@ -666,6 +703,10 @@ scrollbar.eb-transcript-bar button {
   color: @eb_text_tertiary;
   font-size: 14px;
 }
+
+/* The timestamp is revealed on hover by `attach_hover_reveal` in
+ * conversation.rs: a plain GtkBox never carries GTK 3's `:hover` state, so
+ * opacity is driven by explicit enter/leave events, not by CSS. */
 
 /* Artifact cards under a settled agent turn, measured from the product
  * capture at DPR 2 (ui-spec §5.5): 370x64 cards filling the 752px column as

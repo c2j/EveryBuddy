@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use gtk::prelude::*;
 
 use eb_api::contrib::Contribs;
-use eb_api::model::{Workspace, WorkspaceState};
+use eb_api::model::{TaskStatus, Workspace};
 use crate::spec;
 use crate::widgets::*;
 
@@ -77,9 +77,17 @@ pub struct Sidebar {
 pub struct TaskRow {
     pub title: String,
     pub meta: String,
-    /// The latest agent turn is still streaming: the row shows a spinner
-    /// where the timestamp would be.
-    pub running: bool,
+    /// What the latest agent turn reports. The row's trailing slot is driven by
+    /// this: working and planning both spin, and a glyph in that slot replaces
+    /// the timestamp the way the product's `trailingStatus` hides its
+    /// `timeContainer` (ui-spec §10-40).
+    pub status: TaskStatus,
+    /// A failure the user has not opened the task for yet: the red badge stays
+    /// until `open_task` clears it.
+    pub failure_unseen: bool,
+    /// A turn settled while the task was in the background: the row carries the
+    /// unread dot next to its timestamp until the task is opened.
+    pub unread: bool,
     pub active: bool,
     pub index: usize,
     pub workspace_id: Option<String>,
@@ -349,9 +357,9 @@ fn footer(contribs: &Contribs, account: &std::rc::Rc<dyn Fn(usize)>) -> gtk::Box
 /// Repopulate the sidebar's scroll region.
 ///
 /// With no tasks the product shows a **top-aligned** empty state (`padding:
-/// 24px 12px`, 255x109) rather than a centred one. With tasks it shows a
-/// `Tasks (n)` section and a `Workspaces (0)` section, each introduced by a
-/// 30px tinted label pill.
+/// 24px 12px`, 255x109) rather than a centred one. With tasks it shows the
+/// sections, each introduced by a label pill: `Pinned (n)` only while anything
+/// is pinned, then `Tasks (n)` and `Workspaces (n)`.
 ///
 /// The label pills collapse their section. That is this build's own behaviour:
 /// the capture shows the chevron but never caught a click on it (ui-spec §10).
@@ -359,7 +367,7 @@ pub fn fill_content(
     content: &gtk::Box,
     rows: &[TaskRow],
     workspaces: &[Workspace],
-    collapsed: [bool; 2],
+    collapsed: [bool; 3],
     open_task: &std::rc::Rc<dyn Fn(usize)>,
     section_toggle: &std::rc::Rc<dyn Fn(usize)>,
     workspace_action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
@@ -385,20 +393,48 @@ pub fn fill_content(
         return;
     }
 
-    // WorkBuddy separates unassigned tasks from tasks grouped under a
-    // workspace. A task appears exactly once: under Tasks or under its
-    // workspace. Workspace entities render even when they have no tasks.
-    let standalone: Vec<&TaskRow> = rows
+    // The product partitions the list before it groups it: `buildGroupedResult`
+    // drops archived rows, and `isPinned === true` pushes onto the pinned array
+    // and `continue`s - so a pinned task is drawn in Pinned *only*, never again
+    // under Tasks or under its own workspace (ui-spec §10-41).
+    let pinned: Vec<&TaskRow> = rows.iter().filter(|row| row.pinned).collect();
+    let rest: Vec<&TaskRow> = rows.iter().filter(|row| !row.pinned).collect();
+    let standalone: Vec<&TaskRow> = rest
         .iter()
+        .copied()
         .filter(|row| row.workspace_id.is_none())
         .collect();
     let mut grouped: BTreeMap<String, Vec<&TaskRow>> = BTreeMap::new();
-    for row in rows.iter().filter(|row| row.workspace_id.is_some()) {
+    for row in rest.iter().filter(|row| row.workspace_id.is_some()) {
         grouped
             .entry(row.workspace_id.clone().unwrap_or_default())
             .or_default()
             .push(row);
     }
+
+    // `PinnedSection` returns `null` while nothing is pinned, so the section is
+    // absent rather than empty. `.conversation-pinned-list{gap:2px}` is the
+    // same spacing the other lists use, and the section closes with 4px of
+    // padding when folded and 20px when open.
+    let pinned_section = if pinned.is_empty() {
+        None
+    } else {
+        let list = vbox(2);
+        for row in &pinned {
+            list.pack_start(&task_row(row, open_task, false, task_action), false, false, 0);
+        }
+        let parts = section(
+            &format!("Pinned ({})", pinned.len()),
+            if collapsed[0] { 4 } else { 20 },
+            list,
+            collapsed[0],
+            0,
+            section_toggle,
+            None,
+        );
+        content.pack_start(&parts.0, false, false, 0);
+        Some(parts)
+    };
 
     let list = vbox(2);
     if standalone.is_empty() {
@@ -412,8 +448,8 @@ pub fn fill_content(
         &format!("Tasks ({})", standalone.len()),
         20,
         list,
-        collapsed[0],
-        0,
+        collapsed[1],
+        1,
         section_toggle,
         None,
     );
@@ -451,8 +487,8 @@ pub fn fill_content(
         &format!("Workspaces ({})", workspaces.len()),
         4,
         workspaces_list,
-        collapsed[1],
-        1,
+        collapsed[2],
+        2,
         section_toggle,
         Some(header_plus),
     );
@@ -462,11 +498,14 @@ pub fn fill_content(
     // *after* it. Opting a body out of `show_all` is not an option either:
     // `gtk_widget_show_all` returns immediately for a `no_show_all` widget, so
     // its children would never be shown at all.
+    let mut fold: Vec<(&gtk::Box, bool)> = Vec::new();
+    if let Some((_, body)) = pinned_section.as_ref() {
+        fold.push((body, collapsed[0]));
+    }
+    fold.push((&tasks_body, collapsed[1]));
+    fold.push((&workspaces_body, collapsed[2]));
     content.show_all();
-    for (body, folded) in [
-        (&tasks_body, collapsed[0]),
-        (&workspaces_body, collapsed[1]),
-    ] {
+    for (body, folded) in fold {
         body.set_visible(!folded);
     }
 }
@@ -637,16 +676,40 @@ fn task_row(
 
     let line = hbox(8);
     if row.pinned {
-        line.pack_start(&glyph("pin"), false, false, 0);
+        line.pack_start(&pin_button(row, task_action), false, false, 0);
     }
     line.pack_start(&ellipsized(&row.title, "eb-task-title"), true, true, 0);
-    if row.running {
+    // The trailing slot is 16x16 in the product and the row's timestamp is
+    // hidden exactly while something stands in it (`:has([class*=trailingStatus])
+    // [class*=timeContainer]{display:none}`). The priority is the bundle's:
+    // `failed|error|terminated` shows the failed icon until the task is seen,
+    // then nothing; a working or planning turn spins in `--wb-palette-brand-8`.
+    let running = matches!(row.status, TaskStatus::Working | TaskStatus::Planning);
+    let badged = matches!(row.status, TaskStatus::Failed) && row.failure_unseen;
+    // `showUnreadDot: conv.unread && !working` - the dot rides alongside the
+    // timestamp instead of replacing it, and never while a turn is running.
+    let mut marks: Vec<gtk::Widget> = Vec::new();
+    if row.unread && !running {
+        let dot = unread_dot();
+        marks.push(dot.clone().upcast());
+        line.pack_end(&dot, false, false, 0);
+    }
+    if running {
         // Capture: a running task's row shows a spinner where the timestamp
         // would be. Clock-driven, so sidebar rebuilds mid-stream keep it
         // turning (widgets::spinner).
-        line.pack_end(&crate::widgets::spinner(16), false, false, 0);
+        let spinner = crate::widgets::spinner(16);
+        class(&spinner, "eb-row-spinner");
+        marks.push(spinner.clone().upcast());
+        line.pack_end(&spinner, false, false, 0);
+    } else if badged {
+        let badge = failure_badge();
+        marks.push(badge.clone());
+        line.pack_end(&badge, false, false, 0);
     } else if !row.meta.is_empty() {
-        line.pack_end(&text(&row.meta, "eb-task-meta"), false, false, 0);
+        let meta = text(&row.meta, "eb-task-meta");
+        marks.push(meta.clone().upcast());
+        line.pack_end(&meta, false, false, 0);
     }
     button.add(&line);
 
@@ -657,16 +720,113 @@ fn task_row(
     });
     wrapper.pack_start(&button, true, true, 0);
 
+    let fade = RowFade::new(marks);
+    button.connect_enter_notify_event({
+        let fade = fade.clone();
+        move |_, _| {
+            fade.set(RowFade::HOVER, true);
+            gtk::glib::Propagation::Proceed
+        }
+    });
+    button.connect_leave_notify_event({
+        let fade = fade.clone();
+        move |_, _| {
+            fade.set(RowFade::HOVER, false);
+            gtk::glib::Propagation::Proceed
+        }
+    });
+
     let menu = flat_button("eb-task-menu");
     menu.set_tooltip_text(Some("Task actions"));
     menu.add(&glyph("⋯"));
-    attach_task_menu(&menu, row, task_action);
+    attach_task_menu(&menu, &fade, row, task_action);
     wrapper.pack_start(&menu, false, false, 0);
     wrapper
 }
 
+/// The two reasons a row's trailing marks disappear: the pointer is on the row,
+/// or the row's own menu is open - the product's `:hover` and `_menuOpen` rules,
+/// which drop `timeContainer`, `timePrefixIcon` and `trailingStatus` together.
+/// GTK CSS has no `display`, so the marks fade through GtkWidget opacity; they
+/// stay allocated their space, which keeps the row from reflowing (ui-spec
+/// §10-40).
+#[derive(Clone)]
+struct RowFade {
+    hidden: std::rc::Rc<std::cell::Cell<u8>>,
+    marks: std::rc::Rc<Vec<gtk::Widget>>,
+}
+
+impl RowFade {
+    const HOVER: u8 = 1;
+    const MENU: u8 = 2;
+
+    fn new(marks: Vec<gtk::Widget>) -> RowFade {
+        RowFade {
+            hidden: std::rc::Rc::new(std::cell::Cell::new(0)),
+            marks: std::rc::Rc::new(marks),
+        }
+    }
+
+    fn set(&self, reason: u8, on: bool) {
+        let hidden = self.hidden.get();
+        self.hidden.set(if on { hidden | reason } else { hidden & !reason });
+        let alpha = if self.hidden.get() == 0 { 1.0 } else { 0.0 };
+        for mark in self.marks.iter() {
+            mark.set_opacity(alpha);
+        }
+    }
+}
+
+/// The pin mark in a pinned row, and the product's un-pin control: the base
+/// card keeps `._pinButtonLeft` at `display:none`, shows it at `opacity:.3`
+/// under `_pinned`, and `.conversation-pinned-item` raises it to full opacity.
+/// Since a pinned task is only ever drawn inside the pinned list, one look is
+/// enough here. The hover swap to the un-pin icon is not implemented (§10-41).
+fn pin_button(row: &TaskRow, action: &std::rc::Rc<dyn Fn(TaskAction, usize)>) -> gtk::Button {
+    let button = flat_button("eb-row-pin");
+    button.set_tooltip_text(Some("Unpin"));
+    button.add(&glyph("pin"));
+    let index = row.index;
+    let action = std::rc::Rc::clone(action);
+    button.connect_clicked(move |_| action(TaskAction::Pin, index));
+    button
+}
+
+/// The unread mark: a 6px dot in `#00c29a`, the product's `--wb-accent-unread`.
+/// The list CSS rewrites the row's own dot for this surface - `.conversation-
+/// agent-card [class*=unreadDot]` becomes a 16x16 `position:static` slot with
+/// `order:99` and the 6px mark in its `:before` - so it rides in the trailing
+/// row, not over the corner the way the base component's 8px `#ef4444` dot
+/// does elsewhere (ui-spec §10-40).
+fn unread_dot() -> gtk::Box {
+    let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    dot.set_size_request(6, 6);
+    dot.set_valign(gtk::Align::Center);
+    dot.set_halign(gtk::Align::Center);
+    class(&dot, "eb-row-unread");
+    dot
+}
+
+/// The unseen-failure mark in a row's trailing 16x16 slot: the product's
+/// `TaskFailedIcon`, whose dark-theme layer (`__solid`, `display:inline` under
+/// `.cb-dark`) is a disc of radius 6.5 filled `#f64041` with the exclamation
+/// knocked out to transparency. Drawn as `icons/task-failed.png` from those
+/// path coordinates; the light theme's line-art ring variant is not
+/// implemented because EvoBuddy only ships the dark capture (ui-spec §10-40).
+fn failure_badge() -> gtk::Widget {
+    // Embedded bytes, so the only way this fails is a truncated asset.
+    let badge: gtk::Widget = crate::icons::image("task-failed", 16)
+        .expect("assets/icons/task-failed.png is embedded")
+        .upcast();
+    class(&badge, "eb-row-alert");
+    badge.set_valign(gtk::Align::Center);
+    badge.set_tooltip_text(Some("Task failed"));
+    badge
+}
+
 fn attach_task_menu(
     button: &gtk::Button,
+    fade: &RowFade,
     row: &TaskRow,
     action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
 ) {
@@ -731,5 +891,15 @@ fn attach_task_menu(
     button.connect_clicked({
         let popover = popover.clone();
         move |_| popover.popup()
+    });
+    // The product's `_menuOpen` hides the row's timestamp and status glyph the
+    // same way hover does, so the menu never opens over a fighting state mark.
+    popover.connect_show({
+        let fade = fade.clone();
+        move |_| fade.set(RowFade::MENU, true)
+    });
+    popover.connect_hide({
+        let fade = fade.clone();
+        move |_| fade.set(RowFade::MENU, false)
     });
 }

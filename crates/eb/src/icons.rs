@@ -43,6 +43,7 @@ fn bytes(name: &str) -> Option<&'static [u8]> {
         "dislike" => include_bytes!("../assets/icons/dislike.png"),
         "artifact-code" => include_bytes!("../assets/icons/artifact-code.png"),
         "artifact-unknown" => include_bytes!("../assets/icons/artifact-unknown.png"),
+        "task-failed" => include_bytes!("../assets/icons/task-failed.png"),
         "logo" => include_bytes!("../assets/icons/logo.png"),
         "agent" => include_bytes!("../assets/icons/agent.png"),
         "mascot" => include_bytes!("../assets/mascot.png"),

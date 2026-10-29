@@ -1206,6 +1206,7 @@ mod tests {
                     status: Some("Finished".into()),
                     blocks: vec![crate::model::Block::Text("first answer".into())],
                     streaming: false,
+                    time: None,
                 },
                 crate::model::Turn::User { text: "current question".into(), time: "now".into() },
                 crate::model::Turn::Agent {
@@ -1213,6 +1214,7 @@ mod tests {
                     status: None,
                     blocks: Vec::new(),
                     streaming: true,
+                    time: None,
                 },
             ],
             artifact: None,
@@ -1226,6 +1228,8 @@ mod tests {
             updated_at: None,
             pinned: false,
             archived: false,
+            failure_unseen: false,
+            unread: false,
         }
     }
 
@@ -1246,6 +1250,7 @@ mod tests {
             status: None,
             blocks: vec![crate::model::Block::Text("x".repeat(40_000))],
             streaming: false,
+            time: None,
         };
         let prompt = migrated_prompt(&task, "next");
         assert!(prompt.len() < 30_000);

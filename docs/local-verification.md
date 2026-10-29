@@ -304,6 +304,28 @@ PY
 #     值 127，说明 CSS 又用回了 `> trough > slider` —— GTK 在 `scrollbar` 与 `trough`
 #     之间夹了节点，那条写法只匹配得到控件自身，主题色就会盖回来（配方 30 的
 #     `eb-bar-active` 断言红也指向同一处）。
+
+# 32) 侧边栏任务行的状态与时间（spec §10-40）。存档必须**当场生成**：时间梯按 now
+#     算，隔一分钟再跑就会读到 `9m`/`4m` 这种错档 —— harness 会直接 FAIL，不会空过。
+mkdir -p /tmp/eb-rows && python3 docs/make_row_state.py /tmp/eb-rows/tasks.json
+HOME=/tmp/eb-home-XX EB_STATE=/tmp/eb-rows/tasks.json EB_ROWS=1 \
+EB_ROWS_SHOT=/tmp/eb-rows.png EB_ROWS_FADE=/tmp/eb-rows-fade.png ./target/debug/evobuddy
+#     ⇒ 11 行逐行打印，末行 `rows: ok 11 sidebar rows render their state`；其中
+#     `row: failed unseen: red badge no time`、`row: working: spinner no time`、
+#     `row: planning: spinner no time`、`row: unread: unread dot time "5m"`，时间梯
+#     `Just now` / `5m` / `Yesterday` / `3d`/`6d` / `Oct 20` / `25/09/23` 各命中一次。
+#     `EB_ROWS_FADE` 另打一行 `rows: faded 12 marks`。
+#     两条负向对照（第 1 条实测过）：
+#       · 把存档里 `row: failed unseen` 的 `failure_unseen` 改成 false ⇒
+#         `rows: FAIL "row: failed unseen" has badge=false … wants glyph="alert"`，
+#         徽标不是画出来就算数；
+#       · 把 `sidebar.rs` 里 `RowFade::set` 的 `set_opacity` 摘掉 ⇒ `FAIL faded 0 marks`。
+#     `row: working` 那行是 harness 在进程内把该轮 `streaming` 打开再 `views.refresh`
+#     得到的：启动扫描会把恢复出来的回合一律置成非流式，所以存档里的
+#     `streaming: true` 到不了侧栏 —— 别指望 fixture 自己给出一行 Working。
+#     徽标几何能在截图里数：`/tmp/eb-rows.png` 上红色像素 bbox 实测 `206–217 × 711–722`
+#     （13 单位的圆盘落到 16px 槽里 ≈ 12px），挖空的叹号在 `x≈211–212` 逐行可辨；
+#     读成整块实心就是图标又退回 CSS 画的色块。
 ```
 
 > **状态文件只在没有任何 selftest 旗标时才加载**（`selftest::requested()` 里列了
@@ -316,8 +338,8 @@ PY
 
 期望：
 
-- `cargo test --workspace`：`eb-api` 12 个、`eb-plugin-demo-agent` 5 个、
-  `eb-plugin-acp-agent` 10 个、`evobuddy` 39 个测试通过，其余 crate 0 测试。
+- `cargo test --workspace`：`eb-api` 14 个、`eb-plugin-demo-agent` 5 个、
+  `eb-plugin-acp-agent` 16 个、`evobuddy` 41 个测试通过，其余 crate 0 测试。
 - `EB_ASSERT=1`：最后一行 `selftest: assertions passed`，退出码 0；屏幕小于
   1440×900 时只断言语义不变量（窗口钳到工作区是正常的）。
 - `EB_CLICK_ASSERT=1`：最后一行 `click: assertions passed (33 steps)`，退出码 0。
