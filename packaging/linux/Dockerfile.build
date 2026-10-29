@@ -59,6 +59,7 @@ COPY packaging/linux/ /src/packaging/linux/
 # The app icon moved to packaging/ (the macOS bundle renders it too); the
 # bundle stages it from there.
 COPY packaging/evobuddy.svg /src/packaging/evobuddy.svg
+COPY packaging/evobuddy.png /src/packaging/evobuddy.png
 
 WORKDIR /src
 RUN cargo build --release --bin evobuddy
