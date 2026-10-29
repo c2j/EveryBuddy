@@ -100,6 +100,15 @@ pub struct Task {
     /// Archived tasks sink to the bottom of their section, greyed out, until
     /// unarchived from the task menu.
     pub archived: bool,
+    /// A turn ended in failure and the user has not opened the task since, so
+    /// the sidebar row keeps its red badge. The product gates the same badge
+    /// on "seen" (its telemetry calls it `sidebar-red-icon-rendered`).
+    pub failure_unseen: bool,
+    /// A turn settled while the task was in the background, so the row shows
+    /// the unread dot until the task is opened. The product keeps this as an
+    /// `unread` column on the conversation and renders it as
+    /// `showUnreadDot: conv.unread && !working`.
+    pub unread: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,6 +125,11 @@ pub enum Turn {
         /// Renders `conversation-streaming-footer` and the stop-shaped send
         /// button instead of the send arrow.
         streaming: bool,
+        /// Unix seconds when the turn was started; the transcript reveals it
+        /// under the message on hover. `None` on older saved sessions, which
+        /// then simply show no timestamp.
+        #[serde(default)]
+        time: Option<u64>,
     },
 }
 
@@ -210,8 +224,10 @@ pub struct App {
     /// workspaces[index - 2].
     pub workspace: usize,
     pub permission: usize,
-    /// Whether each sidebar section is folded: 0 = Tasks, 1 = Workspaces.
-    pub collapsed: [bool; 2],
+    /// Whether each sidebar section is folded: 0 = Pinned, 1 = Tasks,
+    /// 2 = Workspaces. The Pinned slot exists even while that section is not
+    /// drawn, so the other two keep their index.
+    pub collapsed: [bool; 3],
     /// Catalog tab: 0 = Experts, 1 = Skills, 2 = Connectors.
     pub catalog_tab: usize,
     /// Catalog text filter applied on Enter.
@@ -246,7 +262,7 @@ impl App {
             model: 0,
             workspace: 0,
             permission: 0,
-            collapsed: [false, false],
+            collapsed: [false, false, false],
             catalog_tab: 1,
             catalog_query: String::new(),
             catalog_filter: 0,
@@ -289,6 +305,11 @@ impl App {
         self.artifact_dismissed = false;
         self.artifact_select = None;
         self.detail_visible = self.tasks[index].artifact.is_some();
+        // Opening the task is what "seen" means: the row's red badge clears.
+        if let Some(task) = self.tasks.get_mut(index) {
+            task.failure_unseen = false;
+            task.unread = false;
+        }
     }
 
     pub fn set_scene(&mut self, scene: Scene) {
@@ -306,7 +327,7 @@ impl App {
         let index = self.tasks.len();
         self.tasks.push(Task {
             title: summarize(text),
-            meta: "now".to_string(),
+            meta: "Just now".to_string(),
             turns: vec![
                 Turn::User {
                     text: text.to_string(),
@@ -317,6 +338,7 @@ impl App {
                     status: None,
                     blocks: Vec::new(),
                     streaming: true,
+                    time: Some(unix_now()),
                 },
             ],
             artifact: None,
@@ -330,6 +352,8 @@ impl App {
             updated_at: Some(unix_now()),
             pinned: false,
             archived: false,
+            failure_unseen: false,
+            unread: false,
         });
 
         self.nav = None;
@@ -357,6 +381,7 @@ impl App {
             status: None,
             blocks: Vec::new(),
             streaming: true,
+            time: Some(unix_now()),
         });
         task.started_at = Some(std::time::Instant::now());
         task.updated_at = Some(unix_now());
@@ -415,6 +440,7 @@ impl App {
                     status,
                     blocks,
                     streaming,
+                    ..
                 } => Some((name, status, blocks, streaming)),
                 Turn::User { .. } => None,
             })
@@ -423,6 +449,7 @@ impl App {
         };
 
         let terminal = matches!(event, AgentEvent::Finished | AgentEvent::Failed { .. });
+        let failed = matches!(event, AgentEvent::Failed { .. });
         match event {
             AgentEvent::Started { name: agent_name } => *name = agent_name,
             AgentEvent::Status { text } => *status = Some(text),
@@ -454,6 +481,13 @@ impl App {
         }
         if terminal {
             task.started_at = None;
+            // A turn that finishes while the user is looking at another task is
+            // the product's `unread`; the open task never marks itself.
+            let open = matches!(self.route, Route::Task(i) if i == index);
+            task.unread = !open;
+        }
+        if failed {
+            task.failure_unseen = true;
         }
         true
     }
@@ -728,6 +762,7 @@ mod tests {
                 status: status.map(String::from),
                 blocks,
                 streaming: false,
+                time: None,
             }],
             artifact: None,
             artifacts: Vec::new(),
@@ -740,6 +775,8 @@ mod tests {
             updated_at: None,
             pinned: false,
             archived: false,
+            failure_unseen: false,
+            unread: false,
         }
     }
 
@@ -798,6 +835,54 @@ mod tests {
         // A stopped turn left mid-plan still reads as Planning.
         let stopped = settled_agent(None, vec![plan_block(&["pending", "in_progress"])]);
         assert_eq!(task_status(&stopped), TaskStatus::Planning);
+    }
+
+    /// The row's red badge is a "has the user seen this failure yet" flag, not
+    /// a rendering of the status: it goes up when a turn fails and stays down
+    /// once the task has been opened, even though the task is still Failed.
+    #[test]
+    fn a_failure_keeps_its_row_badge_until_the_task_is_open() {
+        let mut app = App::new();
+        let index = app.begin_task("explode").unwrap();
+        app.apply_agent_event(
+            index,
+            AgentEvent::Failed {
+                message: "boom".into(),
+            },
+        );
+        assert!(app.tasks[index].failure_unseen, "the row shows the badge");
+
+        app.open_task(index);
+        assert!(
+            !app.tasks[index].failure_unseen,
+            "opening the task is what counts as seen"
+        );
+        assert_eq!(
+            task_status(&app.tasks[index]),
+            TaskStatus::Failed,
+            "and the task is still Failed"
+        );
+    }
+
+    /// The unread dot is the other half of "seen": a turn that settles while
+    /// another task is on screen marks its row, and opening that row reads it.
+    #[test]
+    fn a_background_turn_settles_unread_and_opening_it_clears() {
+        let mut app = App::new();
+        let in_sight = app.begin_task("in sight").unwrap();
+        app.apply_agent_event(in_sight, AgentEvent::Finished);
+        assert!(
+            !app.tasks[in_sight].unread,
+            "the open task never marks itself"
+        );
+
+        let behind = app.begin_task("behind").unwrap();
+        app.open_task(in_sight);
+        app.apply_agent_event(behind, AgentEvent::Finished);
+        assert!(app.tasks[behind].unread, "it settled out of sight");
+
+        app.open_task(behind);
+        assert!(!app.tasks[behind].unread, "opening it reads the row");
     }
 
     #[test]

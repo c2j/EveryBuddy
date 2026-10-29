@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "EvoBuddy 架构与插件机制",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "evobuddy-architecture.html",
+    "viewBox": [1260, 500],
+    "views": [
+      {
+        "id": "answer-path",
+        "label": "回答主路径",
+        "focus": ["user", "host", "router", "acp", "agents"],
+        "note": "发送进入 AgentRouter；默认 ACP 用 JSON-RPC stdio 驱动进程外 agent。"
+      },
+      {
+        "id": "plugin-mount",
+        "label": "声明插件挂载",
+        "focus": ["host", "rutis", "builtins", "surface"],
+        "note": "rutis 挂载 nav、notices、composer。插件只写 Contribs，宿主渲染。"
+      },
+      {
+        "id": "routes-and-state",
+        "label": "路由与本机状态",
+        "focus": ["router", "acp", "others", "surface"],
+        "note": "同一 AnswerSource 可切到 dsh、自定义模型或 Demo。会话与密钥在 ~/.evobuddy。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "GTK 窗口",
+      "pos": [12, 50],
+      "size": [176, 72]
+    },
+    {
+      "id": "host",
+      "type": "frontend",
+      "label": "GTK 宿主",
+      "sublabel": "crates/eb · 渲染与主循环",
+      "tag": "拥有全部控件",
+      "pos": [520, 40],
+      "size": [290, 92]
+    },
+    {
+      "id": "rutis",
+      "type": "backend",
+      "label": "rutis",
+      "sublabel": "vendored 插件运行时",
+      "tag": "挂载可回滚",
+      "pos": [960, 44],
+      "size": [240, 84]
+    },
+    {
+      "id": "others",
+      "type": "backend",
+      "label": "备选回答源",
+      "sublabel": "dsh · Custom · Demo",
+      "tag": "同一 AgentEvent",
+      "pos": [250, 188],
+      "size": [200, 84]
+    },
+    {
+      "id": "router",
+      "type": "backend",
+      "label": "AgentRouter",
+      "sublabel": "进程内唯一 AnswerSource",
+      "tag": "每轮解析",
+      "pos": [520, 184],
+      "size": [290, 96]
+    },
+    {
+      "id": "builtins",
+      "type": "backend",
+      "label": "声明插件",
+      "sublabel": "nav · notices · composer",
+      "tag": "EbPlugin",
+      "pos": [960, 188],
+      "size": [240, 84]
+    },
+    {
+      "id": "agents",
+      "type": "external",
+      "label": "外部 ACP Agent",
+      "sublabel": "opencode · Grok Build",
+      "tag": "子进程",
+      "pos": [12, 332],
+      "size": [188, 76]
+    },
+    {
+      "id": "acp",
+      "type": "backend",
+      "label": "ACP 插件",
+      "sublabel": "eb-plugin-acp-agent",
+      "tag": "由路由调用",
+      "pos": [520, 328],
+      "size": [290, 96]
+    },
+    {
+      "id": "surface",
+      "type": "backend",
+      "label": "eb-api",
+      "sublabel": "契约 · Contribs · 事件",
+      "tag": "插件唯一依赖",
+      "pos": [960, 332],
+      "size": [240, 84]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "EvoBuddy 进程",
+      "wraps": ["host", "surface", "rutis", "builtins", "router", "acp", "others"],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "id": "user-host",
+      "from": "user",
+      "to": "host",
+      "label": "GTK 事件",
+      "variant": "emphasis"
+    },
+    {
+      "id": "host-router",
+      "from": "host",
+      "to": "router",
+      "label": "start(prompt, sink)",
+      "variant": "emphasis",
+      "labelDy": 20
+    },
+    {
+      "id": "router-acp",
+      "from": "router",
+      "to": "acp",
+      "label": "默认 ACP",
+      "variant": "emphasis",
+      "labelDy": 20
+    },
+    {
+      "id": "acp-agents",
+      "from": "acp",
+      "to": "agents",
+      "label": "JSON-RPC stdio",
+      "variant": "emphasis"
+    },
+    {
+      "id": "host-rutis",
+      "from": "host",
+      "to": "rutis",
+      "label": "plugin() 挂载"
+    },
+    {
+      "id": "rutis-builtins",
+      "from": "rutis",
+      "to": "builtins",
+      "label": "mount(Ui)",
+      "labelDy": 20
+    },
+    {
+      "id": "builtins-surface",
+      "from": "builtins",
+      "to": "surface",
+      "label": "写入 Contribs",
+      "labelDy": 20
+    },
+    {
+      "id": "acp-surface",
+      "from": "acp",
+      "to": "surface",
+      "label": "依赖 eb-api"
+    },
+    {
+      "id": "router-others",
+      "from": "router",
+      "to": "others",
+      "label": "备选路由",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "插件边界",
+      "items": [
+        "插件 crate 只依赖 eb-api，不能依赖宿主或 GTK",
+        "nav、notices、composer 经 rutis 挂载，失败则回滚",
+        "插件只产出数据，控件和像素都在宿主"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "回答路径",
+      "items": [
+        "AgentRouter 只安装一次，每轮按当前默认路由解析",
+        "ACP 由路由调用，不是独立的 rutis fiber",
+        "AgentEvent 进入容量 64 的队列，GTK 主循环取出"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "进程外与本机",
+      "items": [
+        "外部进程是 opencode acp 或 grok agent stdio",
+        "dsh、自定义模型与 Demo 使用同一套事件",
+        "会话、工作区与 API 密钥写在 ~/.evobuddy"
+      ]
+    }
+  ]
+}

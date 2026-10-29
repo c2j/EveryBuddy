@@ -574,6 +574,40 @@ struct AcpSession {
     /// already says `working`), and an `idle` that arrived while nobody was
     /// listening says the session really did finish.
     activity: Option<bool>,
+    /// Agent-spawned terminals from the `terminal/*` client methods, keyed by
+    /// the numeric id this side assigned.
+    terminals: HashMap<u64, Terminal>,
+}
+
+/// One agent-spawned terminal from ACP's `terminal/*` client methods.
+///
+/// The agent owns the lifecycle: create → poll output → wait for exit →
+/// release. Output is capped so a chatty process cannot grow memory without
+/// bound; `truncated` tells the agent earlier bytes were dropped.
+struct Terminal {
+    process: Arc<Mutex<Child>>,
+    output: Arc<Mutex<String>>,
+    /// `{"exitCode": n}` or `{"signal": "…"}` once the process is reaped.
+    exit: Arc<Mutex<Option<Value>>>,
+}
+
+/// Output kept per terminal; the head is trimmed once this cap is exceeded.
+const TERMINAL_OUTPUT_CAP: usize = 1_000_000;
+
+/// Trim a terminal output buffer to [`TERMINAL_OUTPUT_CAP`], keeping the tail.
+/// Returns whether earlier bytes were dropped.
+fn trim_terminal_output(output: &mut String) -> bool {
+    if output.len() <= TERMINAL_OUTPUT_CAP {
+        return false;
+    }
+    let overflow = output.len() - TERMINAL_OUTPUT_CAP;
+    let split = output
+        .char_indices()
+        .map(|(index, _)| index)
+        .find(|&index| index >= overflow)
+        .unwrap_or(output.len());
+    output.drain(..split);
+    true
 }
 
 /// Outcome of one bounded wait for the agent.
@@ -634,6 +668,7 @@ impl AcpSession {
             permissions,
             debug: config.debug,
             activity: None,
+            terminals: HashMap::new(),
         };
 
         if config.debug {
@@ -643,7 +678,12 @@ impl AcpSession {
             "initialize",
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
-                "clientCapabilities": {},
+                // fs + terminal: the agent asks this side to do file and shell
+                // work on the workspace (see `respond_request`).
+                "clientCapabilities": {
+                    "fs": { "readTextFile": true, "writeTextFile": true },
+                    "terminal": true,
+                },
                 "clientInfo": {
                     "name": "evobuddy",
                     "title": "EvoBuddy",
@@ -964,8 +1004,7 @@ impl AcpSession {
     fn respond_request(&mut self, message: &Value) -> Result<(), String> {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
-        if method == "session/request_permission" {
-            let raw_options = message
+        if method == "session/request_permission" {            let raw_options = message
                 .pointer("/params/options")
                 .and_then(Value::as_array)
                 .cloned()
@@ -1027,11 +1066,25 @@ impl AcpSession {
                 "result": outcome
             }));
         }
-        self.write(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": -32601, "message": format!("unsupported client method: {method}") }
-        }))
+        let params = message.get("params").cloned().unwrap_or(Value::Null);
+        let served = match method {
+            "fs/read_text_file" => fs_read(&self.cwd, &params),
+            "fs/write_text_file" => fs_write(&self.cwd, &params),
+            "terminal/create" => terminal_create(&self.cwd, &params, &mut self.terminals),
+            "terminal/output" => terminal_output(&params, &mut self.terminals),
+            "terminal/wait_for_exit" => terminal_wait(&params, &mut self.terminals),
+            "terminal/kill" => terminal_kill(&params, &mut self.terminals),
+            "terminal/release" => terminal_release(&params, &mut self.terminals),
+            _ => Err(format!("unsupported client method: {method}")),
+        };
+        match served {
+            Ok(result) => self.write(&json!({ "jsonrpc": "2.0", "id": id, "result": result })),
+            Err(error) => self.write(&json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": error }
+            })),
+        }
     }
 
     fn write(&mut self, value: &Value) -> Result<(), String> {
@@ -1228,6 +1281,229 @@ fn write_json(stdin: &Arc<Mutex<ChildStdin>>, value: &Value) -> Result<(), Strin
         .write_all(data.as_bytes())
         .and_then(|_| stdin.flush())
         .map_err(|error| format!("write to ACP agent: {error}"))
+}
+
+/// Resolve an agent-supplied path against the session cwd.
+///
+/// ACP paths are absolute; a relative path is interpreted against the
+/// workspace the session was opened on, which is also what `terminal/create`
+/// uses when the agent sends no cwd.
+fn resolve_path(cwd: &std::path::Path, raw: &str) -> PathBuf {
+    let path = std::path::Path::new(raw);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
+}
+
+/// `fs/read_text_file`: `{path, line?, limit?}` → `{content}`.
+///
+/// `line` is 1-based like the ACP spec says; `limit` caps the returned lines.
+fn fs_read(cwd: &std::path::Path, params: &Value) -> Result<Value, String> {
+    let raw = params
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or("fs/read_text_file: missing path")?;
+    let path = resolve_path(cwd, raw);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("fs/read_text_file: {}: {error}", path.display()))?;
+    let line = params.get("line").and_then(Value::as_u64);
+    let limit = params.get("limit").and_then(Value::as_u64);
+    let content = match (line, limit) {
+        (None, None) => text,
+        (line, limit) => {
+            let start = line.unwrap_or(1).saturating_sub(1) as usize;
+            let limit = limit.map(|value| value as usize).unwrap_or(usize::MAX);
+            text.lines()
+                .skip(start)
+                .take(limit)
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    };
+    Ok(json!({ "content": content }))
+}
+
+/// `fs/write_text_file`: `{path, content}` → null result.
+fn fs_write(cwd: &std::path::Path, params: &Value) -> Result<Value, String> {
+    let raw = params
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or("fs/write_text_file: missing path")?;
+    let content = params
+        .get("content")
+        .and_then(Value::as_str)
+        .ok_or("fs/write_text_file: missing content")?;
+    let path = resolve_path(cwd, raw);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("fs/write_text_file: {}: {error}", parent.display()))?;
+    }
+    std::fs::write(&path, content)
+        .map_err(|error| format!("fs/write_text_file: {}: {error}", path.display()))?;
+    Ok(Value::Null)
+}
+
+/// `terminal/create`: spawn `{command, args?, cwd?, env?}` and start draining
+/// its merged output. Returns `{terminalId}`.
+fn terminal_create(
+    cwd: &std::path::Path,
+    params: &Value,
+    terminals: &mut HashMap<u64, Terminal>,
+) -> Result<Value, String> {
+    let command = params
+        .get("command")
+        .and_then(Value::as_str)
+        .ok_or("terminal/create: missing command")?;
+    let dir = params
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(|raw| resolve_path(cwd, raw))
+        .unwrap_or_else(|| cwd.to_path_buf());
+    let mut process = Command::new(command);
+    if let Some(args) = params.get("args").and_then(Value::as_array) {
+        for arg in args.iter().filter_map(Value::as_str) {
+            process.arg(arg);
+        }
+    }
+    if let Some(env) = params.get("env").and_then(Value::as_array) {
+        for entry in env {
+            let name = entry.get("name").and_then(Value::as_str);
+            let value = entry.get("value").and_then(Value::as_str);
+            if let (Some(name), Some(value)) = (name, value) {
+                process.env(name, value);
+            }
+        }
+    }
+    process
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = process
+        .spawn()
+        .map_err(|error| format!("terminal/create: {}: {error}", command))?;
+
+    let output: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let exit: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+    let stdout = child.stdout.take().ok_or("terminal/create: no stdout")?;
+    let stderr = child.stderr.take().ok_or("terminal/create: no stderr")?;
+    for pipe in [
+        Box::new(BufReader::new(stdout)) as Box<dyn BufRead + Send>,
+        Box::new(BufReader::new(stderr)) as Box<dyn BufRead + Send>,
+    ] {
+        let output = output.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(pipe);
+            for chunk in reader.split(b'\n') {
+                let mut buffer = output.lock().unwrap();
+                match chunk {
+                    Ok(bytes) => {
+                        buffer.push_str(&String::from_utf8_lossy(&bytes));
+                        buffer.push('\n');
+                    }
+                    // A partial trailing line (no newline yet) still lands in
+                    // the buffer; decode lossily like a terminal would.
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    // Reap the process once it exits so `wait_for_exit` is an answer, not a
+    // hang, even if the agent never asks.
+    let process = Arc::new(Mutex::new(child));
+    let exit_status = exit.clone();
+    let reaped = process.clone();
+    std::thread::spawn(move || {
+        let status = reaped.lock().unwrap().wait();
+        *exit_status.lock().unwrap() = Some(match status {
+            Ok(status) if status.code().is_some() => json!({ "exitCode": status.code() }),
+            #[cfg(unix)]
+            Ok(status) => match std::os::unix::process::ExitStatusExt::signal(&status) {
+                Some(signal) => json!({ "signal": signal.to_string() }),
+                None => json!({ "exitCode": 0 }),
+            },
+            #[cfg(not(unix))]
+            Ok(_) => json!({ "exitCode": 0 }),
+            Err(error) => json!({ "exitCode": -1, "error": error.to_string() }),
+        });
+    });
+
+    let id = terminals.keys().copied().max().unwrap_or(0) + 1;
+    terminals.insert(
+        id,
+        Terminal {
+            process,
+            output,
+            exit,
+        },
+    );
+    Ok(json!({ "terminalId": id }))
+}
+
+/// Look up a terminal the agent refers to, with a method-specific error.
+fn terminal_ref<'a>(
+    params: &Value,
+    terminals: &'a mut HashMap<u64, Terminal>,
+    method: &str,
+) -> Result<&'a mut Terminal, String> {
+    let id = params
+        .get("terminalId")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{method}: missing terminalId"))?;
+    terminals
+        .get_mut(&id)
+        .ok_or_else(|| format!("{method}: unknown terminalId {id}"))
+}
+
+/// `terminal/output`: `{terminalId}` → `{output, truncated, exitStatus?}`.
+fn terminal_output(
+    params: &Value,
+    terminals: &mut HashMap<u64, Terminal>,
+) -> Result<Value, String> {
+    let terminal = terminal_ref(params, terminals, "terminal/output")?;
+    let mut buffer = terminal.output.lock().unwrap();
+    let truncated = trim_terminal_output(&mut buffer);
+    let exit = terminal.exit.lock().unwrap().clone();
+    let mut result = json!({ "output": buffer.clone(), "truncated": truncated });
+    if let Some(exit) = exit {
+        result["exitStatus"] = exit;
+    }
+    Ok(result)
+}
+
+/// `terminal/wait_for_exit`: blocks until the process is reaped.
+fn terminal_wait(params: &Value, terminals: &mut HashMap<u64, Terminal>) -> Result<Value, String> {
+    let terminal = terminal_ref(params, terminals, "terminal/wait_for_exit")?;
+    loop {
+        if let Some(exit) = terminal.exit.lock().unwrap().clone() {
+            return Ok(exit);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// `terminal/kill`: stop the process; exit status lands via the reaper thread.
+fn terminal_kill(params: &Value, terminals: &mut HashMap<u64, Terminal>) -> Result<Value, String> {
+    let terminal = terminal_ref(params, terminals, "terminal/kill")?;
+    let _ = terminal.process.lock().unwrap().kill();
+    Ok(Value::Null)
+}
+
+/// `terminal/release`: kill if still running and forget the terminal.
+fn terminal_release(
+    params: &Value,
+    terminals: &mut HashMap<u64, Terminal>,
+) -> Result<Value, String> {
+    let id = params
+        .get("terminalId")
+        .and_then(Value::as_u64)
+        .ok_or("terminal/release: missing terminalId")?;
+    if let Some(terminal) = terminals.remove(&id) {
+        let _ = terminal.process.lock().unwrap().kill();
+    }
+    Ok(Value::Null)
 }
 
 fn pick_permission(options: &[Value], auto_approve: bool) -> Option<String> {
@@ -1631,6 +1907,107 @@ mod tests {
         assert_eq!(pick_permission(&options, true).as_deref(), Some("a"));
         assert_eq!(pick_permission(&options, false).as_deref(), Some("r"));
     }
+
+    // ------------------------------------------------------- client methods
+
+    fn tempdir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "eb-acp-test-{}-{name}",
+            std::process::id(),
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn fs_write_then_read_round_trips() {
+        let cwd = tempdir("fs-roundtrip");
+        fs_write(
+            &cwd,
+            &json!({"path": "src/out/notes.md", "content": "hello\nworld\n"}),
+        )
+        .unwrap();
+        // Relative paths land in the session workspace, and missing parents
+        // are created — that is what an agent relies on when scaffolding.
+        let written = std::fs::read_to_string(cwd.join("src/out/notes.md")).unwrap();
+        assert_eq!(written, "hello\nworld\n");
+
+        let content = fs_read(&cwd, &json!({"path": "src/out/notes.md"}))
+            .unwrap()["content"]
+            .clone();
+        assert_eq!(content.as_str().unwrap(), "hello\nworld\n");
+        std::fs::remove_dir_all(&cwd).unwrap();
+    }
+
+    #[test]
+    fn fs_read_honours_line_and_limit() {
+        let cwd = tempdir("fs-window");
+        std::fs::write(cwd.join("f.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        let content = fs_read(&cwd, &json!({"path": "f.txt", "line": 2, "limit": 2}))
+            .unwrap()["content"]
+            .clone();
+        assert_eq!(content.as_str().unwrap(), "two\nthree");
+        std::fs::remove_dir_all(&cwd).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_create_output_wait_and_release() {
+        let cwd = tempdir("terminal");
+        let mut terminals = HashMap::new();
+        let created = terminal_create(
+            &cwd,
+            &json!({"command": "sh", "args": ["-c", "echo hello; echo err >&2"]}),
+            &mut terminals,
+        )
+        .unwrap();
+        let id = created["terminalId"].as_u64().unwrap();
+
+        // wait_for_exit blocks until the reaper stores the status.
+        let exit = terminal_wait(&json!({"terminalId": id}), &mut terminals).unwrap();
+        assert_eq!(exit["exitCode"].as_i64(), Some(0));
+
+        let output = terminal_output(&json!({"terminalId": id}), &mut terminals).unwrap();
+        assert_eq!(output["output"].as_str().unwrap(), "hello\nerr\n");
+        assert_eq!(output["truncated"].as_bool(), Some(false));
+        assert_eq!(output["exitStatus"]["exitCode"].as_i64(), Some(0));
+
+        terminal_release(&json!({"terminalId": id}), &mut terminals).unwrap();
+        assert!(terminal_output(&json!({"terminalId": id}), &mut terminals).is_err());
+        std::fs::remove_dir_all(&cwd).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_kill_stops_a_long_process() {
+        let cwd = tempdir("terminal-kill");
+        let mut terminals = HashMap::new();
+        let created = terminal_create(
+            &cwd,
+            &json!({"command": "sh", "args": ["-c", "sleep 30"]}),
+            &mut terminals,
+        )
+        .unwrap();
+        let id = created["terminalId"].as_u64().unwrap();
+        terminal_kill(&json!({"terminalId": id}), &mut terminals).unwrap();
+        let exit = terminal_wait(&json!({"terminalId": id}), &mut terminals).unwrap();
+        // A killed process surfaces as a signal, not a clean exit code.
+        assert!(exit.get("signal").is_some() || exit["exitCode"].as_i64() != Some(0));
+        std::fs::remove_dir_all(&cwd).unwrap();
+    }
+
+    #[test]
+    fn terminal_output_trim_keeps_the_tail() {
+        let mut buffer = "x".repeat(TERMINAL_OUTPUT_CAP + 5_000);
+        assert!(trim_terminal_output(&mut buffer));
+        assert_eq!(buffer.len(), TERMINAL_OUTPUT_CAP);
+        assert!(buffer.ends_with("xxx"));
+
+        let mut small = String::from("small");
+        assert!(!trim_terminal_output(&mut small));
+        assert_eq!(small, "small");
+    }
 }
 
 #[cfg(test)]
@@ -1731,6 +2108,35 @@ mod integration_tests {
                 Err(error) => panic!("ACP stream ended early: {error:?} (events: {events:?})"),
             }
         }
+    }
+
+    /// The declared fs/terminal client capabilities must actually answer: the
+    /// fixture agent drives every new method on a real turn and reports what
+    /// it saw, so this asserts the round trip through the live JSON-RPC machinery.
+    #[test]
+    fn client_fs_and_terminal_methods_serve_a_real_turn() {
+        if !python_available() {
+            eprintln!("skipping ACP integration test: python3 not available");
+            return;
+        }
+        let agent = AcpAgent::new(fixture_scenario(&fixture_config(), "client_tools"));
+        let (sink, stream) = AgentSink::channel();
+        let _handle = agent.start_with_permissions("hello", sink, Arc::new(AllowOnce));
+        let events = collect_events(&stream);
+
+        let text = deltas(&events);
+        assert!(text.contains("write done"), "fs/write failed: {text:?}");
+        assert!(text.contains("read window=two"), "fs/read window wrong: {text:?}");
+        assert!(
+            text.contains("termout=from-terminal"),
+            "terminal output missing: {text:?}"
+        );
+        assert!(text.contains("termexit=0"), "terminal exit wrong: {text:?}");
+        assert!(
+            text.contains("released-rejected=True"),
+            "a released terminalId must be refused: {text:?}"
+        );
+        assert!(matches!(events.last(), Some(AgentEvent::Finished)));
     }
 
     /// An agent that keeps working after it answered its own turn (Grok's

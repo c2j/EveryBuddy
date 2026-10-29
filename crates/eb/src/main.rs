@@ -402,6 +402,7 @@ fn build_ui(application: &gtk::Application) {
                             "This is the real EvoBuddy answer for the bound session.".into(),
                         )],
                         streaming: false,
+                        time: Some(eb_api::model::unix_now()),
                     },
                 ],
                 agent_route: None,
@@ -410,6 +411,8 @@ fn build_ui(application: &gtk::Application) {
                 updated_at: None,
                 pinned: false,
                 archived: false,
+                failure_unseen: false,
+                unread: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),
@@ -1118,6 +1121,270 @@ fn build_ui(application: &gtk::Application) {
                 _ => {}
             }
             gtk::glib::ControlFlow::Continue
+        });
+    }
+    // Sidebar row-states harness, `EB_ROWS=1` (ui-spec §10-40). One widget per
+    // row state: the 16px status glyph replaces the timestamp the way the
+    // product's `trailingStatus` hides its `timeContainer`, and the unread dot
+    // rides beside the timestamp instead. Point EB_STATE at a fixture from
+    // docs/make_row_state.py (one row per state, each timestamp landing on a
+    // rung of the ladder) and check the tree row by row. Fails outright when
+    // the fixture is missing, so it cannot pass by rendering nothing.
+    if std::env::var_os("EB_ROWS").is_some() {
+        let views = views.clone();
+        let store = store.clone();
+        let application = application.clone();
+        let since = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let fired = std::rc::Rc::new(std::cell::Cell::new(false));
+        gtk::glib::timeout_add_local(Duration::from_millis(200), move || {
+            since.set(since.get() + 200);
+            if fired.get() || since.get() < 600 {
+                return gtk::glib::ControlFlow::Continue;
+            }
+            fired.set(true);
+            let fail = |message: String| -> ! {
+                eprintln!("rows: FAIL {message}");
+                std::process::exit(1);
+            };
+            if store.borrow().tasks.len() < 11 {
+                fail(format!(
+                    "needs the 11-row fixture from docs/make_row_state.py (mounted {})",
+                    store.borrow().tasks.len()
+                ));
+            }
+            // Startup settles every restored turn - a process that died
+            // mid-answer must not look live - so Working cannot come from the
+            // archive. Drive it: stream that task's last turn and repaint.
+            let driven = {
+                let mut app = store.borrow_mut();
+                app.tasks
+                    .iter_mut()
+                    .find(|task| task.title == "row: working")
+                    .and_then(|task| task.turns.last_mut())
+                    .and_then(|turn| match turn {
+                        model::Turn::Agent { streaming, .. } => {
+                            *streaming = true;
+                            Some(true)
+                        }
+                        model::Turn::User { .. } => None,
+                    })
+                    .unwrap_or(false)
+            };
+            if !driven {
+                fail("the fixture's `row: working` has no agent turn to stream".to_string());
+            }
+            views.refresh(&store);
+            // What stands in one row's trailing region. The three marks are
+            // independent widgets, read by class rather than position, because
+            // the product lets the unread dot ride alongside the timestamp but
+            // never the status glyph.
+            #[derive(Default)]
+            struct Slot {
+                meta: Option<String>,
+                alert: bool,
+                spinner: bool,
+                unread: bool,
+            }
+            fn children_of(
+                widget: &impl gtk::glib::object::IsA<gtk::Widget>,
+            ) -> Vec<gtk::Widget> {
+                widget
+                    .as_ref()
+                    .downcast_ref::<gtk::Container>()
+                    .map(|container| container.children())
+                    .unwrap_or_default()
+            }
+            let has_class = |widget: &gtk::Widget, name: &str| {
+                widget
+                    .style_context()
+                    .list_classes()
+                    .iter()
+                    .any(|class| class.as_str() == name)
+            };
+            let mark_classes = [
+                "eb-task-meta",
+                "eb-row-alert",
+                "eb-row-spinner",
+                "eb-row-unread",
+            ];
+            // One row wrapper -> the widgets in its trailing region.
+            let row_marks = |shell: &gtk::Widget| -> Vec<gtk::Widget> {
+                let Some(button) = children_of(shell).first().cloned() else {
+                    return Vec::new();
+                };
+                let line = button
+                    .downcast_ref::<gtk::Bin>()
+                    .and_then(|bin| bin.child())
+                    .unwrap_or_else(|| button.clone());
+                children_of(&line)
+                    .into_iter()
+                    .filter(|child| {
+                        mark_classes
+                            .iter()
+                            .any(|name| has_class(child, name))
+                    })
+                    .collect()
+            };
+            let mut rows: Vec<(String, Slot)> = Vec::new();
+            let mut row_shells: Vec<gtk::Widget> = Vec::new();
+            for section in children_of(&views.sidebar.content) {
+                for body in children_of(&section) {
+                    for row in children_of(&body) {
+                        let Some(button) = children_of(&row).first().cloned() else {
+                            continue;
+                        };
+                        let matched = has_class(&button, "eb-task");
+                        // The row's line is the button's single child.
+                        let line = button
+                            .downcast_ref::<gtk::Bin>()
+                            .and_then(|bin| bin.child())
+                            .unwrap_or_else(|| button.clone());
+                        let children = children_of(&line);
+                        let label_text = |widget: &gtk::Widget| {
+                            widget
+                                .downcast_ref::<gtk::Label>()
+                                .map(|label| label.text().to_string())
+                        };
+                        let Some(title) = children
+                            .iter()
+                            .find(|child| has_class(child, "eb-task-title"))
+                            .and_then(|child| label_text(child))
+                        else {
+                            // Section headers walk the same shape; a row with
+                            // no title label is one of them, not a task.
+                            continue;
+                        };
+                        let mut slot = Slot::default();
+                        for child in &children {
+                            if has_class(child, "eb-task-meta") {
+                                slot.meta = label_text(child);
+                            } else if has_class(child, "eb-row-alert") {
+                                slot.alert = true;
+                            } else if has_class(child, "eb-row-spinner") {
+                                slot.spinner = true;
+                            } else if has_class(child, "eb-row-unread") {
+                                slot.unread = true;
+                            }
+                        }
+                        rows.push((title, slot));
+                        if matched {
+                            row_shells.push(row);
+                        }
+                    }
+                }
+            }
+            if rows.len() < 11 {
+                fail(format!(
+                    "needs the 11-row fixture from docs/make_row_state.py (mounted {})",
+                    rows.len()
+                ));
+            }
+            // title -> (the rung the clock must show, the glyph it must show,
+            // whether the unread dot is on). `None` for the rung is the point:
+            // a glyph replaces the timestamp.
+            let mut bad: Vec<String> = Vec::new();
+            for (title, slot) in &rows {
+                let (want_meta, want_glyph, want_dot): (Option<&str>, &str, bool) =
+                    match title.as_str() {
+                        "row: failed unseen" => (None, "alert", false),
+                        "row: planning" => (None, "spinner", false),
+                        "row: working" => (None, "spinner", false),
+                        "row: unread" => (Some("5m"), "", true),
+                        "row: just now" => (Some("Just now"), "", false),
+                        "row: failed seen" => (Some("3d"), "", false),
+                        "row: yesterday" => (Some("Yesterday"), "", false),
+                        "row: 3d" => (Some("3d"), "", false),
+                        "row: 6d" => (Some("6d"), "", false),
+                        "row: 8d" => (Some("Oct"), "", false),
+                        "row: 400d" => (Some("/"), "", false),
+                        other => {
+                            bad.push(format!("unexpected row {other:?}"));
+                            continue;
+                        }
+                    };
+                let glyph = match want_glyph {
+                    "alert" => slot.alert && !slot.spinner,
+                    "spinner" => slot.spinner && !slot.alert,
+                    _ => !slot.alert && !slot.spinner,
+                };
+                let clock = match (want_meta, &slot.meta) {
+                    (Some(rung), Some(shown)) => shown.contains(rung),
+                    (None, None) => true,
+                    (Some(rung), None) => {
+                        bad.push(format!("{title:?} shows no timestamp, wants {rung:?}"));
+                        false
+                    }
+                    (None, Some(shown)) => {
+                        bad.push(format!("{title:?} keeps {shown:?} under its glyph"));
+                        false
+                    }
+                };
+                if !glyph || !clock || slot.unread != want_dot {
+                    bad.push(format!(
+                        "{title:?} has badge={} spinner={} dot={} meta={:?}, wants glyph={want_glyph:?} dot={want_dot} meta={want_meta:?}",
+                        slot.alert, slot.spinner, slot.unread, slot.meta
+                    ));
+                }
+            }
+            for (title, slot) in &rows {
+                let mut marks: Vec<&str> = Vec::new();
+                if slot.alert {
+                    marks.push("red badge");
+                }
+                if slot.spinner {
+                    marks.push("spinner");
+                }
+                if slot.unread {
+                    marks.push("unread dot");
+                }
+                eprintln!(
+                    "rows: {title}: {}{}",
+                    if marks.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{} ", marks.join(" + "))
+                    },
+                    match &slot.meta {
+                        Some(meta) => format!("time {meta:?}"),
+                        None => "no time".to_string(),
+                    }
+                );
+            }
+            if !bad.is_empty() {
+                fail(bad.join("; "));
+            }
+            if let Some(path) = std::env::var_os("EB_ROWS_SHOT") {
+                let path = path.to_string_lossy().into_owned();
+                crate::selftest::snapshot(&views, &path);
+                eprintln!("rows: wrote {path}");
+            }
+            // `EB_ROWS_FADE=<png>` checks the mechanism behind the product's
+            // hover rule: the timestamp, the glyph and the dot all drop out
+            // while the pointer is on the card, or while its menu is open. GTK
+            // CSS cannot hide a windowless widget, so the marks fade with
+            // GtkWidget opacity - this makes the same call the enter/leave
+            // handlers make, requires the getter to read it back, and leaves a
+            // picture of a sidebar with every trailing mark gone.
+            if let Some(path) = std::env::var_os("EB_ROWS_FADE") {
+                let path = path.to_string_lossy().into_owned();
+                let mut faded = 0;
+                for shell in &row_shells {
+                    for mark in row_marks(shell) {
+                        mark.set_opacity(0.0);
+                        if mark.opacity() == 0.0 {
+                            faded += 1;
+                        }
+                    }
+                }
+                if faded == 0 {
+                    fail("no row mark accepted the opacity fade".to_string());
+                }
+                crate::selftest::snapshot(&views, &path);
+                eprintln!("rows: faded {faded} marks, wrote {path}");
+            }
+            eprintln!("rows: ok {} sidebar rows render their state", rows.len());
+            application.quit();
+            gtk::glib::ControlFlow::Break
         });
     }
     // Padding-scroll harness, `EB_PAD_SCROLL=1` (ui-spec §10-38). The transcript

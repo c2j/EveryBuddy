@@ -925,21 +925,74 @@ fn session_timestamp(session_id: &str) -> Option<u64> {
     Some(if raw > 1_000_000_000_000 { raw / 1_000 } else { raw })
 }
 
-fn relative_age(updated_at: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|time| time.as_secs())
-        .unwrap_or(0);
-    let seconds = now.saturating_sub(updated_at);
-    if seconds < 60 {
-        "now".to_string()
-    } else if seconds < 3_600 {
-        format!("{}m", seconds / 60)
-    } else if seconds < 86_400 {
-        format!("{}h", seconds / 3_600)
-    } else {
-        format!("{}d", seconds / 86_400)
+/// The sidebar clock, mirrored from `formatSidebarConversationTime` in the
+/// product bundle: `Just now` / `{n}m` / `{n}h` / `Yesterday` / `{n}d`, then a
+/// date once a week has passed - `Oct 28` inside the current year, `25/10/28`
+/// across a year end.
+///
+/// The `d` rung counts *local calendar* days, not 86400s, which is why it goes
+/// through GLib: `Yesterday` has to flip at local midnight, not at UTC midnight.
+fn sidebar_time(updated_at: u64, now: u64) -> String {
+    let elapsed = now.saturating_sub(updated_at);
+    if elapsed < 60 {
+        return "Just now".to_string();
     }
+    if elapsed < 3_600 {
+        return format!("{}m", elapsed / 60);
+    }
+    if elapsed < 86_400 {
+        return format!("{}h", elapsed / 3_600);
+    }
+    let days = local_day_number(now).saturating_sub(local_day_number(updated_at));
+    if days < 7 {
+        return if days <= 1 {
+            "Yesterday".to_string()
+        } else {
+            format!("{days}d")
+        };
+    }
+    let (year, month, day) = local_ymd(updated_at as i64);
+    let (this_year, _, _) = local_ymd(now as i64);
+    if year == this_year {
+        format!(
+            "{} {}",
+            MONTH_LABELS[usize::try_from(month - 1).unwrap_or(0)],
+            day
+        )
+    } else {
+        format!("{:02}/{:02}/{:02}", year.rem_euclid(100), month, day)
+    }
+}
+
+const MONTH_LABELS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+fn local_ymd(epoch: i64) -> (i32, i32, i32) {
+    gtk::glib::DateTime::from_unix_local(epoch)
+        .map(|time| time.ymd())
+        .unwrap_or((1970, 1, 1))
+}
+
+fn local_day_number(epoch: u64) -> i64 {
+    let (year, month, day) = local_ymd(epoch as i64);
+    days_from_civil(i64::from(year), i64::from(month), i64::from(day))
+}
+
+/// Days from 1970-01-01 to a proleptic Gregorian date (Hinnant's civil-days),
+/// so two local dates can be compared without a timezone table.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let shifted_year = if month <= 2 { year - 1 } else { year };
+    let era = if shifted_year >= 0 {
+        shifted_year
+    } else {
+        shifted_year - 399
+    } / 400;
+    let year_of_era = shifted_year - era * 400;
+    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let day_of_era =
+        year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 fn fit_to_workarea(window: &gtk::ApplicationWindow) {
@@ -1197,28 +1250,26 @@ impl Views {
 
         // ---- sidebar list ------------------------------------------------
         let stage = std::time::Instant::now();
+        let now_secs = eb_api::model::unix_now();
         let rows: Vec<TaskRow> = app
             .tasks
             .iter()
             .enumerate()
             .rev()
             .filter(|(_, task)| {
-                eb_api::model::task_matches_filters(
-                    task,
-                    app.filter_status,
-                    app.filter_time,
-                    eb_api::model::unix_now(),
-                )
+                eb_api::model::task_matches_filters(task, app.filter_status, app.filter_time, now_secs)
             })
             .map(|(index, task)| TaskRow {
                 title: task.title.clone(),
                 meta: task
                     .updated_at
                     .or_else(|| task.session_id.as_deref().and_then(session_timestamp))
-                    .map(relative_age)
+                    .map(|updated| sidebar_time(updated, now_secs))
                     .unwrap_or_else(|| task.meta.clone()),
                 active: matches!(app.route, Route::Task(active) if active == index),
-                running: eb_api::model::task_is_running(task),
+                status: eb_api::model::task_status(task),
+                failure_unseen: task.failure_unseen,
+                unread: task.unread,
                 index,
                 workspace_id: task.workspace_id.clone(),
                 pinned: task.pinned,
@@ -2816,5 +2867,44 @@ mod tests {
                 "width {width} put the sash at {sash}"
             );
         }
+    }
+
+    /// Local noon, `days` away from 2026-10-28, as a Unix second. Built through
+    /// GLib so the ladder is tested against the machine's own calendar, which is
+    /// the thing `Yesterday` depends on.
+    fn local_noon(days: i32) -> u64 {
+        let base = gtk::glib::DateTime::from_local(2026, 10, 28, 12, 0, 0.0)
+            .expect("local noon on 2026-10-28");
+        let moved = base.add_days(days).expect("shifting by whole days");
+        moved.to_unix().max(0) as u64
+    }
+
+    #[test]
+    fn the_sidebar_clock_walks_the_product_ladder() {
+        let now = local_noon(0);
+        let at = |secs: u64| sidebar_time(now - secs, now);
+        assert_eq!(at(0), "Just now");
+        assert_eq!(at(59), "Just now");
+        assert_eq!(at(60), "1m");
+        assert_eq!(at(3_599), "59m");
+        assert_eq!(at(3_600), "1h");
+        assert_eq!(at(86_399), "23h");
+        // One calendar day back, whatever the clock says.
+        assert_eq!(sidebar_time(local_noon(-1), now), "Yesterday");
+        assert_eq!(sidebar_time(local_noon(-2), now), "2d");
+        assert_eq!(sidebar_time(local_noon(-6), now), "6d");
+        // Past a week the row shows a date instead of a count.
+        assert_eq!(sidebar_time(local_noon(-8), now), "Oct 20");
+        assert_eq!(sidebar_time(local_noon(-365), now), "25/10/28");
+    }
+
+    #[test]
+    fn the_day_numbers_span_midnights_leaps_and_year_ends() {
+        let day = |y, m, d| days_from_civil(y, m, d);
+        assert_eq!(day(1970, 1, 1), 0, "the epoch is day zero");
+        assert_eq!(day(2026, 10, 28) - day(2026, 10, 21), 7);
+        assert_eq!(day(2024, 3, 1) - day(2024, 2, 28), 2, "2024 is a leap year");
+        assert_eq!(day(2023, 3, 1) - day(2023, 2, 28), 1);
+        assert_eq!(day(2026, 1, 1) - day(2025, 12, 31), 1, "no gap at a year end");
     }
 }

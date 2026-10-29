@@ -277,6 +277,22 @@ def ring():
     return im
 
 
+def task_failed():
+    """Unseen-failure mark for a sidebar task row.
+
+    Traced from the product's `TaskFailedIcon`: a 16-unit box whose dark-theme
+    layer (`__solid`) is a disc of radius 6.5 filled #f64041 with the
+    exclamation knocked out to transparency - stem 1.2 wide from y 4.5 to 9.0,
+    dot from y 10.3 to 11.5, both centred on x 8 (ui-spec §10-40). Scaled x6
+    onto this 96px canvas."""
+    im = canvas(); d = ImageDraw.Draw(im)
+    red = (246, 64, 65, 255)
+    d.ellipse((9, 9, 87, 87), fill=red)
+    d.rectangle((44, 27, 50, 54), fill=(0, 0, 0, 0))
+    d.rectangle((44, 62, 50, 69), fill=(0, 0, 0, 0))
+    return im
+
+
 def logo():
     im = canvas(); d = ImageDraw.Draw(im)
     d.rounded_rectangle((22, 22, 74, 74), radius=18, fill=GREEN)
@@ -353,6 +369,7 @@ def main():
         "check": check(), "ring": ring(), "logo": logo(), "agent": agent(),
         "pencil": pencil(), "regenerate": regenerate(), "like": like(), "dislike": dislike(),
         "artifact-code": artifact_code(), "artifact-unknown": artifact_unknown(),
+        "task-failed": task_failed(),
     }
     for name, image in icons.items():
         save(image, name)

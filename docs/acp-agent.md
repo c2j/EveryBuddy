@@ -256,6 +256,12 @@ JSON-RPC 生命周期：
 - 只发送 text prompt；图片/resource/embedded context 还没接。
 - 工具块的进度更新只在完成时落成 Block；进行中主要靠状态行。
 - 没有客户端 fs/terminal 能力，agent 必须用自己的工具访问工作区。
+  （2026-10-29 起已接上：`initialize` 声明 `clientCapabilities.fs.readTextFile`
+  /`writeTextFile` 与 `terminal`，`respond_request` 处理 `fs/read_text_file`
+  （支持 `line`/`limit`）、`fs/write_text_file`（自动建父目录）、
+  `terminal/create|output|wait_for_exit|kill|release`。终端输出按尾部截断到 1 MB
+  并回 `truncated`；相对路径按会话 workspace 解析，绝对路径原样使用。回合中途的
+  自由文本输入请求没有标准 ACP 方法，仍未接。）
 - `plan` 已映射为轻量 Plan 卡；`agent_thought_chunk` 已映射为 `Block::Thought`
   （外观未对照产品采集）；`available_commands_update` 仍未映射。
 - **pi 拿不到 EvoBuddy 连接器**：`pi-acp@0.0.34` 在 `session/new` 上以 `-32602`

@@ -45,6 +45,8 @@ pub fn save(store: &Store) {
                 "updated_at": task.updated_at,
                 "pinned": task.pinned,
                 "archived": task.archived,
+                "failure_unseen": task.failure_unseen,
+                "unread": task.unread,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -147,6 +149,8 @@ pub fn load() -> Loaded {
             updated_at,
             pinned: value["pinned"].as_bool().unwrap_or(false),
             archived: value["archived"].as_bool().unwrap_or(false),
+            failure_unseen: value["failure_unseen"].as_bool().unwrap_or(false),
+            unread: value["unread"].as_bool().unwrap_or(false),
         });
     }
 
@@ -166,6 +170,7 @@ mod tests {
                 status: Some("Finished".into()),
                 blocks: vec![crate::model::Block::Text("world".into())],
                 streaming: false,
+                time: Some(1_761_654_000),
             },
         ];
         let value = serde_json::to_value(&turns).unwrap();
@@ -179,5 +184,12 @@ mod tests {
             Turn::Agent { blocks, .. }
                 if matches!(&blocks[0], crate::model::Block::Text(text) if text == "world")
         ));
+        // Sessions saved before the hover timestamp existed deserialize with
+        // `time: None` instead of failing to load.
+        let legacy = serde_json::json!([
+            { "Agent": { "name": "EvoBuddy", "status": null, "blocks": [], "streaming": false } }
+        ]);
+        let old: Vec<Turn> = serde_json::from_value(legacy).unwrap();
+        assert!(matches!(&old[0], Turn::Agent { time: None, .. }));
     }
 }

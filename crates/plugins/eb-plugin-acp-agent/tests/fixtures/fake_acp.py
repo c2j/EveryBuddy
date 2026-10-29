@@ -37,6 +37,97 @@ def private_update(session_id, payload):
     })
 
 
+def wait_response(want_id):
+    """Read stdin until the client answers the given request id."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("id") == want_id and ("result" in message or "error" in message):
+            if "error" in message:
+                return {"error": message["error"].get("message", "")}
+            return message["result"]
+    return {"error": "client closed stdout"}
+
+
+def run_client_tools(session_id):
+    """Exercise the fs/terminal client methods end to end on a real turn.
+
+    Every step's observed fact lands in the conversation text, so the Rust
+    suite can assert on what the *agent* saw the client do.
+    """
+    notes = []
+
+    # fs/write_text_file: the client creates parents for a relative path.
+    send({"jsonrpc": "2.0", "id": 910, "method": "fs/write_text_file", "params": {
+        "sessionId": session_id, "path": "client_tools/a.txt",
+        "content": "one\ntwo\nthree\n",
+    }})
+    result = wait_response(910)
+    notes.append("write done" if not isinstance(result, dict) or "error" not in result
+                 else f"write FAILED {result}")
+
+    # fs/read_text_file with a 1-based line window.
+    send({"jsonrpc": "2.0", "id": 911, "method": "fs/read_text_file", "params": {
+        "sessionId": session_id, "path": "client_tools/a.txt", "line": 2, "limit": 1,
+    }})
+    result = wait_response(911)
+    notes.append("read window=" + result.get("content", "<none>"))
+
+    # terminal: create, drain output, wait for exit, release.
+    send({"jsonrpc": "2.0", "id": 912, "method": "terminal/create", "params": {
+        "sessionId": session_id, "command": "sh", "args": ["-c", "echo from-terminal"],
+    }})
+    result = wait_response(912)
+    terminal_id = result.get("terminalId")
+    notes.append("terminal=" + str(terminal_id))
+
+    send({"jsonrpc": "2.0", "id": 913, "method": "terminal/output", "params": {
+        "sessionId": session_id, "terminalId": terminal_id,
+    }})
+    # The output thread may lag behind the process; poll with a small pause
+    # until the line shows up.
+    import time
+    output = None
+    for _ in range(60):
+        result = wait_response(913)
+        output = result.get("output") if isinstance(result, dict) else None
+        if output and "from-terminal" in output:
+            break
+        time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": 913, "method": "terminal/output", "params": {
+            "sessionId": session_id, "terminalId": terminal_id,
+        }})
+    notes.append("termout=" + (output or "<none>").strip())
+
+    send({"jsonrpc": "2.0", "id": 914, "method": "terminal/wait_for_exit", "params": {
+        "sessionId": session_id, "terminalId": terminal_id,
+    }})
+    result = wait_response(914)
+    notes.append("termexit=" + str(result.get("exitCode")))
+
+    send({"jsonrpc": "2.0", "id": 915, "method": "terminal/release", "params": {
+        "sessionId": session_id, "terminalId": terminal_id,
+    }})
+    wait_response(915)
+
+    # A released terminal id must be rejected, not silently served.
+    send({"jsonrpc": "2.0", "id": 916, "method": "terminal/output", "params": {
+        "sessionId": session_id, "terminalId": terminal_id,
+    }})
+    result = wait_response(916)
+    notes.append("released-rejected=" + str("error" in result))
+
+    update(session_id, {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {"type": "text", "text": "CLIENTTOOLS " + " | ".join(notes)},
+    })
+
+
 def activity(session_id, state):
     """Grok's `_x.ai/sessions/changed`: the session row, with `activity` set."""
     send({
@@ -110,6 +201,13 @@ def main():
                         respond(prompt_id, {"stopReason": "cancelled"})
                         prompt_id = None
                         break
+                continue
+            if mode("client_tools"):
+                # Exercise the fs/terminal client methods the client declared
+                # in `initialize`; the observations land in the reply text.
+                run_client_tools(session_id)
+                respond(prompt_id, {"stopReason": "end_turn"})
+                prompt_id = None
                 continue
             if mode("code"):
                 update(session_id, {
