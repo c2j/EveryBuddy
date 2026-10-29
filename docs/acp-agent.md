@@ -262,6 +262,28 @@ JSON-RPC 生命周期：
   `terminal/create|output|wait_for_exit|kill|release`。终端输出按尾部截断到 1 MB
   并回 `truncated`；相对路径按会话 workspace 解析，绝对路径原样使用。回合中途的
   自由文本输入请求没有标准 ACP 方法，仍未接。）
+
+## agent-client-protocol crate（feature/acp-crate-migration 分支）
+
+0.7.23 起协议边界迁移到官方 SDK [`agent-client-protocol` 3.6.0]
+(https://crates.io/crates/agent-client-protocol)（Apache-2.0）：
+
+- **类型化握手**：`InitializeRequest`（声明 `clientCapabilities.fs`/`terminal`）、
+  `InitializeResponse`（agentInfo/agentCapabilities）、`NewSessionRequest/Response`、
+  `PromptRequest/Response`（`StopReason` 枚举），序列化/反序列化经
+  `typed_request`；schema 之外的 agent 响应仍回退到原始字符串解析。
+- **类型化客户端方法分发**：`respond_request` 把 params 反序列化为
+  `ReadTextFileRequest` / `WriteTextFileRequest` / `CreateTerminalRequest` 等官方
+  类型，响应用 `ReadTextFileResponse` 等；权限回应用
+  `RequestPermissionResponse`/`RequestPermissionOutcome`。
+- **终端遵循 wire 语义**：`terminalId` 是字符串（`TerminalId` newtype），
+  尊重 agent 传入的 `outputByteLimit`（默认仍 1 MB 安全帽，取两者较小值）；
+  reaper 以 `try_wait` 50ms 轮询收割，`Child::wait()` 不再长持锁，
+  `terminal/kill` 随时可介入。
+- **刻意保留自研的部分**：同步线程 + mpsc 传输（crate 的 stdio/process feature
+  是 smol 异步栈，与 GTK 主循环模型不匹配）、Grok 私有信封、续流窗口、
+  backlog 丢弃、`session/update` → `AgentEvent`/`Block` 映射。
+- 新增依赖：`agent-client-protocol` 3.6.0 与 `serde`（derive）。
 - `plan` 已映射为轻量 Plan 卡；`agent_thought_chunk` 已映射为 `Block::Thought`
   （外观未对照产品采集）；`available_commands_update` 仍未映射。
 - **pi 拿不到 EvoBuddy 连接器**：`pi-acp@0.0.34` 在 `session/new` 上以 `-32602`

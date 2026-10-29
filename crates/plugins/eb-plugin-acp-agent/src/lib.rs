@@ -29,14 +29,13 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use agent_client_protocol::schema::{ProtocolVersion, v1 as acp};
 use eb_api::model::{Block, DiffLine, PlanEntry};
 use eb_api::{
     AgentEvent, AgentSink, AnswerHandle, AnswerSource, DenyAll, EbPlugin, PermissionDecision,
     PermissionOption, PermissionPrompter, PermissionRequest, Ui,
 };
 use serde_json::{json, Value};
-
-const PROTOCOL_VERSION: u64 = 1;
 
 /// Grok's private "a session row changed" notification. Its upserted row carries
 /// `activity`: `working` for as long as the session has running work — including
@@ -513,6 +512,34 @@ fn read_mcp_servers(root: &std::path::Path) -> Vec<Value> {
     servers
 }
 
+/// The Grok Build workaround, in the typed shape: an agent that rejects stdio
+/// MCP servers in `session/new` still gets the conversation on an empty list.
+fn retry_session_new(
+    session: &mut AcpSession,
+    cwd: &std::path::Path,
+    error: &str,
+    debug: bool,
+) -> Result<acp::NewSessionResponse, String> {
+    if debug {
+        eprintln!("acp: session/new rejected MCP servers: {error}; retrying without them");
+    }
+    session.typed_request("session/new", acp::NewSessionRequest::new(cwd.to_path_buf()))
+}
+
+/// The same workaround, in the raw shape used when connector definitions do
+/// not fit the typed schema.
+fn retry_session_new_raw(
+    session: &mut AcpSession,
+    cwd: &str,
+    error: &str,
+    debug: bool,
+) -> Result<Value, String> {
+    if debug {
+        eprintln!("acp: session/new rejected MCP servers: {error}; retrying without them");
+    }
+    session.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))
+}
+
 fn mcp_server(name: &str, config: &Value) -> Option<Value> {
     if let Some(command) = config.get("command").and_then(Value::as_str) {
         if command.trim().is_empty() {
@@ -585,10 +612,14 @@ struct AcpSession {
 /// release. Output is capped so a chatty process cannot grow memory without
 /// bound; `truncated` tells the agent earlier bytes were dropped.
 struct Terminal {
-    process: Arc<Mutex<Child>>,
+    /// `Some` while the process runs; the reaper thread `take()`s it so
+    /// `Child::wait()` never holds the lock (a kill must not block on it).
+    process: Arc<Mutex<Option<Child>>>,
     output: Arc<Mutex<String>>,
-    /// `{"exitCode": n}` or `{"signal": "…"}` once the process is reaped.
-    exit: Arc<Mutex<Option<Value>>>,
+    /// The reaped status, per `TerminalExitStatus` (exit code or signal).
+    exit: Arc<Mutex<Option<acp::TerminalExitStatus>>>,
+    /// `outputByteLimit` from `terminal/create` (agent's cap or the default).
+    cap: usize,
 }
 
 /// Output kept per terminal; the head is trimmed once this cap is exceeded.
@@ -674,74 +705,79 @@ impl AcpSession {
         if config.debug {
             eprintln!("acp: initialize cwd={}", cwd.display());
         }
-        let init = session.request(
-            "initialize",
-            json!({
-                "protocolVersion": PROTOCOL_VERSION,
-                // fs + terminal: the agent asks this side to do file and shell
-                // work on the workspace (see `respond_request`).
-                "clientCapabilities": {
-                    "fs": { "readTextFile": true, "writeTextFile": true },
-                    "terminal": true,
-                },
-                "clientInfo": {
-                    "name": "evobuddy",
-                    "title": "EvoBuddy",
-                    "version": env!("CARGO_PKG_VERSION"),
-                }
-            }),
-        )?;
-        let version = init
-            .get("protocolVersion")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        if version != PROTOCOL_VERSION {
+        // Typed handshake from the official SDK: the capability object is what
+        // makes agents offer the fs/terminal client methods this side answers
+        // in `respond_request`.
+        let init_request = acp::InitializeRequest::new(ProtocolVersion::V1)
+            .client_capabilities(
+                acp::ClientCapabilities::new().fs(
+                    acp::FileSystemCapabilities::new()
+                        .read_text_file(true)
+                        .write_text_file(true),
+                ).terminal(true),
+            )
+            .client_info(acp::Implementation::new(
+                "evobuddy",
+                env!("CARGO_PKG_VERSION"),
+            )
+            .title("EvoBuddy"));
+        let init_response: acp::InitializeResponse =
+            session.typed_request("initialize", init_request)?;
+        if init_response.protocol_version != ProtocolVersion::V1 {
             return Err(format!(
-                "ACP version {version} is not supported (need {PROTOCOL_VERSION})"
+                "ACP version {} is not supported (need v1)",
+                init_response.protocol_version
             ));
         }
         if let Some(method) = &config.auth_method {
             session.request("authenticate", json!({ "methodId": method }))?;
         }
-        if let Some(name) = init
-            .pointer("/agentInfo/title")
-            .or_else(|| init.pointer("/agentInfo/name"))
-            .and_then(Value::as_str)
-        {
-            session.agent_name = name.to_string();
+        if let Some(agent_info) = &init_response.agent_info {
+            if let Some(title) = agent_info.title.as_deref().filter(|v| !v.is_empty()) {
+                session.agent_name = title.to_string();
+            } else {
+                session.agent_name = agent_info.name.clone();
+            }
         }
-        session.capabilities = init
-            .get("agentCapabilities")
-            .cloned()
+        session.capabilities = serde_json::to_value(&init_response.agent_capabilities)
             .unwrap_or(Value::Null);
 
         let cwd = cwd.to_string_lossy();
         let servers = mcp_servers();
+        let cwd_path = PathBuf::from(&*cwd);
         if config.debug {
             eprintln!("acp: session/new with {} MCP server(s)", servers.len());
         }
-        let new_session = match session.request(
-            "session/new",
-            json!({ "cwd": cwd, "mcpServers": servers }),
-        ) {
-            Ok(value) => value,
-            Err(error) if !servers.is_empty() => {
-                // Some ACP agents (notably Grok Build) reject stdio MCP servers
-                // in session/new. Retry with no MCP servers so the conversation
-                // still starts; connectors remain available on agents that
-                // accept them.
-                if config.debug {
-                    eprintln!("acp: session/new rejected MCP servers: {error}; retrying without them");
+        // Connector files may carry fields outside the typed schema; convert
+        // when they fit, and fall back to the raw shape when they do not.
+        let typed_servers: Option<Vec<acp::McpServer>> =
+            serde_json::from_value(json!(servers)).ok();
+        let new_session: acp::NewSessionResponse = match typed_servers {
+            Some(typed) => {
+                let mut new_session_request = acp::NewSessionRequest::new(cwd_path.clone());
+                new_session_request.mcp_servers = typed;
+                match session.typed_request("session/new", new_session_request) {
+                    Ok(value) => value,
+                    Err(error) if !servers.is_empty() => retry_session_new(&mut session, &cwd_path, &error, config.debug)?,
+                    Err(error) => return Err(error),
                 }
-                session.request("session/new", json!({ "cwd": cwd, "mcpServers": [] }))?
             }
-            Err(error) => return Err(error),
+            None => {
+                let value = match session.request(
+                    "session/new",
+                    json!({ "cwd": cwd, "mcpServers": servers }),
+                ) {
+                    Ok(value) => value,
+                    Err(error) if !servers.is_empty() => {
+                        retry_session_new_raw(&mut session, &cwd, &error, config.debug)?
+                    }
+                    Err(error) => return Err(error),
+                };
+                serde_json::from_value(value)
+                    .map_err(|error| format!("session/new: unexpected response shape: {error}"))?
+            }
         };
-        let session_id = new_session
-            .get("sessionId")
-            .and_then(Value::as_str)
-            .ok_or("session/new returned no sessionId")?
-            .to_string();
+        let session_id = new_session.session_id.0.to_string();
         if session.debug {
             eprintln!("acp: session ready: {session_id}");
         }
@@ -809,10 +845,22 @@ impl AcpSession {
                         error
                     )));
                 }
-                let stop = message
-                    .pointer("/result/stopReason")
-                    .and_then(Value::as_str)
-                    .unwrap_or("end_turn");
+                // Typed first; an agent sending a stop reason outside the
+                // schema falls back to the raw string.
+                let stop = match serde_json::from_value::<acp::PromptResponse>(
+                    message.get("result").cloned().unwrap_or(Value::Null),
+                ) {
+                    Ok(response) => match response.stop_reason {
+                        acp::StopReason::EndTurn => "end_turn".to_string(),
+                        acp::StopReason::Cancelled => "cancelled".to_string(),
+                        other => format!("{other:?}"),
+                    },
+                    Err(_) => message
+                        .pointer("/result/stopReason")
+                        .and_then(Value::as_str)
+                        .unwrap_or("end_turn")
+                        .to_string(),
+                };
                 flush_tool_group(sink, &mut pending_tools).map_err(PromptError::Message)?;
                 if stop == "cancelled" {
                     return Err(PromptError::Cancelled);
@@ -965,11 +1013,25 @@ impl AcpSession {
         }
     }
 
+    /// Send a request whose params/responses are typed by the official SDK.
+    /// Serialization/deserialization stay on this side so the sync transport,
+    /// timeouts and mid-request client-request answering all keep working.
+    fn typed_request<P: serde::Serialize, R: serde::de::DeserializeOwned>(
+        &mut self,
+        method: &str,
+        params: P,
+    ) -> Result<R, String> {
+        let params = serde_json::to_value(&params)
+            .map_err(|error| format!("{method}: params failed to serialize: {error}"))?;
+        let value = self.request(method, params)?;
+        serde_json::from_value(value)
+            .map_err(|error| format!("{method}: unexpected response shape: {error}"))
+    }
+
     fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
-        self.write(&json!({
-            "jsonrpc": "2.0",
+        self.write(&json!({            "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params
@@ -1055,26 +1117,51 @@ impl AcpSession {
                     .any(|option| option.get("optionId").and_then(Value::as_str) == Some(id))
             });
             let outcome = match selected {
-                Some(option_id) => json!({
-                    "outcome": { "outcome": "selected", "optionId": option_id }
-                }),
-                None => json!({ "outcome": { "outcome": "cancelled" } }),
+                Some(option_id) => {
+                    let outcome =
+                        acp::SelectedPermissionOutcome::new(acp::PermissionOptionId::new(option_id.clone()));
+                    acp::RequestPermissionResponse::new(
+                        acp::RequestPermissionOutcome::Selected(outcome),
+                    )
+                }
+                None => {
+                    acp::RequestPermissionResponse::new(acp::RequestPermissionOutcome::Cancelled)
+                }
             };
+            let result = serde_json::to_value(&outcome).unwrap_or(Value::Null);
             return self.write(&json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "result": outcome
+                "result": result
             }));
         }
         let params = message.get("params").cloned().unwrap_or(Value::Null);
-        let served = match method {
-            "fs/read_text_file" => fs_read(&self.cwd, &params),
-            "fs/write_text_file" => fs_write(&self.cwd, &params),
-            "terminal/create" => terminal_create(&self.cwd, &params, &mut self.terminals),
-            "terminal/output" => terminal_output(&params, &mut self.terminals),
-            "terminal/wait_for_exit" => terminal_wait(&params, &mut self.terminals),
-            "terminal/kill" => terminal_kill(&params, &mut self.terminals),
-            "terminal/release" => terminal_release(&params, &mut self.terminals),
+        // Typed dispatch through the official schema: an unknown method or a
+        // params shape outside v1 lands on the unsupported error either way.
+        let served: Result<Value, String> = match method {
+            "fs/read_text_file" => serde_json::from_value::<acp::ReadTextFileRequest>(params)
+                .map_err(|error| format!("fs/read_text_file: {error}"))
+                .and_then(|request| fs_read(&self.cwd, request)),
+            "fs/write_text_file" => serde_json::from_value::<acp::WriteTextFileRequest>(params)
+                .map_err(|error| format!("fs/write_text_file: {error}"))
+                .and_then(|request| fs_write(&self.cwd, request)),
+            "terminal/create" => serde_json::from_value::<acp::CreateTerminalRequest>(params)
+                .map_err(|error| format!("terminal/create: {error}"))
+                .and_then(|request| terminal_create(&self.cwd, request, &mut self.terminals)),
+            "terminal/output" => serde_json::from_value::<acp::TerminalOutputRequest>(params)
+                .map_err(|error| format!("terminal/output: {error}"))
+                .and_then(|request| terminal_output(request, &mut self.terminals)),
+            "terminal/wait_for_exit" => {
+                serde_json::from_value::<acp::WaitForTerminalExitRequest>(params)
+                    .map_err(|error| format!("terminal/wait_for_exit: {error}"))
+                    .and_then(|request| terminal_wait(request, &mut self.terminals))
+            }
+            "terminal/kill" => serde_json::from_value::<acp::KillTerminalRequest>(params)
+                .map_err(|error| format!("terminal/kill: {error}"))
+                .and_then(|request| terminal_kill(request, &mut self.terminals)),
+            "terminal/release" => serde_json::from_value::<acp::ReleaseTerminalRequest>(params)
+                .map_err(|error| format!("terminal/release: {error}"))
+                .and_then(|request| terminal_release(request, &mut self.terminals)),
             _ => Err(format!("unsupported client method: {method}")),
         };
         match served {
@@ -1300,17 +1387,11 @@ fn resolve_path(cwd: &std::path::Path, raw: &str) -> PathBuf {
 /// `fs/read_text_file`: `{path, line?, limit?}` → `{content}`.
 ///
 /// `line` is 1-based like the ACP spec says; `limit` caps the returned lines.
-fn fs_read(cwd: &std::path::Path, params: &Value) -> Result<Value, String> {
-    let raw = params
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or("fs/read_text_file: missing path")?;
-    let path = resolve_path(cwd, raw);
+fn fs_read(cwd: &std::path::Path, request: acp::ReadTextFileRequest) -> Result<Value, String> {
+    let path = resolve_path(cwd, &request.path.to_string_lossy());
     let text = std::fs::read_to_string(&path)
         .map_err(|error| format!("fs/read_text_file: {}: {error}", path.display()))?;
-    let line = params.get("line").and_then(Value::as_u64);
-    let limit = params.get("limit").and_then(Value::as_u64);
-    let content = match (line, limit) {
+    let content = match (request.line, request.limit) {
         (None, None) => text,
         (line, limit) => {
             let start = line.unwrap_or(1).saturating_sub(1) as usize;
@@ -1322,71 +1403,66 @@ fn fs_read(cwd: &std::path::Path, params: &Value) -> Result<Value, String> {
                 .join("\n")
         }
     };
-    Ok(json!({ "content": content }))
+    serde_json::to_value(acp::ReadTextFileResponse::new(content))
+        .map_err(|error| format!("fs/read_text_file: {error}"))
 }
 
 /// `fs/write_text_file`: `{path, content}` → null result.
-fn fs_write(cwd: &std::path::Path, params: &Value) -> Result<Value, String> {
-    let raw = params
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or("fs/write_text_file: missing path")?;
-    let content = params
-        .get("content")
-        .and_then(Value::as_str)
-        .ok_or("fs/write_text_file: missing content")?;
-    let path = resolve_path(cwd, raw);
+fn fs_write(cwd: &std::path::Path, request: acp::WriteTextFileRequest) -> Result<Value, String> {
+    let path = resolve_path(cwd, &request.path.to_string_lossy());
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("fs/write_text_file: {}: {error}", parent.display()))?;
     }
-    std::fs::write(&path, content)
+    std::fs::write(&path, &request.content)
         .map_err(|error| format!("fs/write_text_file: {}: {error}", path.display()))?;
-    Ok(Value::Null)
+    serde_json::to_value(acp::WriteTextFileResponse::new())
+        .map_err(|error| format!("fs/write_text_file: {error}"))
+}
+
+/// Map an agent-supplied wire id (a `TerminalId` string) back to the numeric
+/// key this side generated in `terminal/create`.
+fn terminal_key(id: &acp::TerminalId, method: &str) -> Result<u64, String> {
+    id.0
+        .parse::<u64>()
+        .map_err(|_| format!("{method}: unknown terminalId {}", id.0))
 }
 
 /// `terminal/create`: spawn `{command, args?, cwd?, env?}` and start draining
-/// its merged output. Returns `{terminalId}`.
+/// its merged output. Returns `{terminalId}`; an agent-sent `outputByteLimit`
+/// is honored, with this side's own cap as the default.
 fn terminal_create(
     cwd: &std::path::Path,
-    params: &Value,
+    request: acp::CreateTerminalRequest,
     terminals: &mut HashMap<u64, Terminal>,
 ) -> Result<Value, String> {
-    let command = params
-        .get("command")
-        .and_then(Value::as_str)
-        .ok_or("terminal/create: missing command")?;
-    let dir = params
-        .get("cwd")
-        .and_then(Value::as_str)
-        .map(|raw| resolve_path(cwd, raw))
+    let dir = request
+        .cwd
+        .map(|raw| resolve_path(cwd, &raw.to_string_lossy()))
         .unwrap_or_else(|| cwd.to_path_buf());
-    let mut process = Command::new(command);
-    if let Some(args) = params.get("args").and_then(Value::as_array) {
-        for arg in args.iter().filter_map(Value::as_str) {
-            process.arg(arg);
-        }
+    let mut process = Command::new(&request.command);
+    for arg in &request.args {
+        process.arg(arg);
     }
-    if let Some(env) = params.get("env").and_then(Value::as_array) {
-        for entry in env {
-            let name = entry.get("name").and_then(Value::as_str);
-            let value = entry.get("value").and_then(Value::as_str);
-            if let (Some(name), Some(value)) = (name, value) {
-                process.env(name, value);
-            }
-        }
+    for entry in &request.env {
+        process.env(&entry.name, &entry.value);
     }
+    // The agent may ask for a tighter cap than the safety default; never wider.
+    let cap = request
+        .output_byte_limit
+        .map(|value| value.min(TERMINAL_OUTPUT_CAP as u64))
+        .unwrap_or(TERMINAL_OUTPUT_CAP as u64) as usize;
     process
         .current_dir(&dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = process
-        .spawn()
-        .map_err(|error| format!("terminal/create: {}: {error}", command))?;
+    let mut child = process.spawn().map_err(|error| {
+        format!("terminal/create: {}: {error}", request.command)
+    })?;
 
     let output: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-    let exit: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+    let exit: Arc<Mutex<Option<acp::TerminalExitStatus>>> = Arc::new(Mutex::new(None));
     let stdout = child.stdout.take().ok_or("terminal/create: no stdout")?;
     let stderr = child.stderr.take().ok_or("terminal/create: no stderr")?;
     for pipe in [
@@ -1411,23 +1487,34 @@ fn terminal_create(
         });
     }
     // Reap the process once it exits so `wait_for_exit` is an answer, not a
-    // hang, even if the agent never asks.
-    let process = Arc::new(Mutex::new(child));
+    // hang, even if the agent never asks. The reaper polls with `try_wait`,
+    // holding the lock only briefly, so `terminal/kill` can always get in.
+    let process = Arc::new(Mutex::new(Some(child)));
     let exit_status = exit.clone();
     let reaped = process.clone();
-    std::thread::spawn(move || {
-        let status = reaped.lock().unwrap().wait();
-        *exit_status.lock().unwrap() = Some(match status {
-            Ok(status) if status.code().is_some() => json!({ "exitCode": status.code() }),
-            #[cfg(unix)]
-            Ok(status) => match std::os::unix::process::ExitStatusExt::signal(&status) {
-                Some(signal) => json!({ "signal": signal.to_string() }),
-                None => json!({ "exitCode": 0 }),
-            },
-            #[cfg(not(unix))]
-            Ok(_) => json!({ "exitCode": 0 }),
-            Err(error) => json!({ "exitCode": -1, "error": error.to_string() }),
-        });
+    std::thread::spawn(move || loop {
+        let outcome = {
+            let mut slot = reaped.lock().unwrap();
+            match slot.as_mut() {
+                Some(child) => match child.try_wait() {
+                    Ok(Some(status)) => {
+                        *slot = None;
+                        Some(status)
+                    }
+                    Ok(None) => None,
+                    Err(_) => {
+                        *slot = None;
+                        Some(std::process::ExitStatus::default())
+                    }
+                },
+                None => break,
+            }
+        };
+        if let Some(status) = outcome {
+            *exit_status.lock().unwrap() = Some(TerminalExit::from_process_status(status));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     });
 
     let id = terminals.keys().copied().max().unwrap_or(0) + 1;
@@ -1437,73 +1524,119 @@ fn terminal_create(
             process,
             output,
             exit,
+            cap,
         },
     );
-    Ok(json!({ "terminalId": id }))
+    serde_json::to_value(acp::CreateTerminalResponse::new(acp::TerminalId::from(
+        id.to_string(),
+    )))
+    .map_err(|error| format!("terminal/create: {error}"))
+}
+
+/// Reap outcome -> the schema's `TerminalExitStatus` (code, or signal name).
+struct TerminalExit;
+impl TerminalExit {
+    #[cfg(unix)]
+    fn from_process_status(
+        status: std::process::ExitStatus,
+    ) -> acp::TerminalExitStatus {
+        if let Some(code) = status.code() {
+            return acp::TerminalExitStatus::new().exit_code(u32::try_from(code).unwrap_or(0));
+        }
+        let signal = std::os::unix::process::ExitStatusExt::signal(&status)
+            .map(|signal| signal.to_string());
+        acp::TerminalExitStatus::new().signal(signal)
+    }
+
+    #[cfg(not(unix))]
+    fn from_process_status(
+        status: std::process::ExitStatus,
+    ) -> acp::TerminalExitStatus {
+        acp::TerminalExitStatus::new().exit_code(status.code().unwrap_or(0))
+    }
 }
 
 /// Look up a terminal the agent refers to, with a method-specific error.
 fn terminal_ref<'a>(
-    params: &Value,
+    id: &acp::TerminalId,
     terminals: &'a mut HashMap<u64, Terminal>,
     method: &str,
 ) -> Result<&'a mut Terminal, String> {
-    let id = params
-        .get("terminalId")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| format!("{method}: missing terminalId"))?;
+    let key = terminal_key(id, method)?;
     terminals
-        .get_mut(&id)
-        .ok_or_else(|| format!("{method}: unknown terminalId {id}"))
+        .get_mut(&key)
+        .ok_or_else(|| format!("{method}: unknown terminalId {}", id.0))
 }
 
-/// `terminal/output`: `{terminalId}` → `{output, truncated, exitStatus?}`.
+/// `terminal/output`: `{terminalId}` → `{output, truncated, exitStatus?}`,
+/// trimmed to the create-time cap (the agent's or the 1 MB default).
 fn terminal_output(
-    params: &Value,
+    request: acp::TerminalOutputRequest,
     terminals: &mut HashMap<u64, Terminal>,
 ) -> Result<Value, String> {
-    let terminal = terminal_ref(params, terminals, "terminal/output")?;
+    let terminal = terminal_ref(&request.terminal_id, terminals, "terminal/output")?;
     let mut buffer = terminal.output.lock().unwrap();
+    // Honor the create-time cap (`outputByteLimit` or the 1 MB default):
+    // trim from the head, keeping whole characters at the boundary.
+    let mut cap = terminal.cap;
+    if buffer.len() > cap {
+        cap = buffer
+            .char_indices()
+            .map(|(index, _)| index)
+            .find(|&index| index >= buffer.len() - cap)
+            .unwrap_or(buffer.len());
+        buffer.drain(..cap);
+    }
     let truncated = trim_terminal_output(&mut buffer);
     let exit = terminal.exit.lock().unwrap().clone();
-    let mut result = json!({ "output": buffer.clone(), "truncated": truncated });
+    let mut response = acp::TerminalOutputResponse::new(buffer.clone(), truncated);
     if let Some(exit) = exit {
-        result["exitStatus"] = exit;
+        response = response.exit_status(exit);
     }
-    Ok(result)
+    serde_json::to_value(response).map_err(|error| format!("terminal/output: {error}"))
 }
 
 /// `terminal/wait_for_exit`: blocks until the process is reaped.
-fn terminal_wait(params: &Value, terminals: &mut HashMap<u64, Terminal>) -> Result<Value, String> {
-    let terminal = terminal_ref(params, terminals, "terminal/wait_for_exit")?;
+fn terminal_wait(
+    request: acp::WaitForTerminalExitRequest,
+    terminals: &mut HashMap<u64, Terminal>,
+) -> Result<Value, String> {
+    let terminal = terminal_ref(&request.terminal_id, terminals, "terminal/wait_for_exit")?;
     loop {
         if let Some(exit) = terminal.exit.lock().unwrap().clone() {
-            return Ok(exit);
+            return serde_json::to_value(acp::WaitForTerminalExitResponse::new(exit))
+                .map_err(|error| format!("terminal/wait_for_exit: {error}"));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 }
 
 /// `terminal/kill`: stop the process; exit status lands via the reaper thread.
-fn terminal_kill(params: &Value, terminals: &mut HashMap<u64, Terminal>) -> Result<Value, String> {
-    let terminal = terminal_ref(params, terminals, "terminal/kill")?;
-    let _ = terminal.process.lock().unwrap().kill();
-    Ok(Value::Null)
+fn terminal_kill(
+    request: acp::KillTerminalRequest,
+    terminals: &mut HashMap<u64, Terminal>,
+) -> Result<Value, String> {
+    let terminal = terminal_ref(&request.terminal_id, terminals, "terminal/kill")?;
+    if let Some(child) = terminal.process.lock().unwrap().as_mut() {
+        let _ = child.kill();
+    }
+    serde_json::to_value(acp::KillTerminalResponse::new())
+        .map_err(|error| format!("terminal/kill: {error}"))
 }
 
 /// `terminal/release`: kill if still running and forget the terminal.
 fn terminal_release(
-    params: &Value,
+    request: acp::ReleaseTerminalRequest,
     terminals: &mut HashMap<u64, Terminal>,
 ) -> Result<Value, String> {
-    let id = params
-        .get("terminalId")
-        .and_then(Value::as_u64)
-        .ok_or("terminal/release: missing terminalId")?;
-    if let Some(terminal) = terminals.remove(&id) {
-        let _ = terminal.process.lock().unwrap().kill();
+    let key = terminal_key(&request.terminal_id, "terminal/release")?;
+    if let Some(terminal) = terminals.remove(&key) {
+        if let Some(child) = terminal.process.lock().unwrap().as_mut() {
+            let _ = child.kill();
+        }
     }
-    Ok(Value::Null)
+    serde_json::to_value(acp::ReleaseTerminalResponse::new())
+        .map_err(|error| format!("terminal/release: {error}"))
 }
 
 fn pick_permission(options: &[Value], auto_approve: bool) -> Option<String> {
@@ -1925,7 +2058,11 @@ mod tests {
         let cwd = tempdir("fs-roundtrip");
         fs_write(
             &cwd,
-            &json!({"path": "src/out/notes.md", "content": "hello\nworld\n"}),
+            acp::WriteTextFileRequest::new(
+                acp::SessionId::from("s"),
+                "src/out/notes.md",
+                "hello\nworld\n",
+            ),
         )
         .unwrap();
         // Relative paths land in the session workspace, and missing parents
@@ -1933,9 +2070,15 @@ mod tests {
         let written = std::fs::read_to_string(cwd.join("src/out/notes.md")).unwrap();
         assert_eq!(written, "hello\nworld\n");
 
-        let content = fs_read(&cwd, &json!({"path": "src/out/notes.md"}))
-            .unwrap()["content"]
-            .clone();
+        let content = fs_read(
+            &cwd,
+            acp::ReadTextFileRequest::new(
+                acp::SessionId::from("s"),
+                cwd.join("src/out/notes.md"),
+            ),
+        )
+        .unwrap()["content"]
+        .clone();
         assert_eq!(content.as_str().unwrap(), "hello\nworld\n");
         std::fs::remove_dir_all(&cwd).unwrap();
     }
@@ -1944,9 +2087,14 @@ mod tests {
     fn fs_read_honours_line_and_limit() {
         let cwd = tempdir("fs-window");
         std::fs::write(cwd.join("f.txt"), "one\ntwo\nthree\nfour\n").unwrap();
-        let content = fs_read(&cwd, &json!({"path": "f.txt", "line": 2, "limit": 2}))
-            .unwrap()["content"]
-            .clone();
+        let content = fs_read(
+            &cwd,
+            acp::ReadTextFileRequest::new(acp::SessionId::from("s"), cwd.join("f.txt"))
+                .line(2u32)
+                .limit(2u32),
+        )
+        .unwrap()["content"]
+        .clone();
         assert_eq!(content.as_str().unwrap(), "two\nthree");
         std::fs::remove_dir_all(&cwd).unwrap();
     }
@@ -1958,23 +2106,30 @@ mod tests {
         let mut terminals = HashMap::new();
         let created = terminal_create(
             &cwd,
-            &json!({"command": "sh", "args": ["-c", "echo hello; echo err >&2"]}),
+            acp::CreateTerminalRequest::new(acp::SessionId::from("s"), "sh").args(vec![
+                "-c".into(),
+                "echo hello; echo err >&2".into(),
+            ]),
             &mut terminals,
         )
         .unwrap();
-        let id = created["terminalId"].as_u64().unwrap();
+        let id = created["terminalId"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
 
         // wait_for_exit blocks until the reaper stores the status.
-        let exit = terminal_wait(&json!({"terminalId": id}), &mut terminals).unwrap();
+        let exit = terminal_wait(wait_request(id), &mut terminals).unwrap();
         assert_eq!(exit["exitCode"].as_i64(), Some(0));
 
-        let output = terminal_output(&json!({"terminalId": id}), &mut terminals).unwrap();
+        let output = terminal_output(output_request(id), &mut terminals).unwrap();
         assert_eq!(output["output"].as_str().unwrap(), "hello\nerr\n");
         assert_eq!(output["truncated"].as_bool(), Some(false));
         assert_eq!(output["exitStatus"]["exitCode"].as_i64(), Some(0));
 
-        terminal_release(&json!({"terminalId": id}), &mut terminals).unwrap();
-        assert!(terminal_output(&json!({"terminalId": id}), &mut terminals).is_err());
+        terminal_release(release_request(id), &mut terminals).unwrap();
+        assert!(terminal_output(output_request(id), &mut terminals).is_err());
         std::fs::remove_dir_all(&cwd).unwrap();
     }
 
@@ -1985,16 +2140,41 @@ mod tests {
         let mut terminals = HashMap::new();
         let created = terminal_create(
             &cwd,
-            &json!({"command": "sh", "args": ["-c", "sleep 30"]}),
+            acp::CreateTerminalRequest::new(acp::SessionId::from("s"), "sh")
+                .args(vec!["-c".into(), "sleep 30".into()]),
             &mut terminals,
         )
         .unwrap();
-        let id = created["terminalId"].as_u64().unwrap();
-        terminal_kill(&json!({"terminalId": id}), &mut terminals).unwrap();
-        let exit = terminal_wait(&json!({"terminalId": id}), &mut terminals).unwrap();
+        let id = created["terminalId"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        terminal_kill(kill_request(id), &mut terminals).unwrap();
+        let exit = terminal_wait(wait_request(id), &mut terminals).unwrap();
         // A killed process surfaces as a signal, not a clean exit code.
         assert!(exit.get("signal").is_some() || exit["exitCode"].as_i64() != Some(0));
         std::fs::remove_dir_all(&cwd).unwrap();
+    }
+
+    fn session_id() -> acp::SessionId {
+        acp::SessionId::from("s")
+    }
+
+    fn wait_request(id: u64) -> acp::WaitForTerminalExitRequest {
+        acp::WaitForTerminalExitRequest::new(session_id(), acp::TerminalId::from(id.to_string()))
+    }
+
+    fn output_request(id: u64) -> acp::TerminalOutputRequest {
+        acp::TerminalOutputRequest::new(session_id(), acp::TerminalId::from(id.to_string()))
+    }
+
+    fn release_request(id: u64) -> acp::ReleaseTerminalRequest {
+        acp::ReleaseTerminalRequest::new(session_id(), acp::TerminalId::from(id.to_string()))
+    }
+
+    fn kill_request(id: u64) -> acp::KillTerminalRequest {
+        acp::KillTerminalRequest::new(session_id(), acp::TerminalId::from(id.to_string()))
     }
 
     #[test]
