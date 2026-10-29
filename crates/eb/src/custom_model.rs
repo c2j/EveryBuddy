@@ -31,13 +31,14 @@ impl CustomModel {
     }
 
     fn endpoint(&self) -> String {
+        // The base URL is expected to carry its own version segment
+        // (`.../v1`, `.../v4`, ...): appending a hardcoded `/v1` turned
+        // bigmodel.cn's `/api/paas/v4` into `/v4/v1/chat/completions`.
         let base = self.config.base_url.trim().trim_end_matches('/');
         if base.ends_with("/chat/completions") {
             base.to_string()
-        } else if base.ends_with("/v1") {
-            format!("{base}/chat/completions")
         } else {
-            format!("{base}/v1/chat/completions")
+            format!("{base}/chat/completions")
         }
     }
 }
@@ -241,9 +242,16 @@ mod tests {
 
     #[test]
     fn endpoint_accepts_base_v1_and_full_paths() {
-        let mut config = CustomConfig { base_url: "https://example.test".into(), model: "m".into(), ..Default::default() };
+        let mut config = CustomConfig { base_url: "https://example.test/v1".into(), model: "m".into(), ..Default::default() };
         let model = CustomModel::new(config.clone());
         assert_eq!(model.endpoint(), "https://example.test/v1/chat/completions");
+        // A version segment other than v1 must survive: the old hardcoded /v1
+        // produced /v4/v1/chat/completions on bigmodel.cn.
+        config.base_url = "https://open.bigmodel.cn/api/paas/v4".into();
+        assert_eq!(
+            CustomModel::new(config.clone()).endpoint(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
         config.base_url = "https://example.test/v1".into();
         assert_eq!(CustomModel::new(config.clone()).endpoint(), "https://example.test/v1/chat/completions");
         config.base_url = "https://example.test/v1/chat/completions".into();

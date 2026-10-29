@@ -457,7 +457,14 @@ pub fn menu_index(route: Option<&str>) -> usize {
 pub fn route_label(route: Option<&str>) -> String {
     match route {
         Some("dsh") => "dsh".into(),
-        Some("custom") => "Custom Model".into(),
+        Some("custom") => {
+            let custom = current().custom;
+            if custom.name.trim().is_empty() {
+                "Custom Model".into()
+            } else {
+                custom.name
+            }
+        }
         Some(route) => ACP_MENU
             .iter()
             .find(|(id, _)| *id == route)
