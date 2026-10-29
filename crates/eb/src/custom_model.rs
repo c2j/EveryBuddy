@@ -1,10 +1,11 @@
 //! Custom OpenAI-compatible model answer source.
 //!
-//! This is a deliberately small adapter: one non-streaming
-//! `/chat/completions` request per turn through `curl`, so custom endpoints can
-//! be used without adding a TLS/HTTP stack to the GTK host.
+//! A deliberately small adapter: one streamed `/chat/completions` request per
+//! turn through `curl` (SSE in, `AgentEvent::Delta` out), so custom endpoints
+//! work without adding a TLS/HTTP stack to the GTK host. Non-SSE answers
+//! (servers that ignore `stream`, plain JSON errors) still parse.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,7 +52,7 @@ impl AnswerSource for CustomModel {
         let body = serde_json::json!({
             "model": self.config.model,
             "messages": [{ "role": "user", "content": prompt }],
-            "stream": false
+            "stream": true
         });
         let endpoint = self.endpoint();
         let key = self.config.api_key.clone();
@@ -67,8 +68,9 @@ impl AnswerSource for CustomModel {
                 command
                     .args([
                         "-sS",
+                        "-N",
                         "--max-time",
-                        "120",
+                        "300",
                         "-X",
                         "POST",
                         // The JSON body arrives on stdin; without `-d @-` the
@@ -100,34 +102,90 @@ impl AnswerSource for CustomModel {
                 if let Ok(mut slot) = child.lock() {
                     *slot = Some(process);
                 }
-                let mut output = String::new();
-                let mut errors = String::new();
-                if let Ok(mut slot) = child.lock() {
-                    if let Some(process) = slot.as_mut() {
-                        if let Some(mut stdout) = process.stdout.take() {
-                            let _ = stdout.read_to_string(&mut output);
+
+                // Stream the SSE lines as they arrive: every
+                // `choices[0].delta.content` becomes a Delta the transcript
+                // appends live. A server that ignores `stream` (or fails) is
+                // answered with one plain JSON body, which the fallback below
+                // still parses.
+                let stdout = child
+                    .lock()
+                    .ok()
+                    .and_then(|mut slot| slot.as_mut().and_then(|p| p.stdout.take()));
+                let mut streamed = String::new();
+                let mut raw = String::new();
+                let mut stream_error = String::new();
+                if let Some(stdout) = stdout {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().map_while(Result::ok) {
+                        if cancelled_for_worker.load(Ordering::SeqCst) {
+                            break;
                         }
-                        if let Some(mut stderr) = process.stderr.take() {
-                            let _ = stderr.read_to_string(&mut errors);
+                        raw.push_str(&line);
+                        raw.push('\n');
+                        let payload = match line.strip_prefix("data:") {
+                            Some(payload) => payload.trim(),
+                            None => continue,
+                        };
+                        if payload == "[DONE]" {
+                            break;
                         }
-                        let _ = process.wait();
+                        let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+                            continue;
+                        };
+                        if let Some(message) = value["error"]["message"].as_str() {
+                            stream_error = message.to_string();
+                            break;
+                        }
+                        if let Some(delta) =
+                            value["choices"][0]["delta"]["content"].as_str()
+                        {
+                            if !delta.is_empty() {
+                                streamed.push_str(delta);
+                                let _ = sink.send(AgentEvent::Delta { text: delta.to_string() });
+                            }
+                        }
                     }
                 }
+
+                // Drain stderr and wait for the exit so the handle's kill
+                // stays meaningful to the very end.
+                let errors = {
+                    let mut errors = String::new();
+                    if let Ok(mut slot) = child.lock() {
+                        if let Some(process) = slot.as_mut() {
+                            if let Some(mut stderr) = process.stderr.take() {
+                                let _ = stderr.read_to_string(&mut errors);
+                            }
+                            let _ = process.wait();
+                        }
+                    }
+                    errors
+                };
                 if cancelled_for_worker.load(Ordering::SeqCst) {
                     let _ = sink.send(AgentEvent::Failed { message: "Cancelled".into() });
                     return;
                 }
-                match parse_response(&output) {
-                    Ok(text) => {
-                        let _ = sink.send(AgentEvent::Block { block: Block::Text(text) });
-                        let _ = sink.send(AgentEvent::Finished);
-                    }
-                    Err(error) => {
-                        let detail = errors.lines().last().unwrap_or("").trim();
-                        let message = if detail.is_empty() { error } else { format!("{error}: {detail}") };
-                        let _ = sink.send(AgentEvent::Failed { message });
-                    }
+
+                // Streaming worked: the deltas already went out.
+                if !streamed.is_empty() && stream_error.is_empty() {
+                    let _ = sink.send(AgentEvent::Finished);
+                    return;
                 }
+
+                // Fallbacks: an in-band stream error, or a server that
+                // answered with one plain JSON body (stream ignored).
+                let error = if !stream_error.is_empty() {
+                    stream_error
+                } else {
+                    parse_response(&raw).err().unwrap_or_else(|| {
+                        "empty response".into()
+                    })
+                };
+                let detail = errors.lines().last().unwrap_or("").trim().to_string();
+                let message =
+                    if detail.is_empty() { error } else { format!("{error}: {detail}") };
+                let _ = sink.send(AgentEvent::Failed { message });
             })
             .ok();
         let _ = cancel;
@@ -229,12 +287,17 @@ mod tests {
         let (sink, stream) = eb_api::AgentSink::channel();
         let handle = model.start("what is 2 + 2", sink);
         let mut text = String::new();
+        let mut deltas = 0usize;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let finished = loop {
             if std::time::Instant::now() > deadline {
                 break false;
             }
             match stream.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(eb_api::AgentEvent::Delta { text: value }) => {
+                    deltas += 1;
+                    text.push_str(&value);
+                }
                 Ok(eb_api::AgentEvent::Block { block: Block::Text(value) }) => text.push_str(&value),
                 Ok(eb_api::AgentEvent::Failed { message }) => {
                     panic!("turn failed: {message}");
@@ -248,6 +311,7 @@ mod tests {
         let _ = server.kill();
         assert!(finished, "the turn never finished");
         assert_eq!(text, "mock says: what is 2 + 2");
+        assert!(deltas >= 2, "the answer should arrive as streamed deltas, got {deltas}");
     }
 
     fn python_available() -> bool {

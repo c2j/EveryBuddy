@@ -22,13 +22,28 @@ class Handler(BaseHTTPRequestHandler):
 
         if "messages" not in seen or seen.get("model") != "mock-model":
             body = json.dumps({"error": {"message": "mock: bad request body"}})
-        elif auth != "Bearer test-key":
-            body = json.dumps({"error": {"message": "mock: bad auth"}})
-        else:
-            prompt = seen["messages"][-1]["content"]
-            body = json.dumps({
-                "choices": [{"message": {"content": f"mock says: {prompt}"}}]
-            })
+            self._plain(body)
+            return
+        if auth != "Bearer test-key":
+            # Plain JSON error on a streamed request: exercises the client's
+            # non-SSE fallback path.
+            self._plain(json.dumps({"error": {"message": "mock: bad auth"}}))
+            return
+
+        prompt = seen["messages"][-1]["content"]
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for piece in ("mock says: ", prompt):
+            chunk = json.dumps({
+                "choices": [{"delta": {"content": piece}}]
+            }, separators=(",", ":"))
+            self.wfile.write(f"data: {chunk}\n\n".encode())
+            self.wfile.flush()
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def _plain(self, body):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
