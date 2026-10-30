@@ -140,6 +140,24 @@ impl Default for AgentRuntime {
 /// Build a bounded plain-text transcript when a conversation switches routes.
 /// ACP cannot export its internal session, so this is the portable context the
 /// next agent receives. Tool rows are summarized rather than replayed.
+/// Whether this turn's prompt should carry the prior visible conversation.
+///
+/// The custom route is a stateless HTTP chat call, so it needs the composed
+/// context on every turn after the first; stateful sources (ACP keeps a
+/// server-side session, dsh bridges one) only need it when the conversation
+/// migrates across agents.
+fn needs_migrated_context(
+    route: &str,
+    has_prior_answer: bool,
+    last_route: Option<&str>,
+    had_turns: bool,
+) -> bool {
+    if route == "custom" {
+        return has_prior_answer;
+    }
+    (last_route.is_some() || had_turns) && last_route.as_deref() != Some(route)
+}
+
 fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
     let mut context = String::new();
     let end = task.turns.len().saturating_sub(2);
@@ -558,8 +576,28 @@ impl Runner {
             )
         };
         let route = crate::router::effective_route(route_override.as_deref());
-        let migrate = (last_route.is_some() || had_turns)
-            && last_route.as_deref() != Some(route.as_str());
+        // The custom source is a stateless HTTP chat call, so every turn
+        // after the first must carry the prior visible conversation itself;
+        // stateful sources (ACP keeps a session, dsh bridges one) only need
+        // the composed context when the conversation migrates across agents.
+        let has_prior_answer = {
+            let app = self.store.borrow();
+            app.tasks
+                .get(task)
+                .map(|task_ref| {
+                    task_ref
+                        .turns
+                        .iter()
+                        .any(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
+                })
+                .unwrap_or(false)
+        };
+        let migrate = needs_migrated_context(
+            route.as_str(),
+            has_prior_answer,
+            last_route.as_deref(),
+            had_turns,
+        );
 
         let agent_text = crate::catalog::prompt_for(&text);
         let agent_text = if migrate {
@@ -1194,6 +1232,24 @@ fn cancel_after_ms() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_route_always_carries_context_after_the_first_turn() {
+        // First message: nothing to carry.
+        assert!(!needs_migrated_context("custom", false, None, false));
+        // Every later turn: the stateless HTTP call needs the history.
+        assert!(needs_migrated_context("custom", true, Some("custom"), true));
+        assert!(needs_migrated_context("custom", true, None, true));
+    }
+
+    #[test]
+    fn stateful_routes_only_migrate_across_agents() {
+        // Same agent, its own session keeps the context.
+        assert!(!needs_migrated_context("acp:opencode", true, Some("acp:opencode"), true));
+        // The conversation moved to another agent: carry it.
+        assert!(needs_migrated_context("acp:grok", true, Some("acp:opencode"), true));
+        assert!(needs_migrated_context("acp:opencode", true, None, true));
+    }
 
     fn task_with_turns() -> crate::model::Task {
         crate::model::Task {
