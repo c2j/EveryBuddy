@@ -152,6 +152,7 @@ impl AnswerSource for CustomModel {
         std::thread::Builder::new()
             .name("evobuddy-custom-model".into())
             .spawn(move || {
+                let mut consent = ToolConsent::default();
                 for _round in 0..MAX_TOOL_ROUNDS {
                     let body = serde_json::json!({
                         "model": model,
@@ -355,7 +356,8 @@ impl AnswerSource for CustomModel {
                         "tool_calls": calls_json,
                     }));
                     for call in &calls {
-                        let outcome = execute_tool(call, &root, &permissions, &sink);
+                        let outcome =
+                            execute_tool(call, &root, &permissions, &mut consent, &sink);
                         messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": call.id,
@@ -377,6 +379,16 @@ impl AnswerSource for CustomModel {
     }
 }
 
+/// Turn-scoped consent memory: an "Always allow" answer covers the rest of
+/// the turn for that tool class, so a multi-step task does not re-prompt on
+/// every call. Scoped to the turn (not the process) on purpose — each new
+/// task re-earns trust.
+#[derive(Default)]
+struct ToolConsent {
+    allow_writes_all: bool,
+    allow_commands_all: bool,
+}
+
 /// One accumulated tool call from the stream, in arrival (index) order.
 #[derive(Default)]
 struct ToolCall {
@@ -391,6 +403,7 @@ fn execute_tool(
     call: &ToolCall,
     root: &std::path::Path,
     permissions: &Arc<dyn PermissionPrompter>,
+    consent: &mut ToolConsent,
     sink: &AgentSink,
 ) -> String {
     let args: serde_json::Value = match serde_json::from_str(&call.arguments) {
@@ -445,7 +458,7 @@ fn execute_tool(
         "write_file" => {
             let raw = args["path"].as_str().unwrap_or_default().to_string();
             let content = args["content"].as_str().unwrap_or_default();
-            if !allow(permissions, &format!("Write file: {raw}")) {
+            if !allow(permissions, &format!("Write file: {raw}"), "write", consent) {
                 return report(
                     "Rejected",
                     format!("Write {raw}"),
@@ -508,7 +521,7 @@ fn execute_tool(
         }
         "run_command" => {
             let command = args["command"].as_str().unwrap_or_default().to_string();
-            if !allow(permissions, &format!("Run command: {command}")) {
+            if !allow(permissions, &format!("Run command: {command}"), "command", consent) {
                 return report(
                     "Rejected",
                     format!("Bash: {command}"),
@@ -551,8 +564,29 @@ fn execute_tool(
     }
 }
 
-/// Ask the host's permission prompter for a mutating tool call.
-fn allow(permissions: &Arc<dyn PermissionPrompter>, title: &str) -> bool {
+/// Ask the host's permission prompter for a mutating tool call. `class` is
+/// "write" or "command": an "Always allow" answer remembers the class for the
+/// rest of the turn. `EB_PERMISSION_AUTO` (allow/reject) skips the prompt,
+/// mirroring the ACP verification path.
+fn allow(
+    permissions: &Arc<dyn PermissionPrompter>,
+    title: &str,
+    class: &str,
+    consent: &mut ToolConsent,
+) -> bool {
+    let remembered = match class {
+        "write" => consent.allow_writes_all,
+        "command" => consent.allow_commands_all,
+        _ => false,
+    };
+    if remembered {
+        return true;
+    }
+    match std::env::var("EB_PERMISSION_AUTO").as_deref() {
+        Ok("allow") => return true,
+        Ok("reject") => return false,
+        _ => {}
+    }
     let request = PermissionRequest {
         title: title.to_string(),
         options: vec![
@@ -562,16 +596,30 @@ fn allow(permissions: &Arc<dyn PermissionPrompter>, title: &str) -> bool {
                 kind: "allow_once".into(),
             },
             PermissionOption {
+                id: "allow_always".into(),
+                label: "Always allow".into(),
+                kind: "allow_always".into(),
+            },
+            PermissionOption {
                 id: "reject_once".into(),
                 label: "Reject".into(),
                 kind: "reject_once".into(),
             },
         ],
     };
-    matches!(
-        permissions.ask(request),
-        PermissionDecision::Selected(id) if id == "allow_once"
-    )
+    let decision = permissions.ask(request);
+    match decision {
+        PermissionDecision::Selected(id) if id == "allow_once" => true,
+        PermissionDecision::Selected(id) if id == "allow_always" => {
+            match class {
+                "write" => consent.allow_writes_all = true,
+                "command" => consent.allow_commands_all = true,
+                _ => {}
+            }
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Keep the tail of `text` within `cap` bytes, cutting at a char boundary.
@@ -841,13 +889,17 @@ mod tests {
             name: "run_command".into(),
             arguments: r#"{"command": "echo hi"}"#.into(),
         };
+        let mut consent = ToolConsent::default();
         let result = execute_tool(
             &call,
             std::path::Path::new("/tmp"),
             &permissions,
+            &mut consent,
             &sink,
         );
         assert_eq!(result, "user rejected this command");
+        // A denial is not consent: the class stays un-remembered.
+        assert!(!consent.allow_commands_all);
     }
 
     #[test]
@@ -864,8 +916,9 @@ mod tests {
             name: "read_file".into(),
             arguments: json_args(r#"{"path": "a.txt"}"#),
         };
+        let mut consent = ToolConsent::default();
         assert_eq!(
-            execute_tool(&read, &dir, &permissions, &sink),
+            execute_tool(&read, &dir, &permissions, &mut consent, &sink),
             "abc"
         );
         let list = ToolCall {
@@ -873,19 +926,79 @@ mod tests {
             name: "list_dir".into(),
             arguments: json_args(r#"{"path": "."}"#),
         };
-        let listing = execute_tool(&list, &dir, &permissions, &sink);
+        let listing = execute_tool(&list, &dir, &permissions, &mut consent, &sink);
         assert!(listing.contains("a.txt") && listing.contains("sub/"));
         let missing = ToolCall {
             id: "t".into(),
             name: "read_file".into(),
             arguments: json_args(r#"{"path": "nope.txt"}"#),
         };
-        assert!(execute_tool(&missing, &dir, &permissions, &sink).starts_with("read failed:"));
+        assert!(execute_tool(&missing, &dir, &permissions, &mut consent, &sink)
+            .starts_with("read failed:"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn json_args(raw: &str) -> String {
         raw.to_string()
+    }
+
+    /// A prompter that answers "Always allow" and counts how often it was
+    /// actually consulted.
+    struct AlwaysAllow(std::sync::atomic::AtomicUsize);
+    impl PermissionPrompter for AlwaysAllow {
+        fn ask(&self, _request: PermissionRequest) -> PermissionDecision {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            PermissionDecision::Selected("allow_always".into())
+        }
+    }
+
+    #[test]
+    fn always_allow_remembers_the_class_for_the_turn() {
+        let (sink, _stream) = eb_api::AgentSink::channel();
+        let prompter: &'static AlwaysAllow =
+            Box::leak(Box::new(AlwaysAllow(std::sync::atomic::AtomicUsize::new(0))));
+        let permissions: Arc<dyn PermissionPrompter> = Arc::new(Leaked(prompter));
+
+        let dir = std::env::temp_dir().join(format!("eb-consent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut consent = ToolConsent::default();
+
+        let first = ToolCall {
+            id: "t".into(),
+            name: "run_command".into(),
+            arguments: json_args(r#"{"command": "echo one"}"#),
+        };
+        let second = ToolCall {
+            id: "t".into(),
+            name: "run_command".into(),
+            arguments: json_args(r#"{"command": "echo two"}"#),
+        };
+        execute_tool(&first, &dir, &permissions, &mut consent, &sink);
+        assert_eq!(prompter.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the first call must prompt");
+        execute_tool(&second, &dir, &permissions, &mut consent, &sink);
+        assert_eq!(
+            prompter.0.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "Always allow must cover the rest of the turn without re-prompting"
+        );
+        assert!(consent.allow_commands_all);
+        // The other class is still prompt-worthy.
+        let write = ToolCall {
+            id: "t".into(),
+            name: "write_file".into(),
+            arguments: json_args(r#"{"path": "x.txt", "content": "hi"}"#),
+        };
+        execute_tool(&write, &dir, &permissions, &mut consent, &sink);
+        assert_eq!(prompter.0.load(std::sync::atomic::Ordering::SeqCst), 2, "a different class prompts again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    struct Leaked(&'static AlwaysAllow);
+    impl PermissionPrompter for Leaked {
+        fn ask(&self, request: PermissionRequest) -> PermissionDecision {
+            self.0.ask(request)
+        }
     }
 
     fn python_available() -> bool {
