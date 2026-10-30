@@ -1797,3 +1797,22 @@ textview.eb-md-view text {
   color: @eb_text_primary;
   font-size: 14px;
 }
+
+/* Floating "back to the newest message" arrow: appears when the reader
+ * scrolls up from the bottom edge, above the composer on the pane's end. */
+button.eb-jump-latest {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 18px;
+  background-color: #ffffff;
+  background-image: none;
+  border: 1px solid #d9d9d9;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+  color: #484848;
+  font-size: 17px;
+}
+
+button.eb-jump-latest:hover {
+  background-color: #f0f0f0;
+}
