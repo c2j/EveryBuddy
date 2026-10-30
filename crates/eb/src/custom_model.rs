@@ -156,10 +156,12 @@ impl AnswerSource for CustomModel {
                 // request renders as a card in the transcript and the answer
                 // arrives through the responder.
                 let mut consent = ToolConsent::default();
-                let mut ask = |title: &str| -> bool {
+                let mut ask = |_class: &str, title: &str| -> PermissionDecision {
+                    // The headless verification path answers before the card:
+                    // EB_PERMISSION_AUTO=allow|reject short-circuits it.
                     match std::env::var("EB_PERMISSION_AUTO").as_deref() {
-                        Ok("allow") => return true,
-                        Ok("reject") => return false,
+                        Ok("allow") => return PermissionDecision::Selected("allow_once".into()),
+                        Ok("reject") => return PermissionDecision::Cancelled,
                         _ => {}
                     }
                     let (reply, receiver) = std::sync::mpsc::channel();
@@ -189,20 +191,14 @@ impl AnswerSource for CustomModel {
                     });
                     loop {
                         if cancelled_for_worker.load(Ordering::SeqCst) {
-                            return false;
+                            return PermissionDecision::Cancelled;
                         }
-                        match receiver.recv_timeout(std::time::Duration::from_millis(200)) {
-                            Ok(PermissionDecision::Selected(id)) if id == "allow_once" => {
-                                return true;
-                            }
-                            Ok(PermissionDecision::Selected(id)) if id == "allow_always" => {
-                                consent.allow_writes_all = true;
-                                consent.allow_commands_all = true;
-                                return true;
-                            }
-                            Ok(_) => return false,
+                        match receiver
+                            .recv_timeout(std::time::Duration::from_millis(200))
+                        {
+                            Ok(decision) => return decision,
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(_) => return false,
+                            Err(_) => return PermissionDecision::Cancelled,
                         }
                     }
                 };
@@ -409,7 +405,8 @@ impl AnswerSource for CustomModel {
                         "tool_calls": calls_json,
                     }));
                     for call in &calls {
-                        let outcome = execute_tool(call, &root, &mut ask, &sink);
+                        let outcome =
+                            execute_tool(call, &root, &mut consent, &mut ask, &sink);
                         messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": call.id,
@@ -441,6 +438,24 @@ struct ToolConsent {
     allow_commands_all: bool,
 }
 
+impl ToolConsent {
+    fn allows(&self, class: &str) -> bool {
+        match class {
+            "write" => self.allow_writes_all,
+            "command" => self.allow_commands_all,
+            _ => false,
+        }
+    }
+
+    fn remember(&mut self, class: &str) {
+        match class {
+            "write" => self.allow_writes_all = true,
+            "command" => self.allow_commands_all = true,
+            _ => {}
+        }
+    }
+}
+
 /// One accumulated tool call from the stream, in arrival (index) order.
 #[derive(Default)]
 struct ToolCall {
@@ -454,9 +469,31 @@ struct ToolCall {
 fn execute_tool(
     call: &ToolCall,
     root: &std::path::Path,
-    ask: &mut dyn FnMut(&str) -> bool,
+    consent: &mut ToolConsent,
+    ask: &mut dyn FnMut(&str, &str) -> PermissionDecision,
     sink: &AgentSink,
 ) -> String {
+    // Gate order for a mutating call: turn-scoped Always-allow memory, then
+    // the composer's ◇ permission picker (Auto-approve answers everything,
+    // Read-only rejects), then the inline card.
+    let mut gate = |class: &str, title: &str, consent: &mut ToolConsent| -> bool {
+        if consent.allows(class) {
+            return true;
+        }
+        match crate::router::permission_mode() {
+            1 => return true,
+            2 => return false,
+            _ => {}
+        }
+        match ask(class, title) {
+            PermissionDecision::Selected(id) if id == "allow_always" => {
+                consent.remember(class);
+                true
+            }
+            PermissionDecision::Selected(_) => true,
+            _ => false,
+        }
+    };
     let args: serde_json::Value = match serde_json::from_str(&call.arguments) {
         Ok(value) => value,
         Err(error) => return format!("error: invalid arguments JSON: {error}"),
@@ -509,7 +546,7 @@ fn execute_tool(
         "write_file" => {
             let raw = args["path"].as_str().unwrap_or_default().to_string();
             let content = args["content"].as_str().unwrap_or_default();
-            if !ask(&format!("Write file: {raw}")) {
+            if !gate("write", &format!("Write file: {raw}"), consent) {
                 return report(
                     "Rejected",
                     format!("Write {raw}"),
@@ -572,7 +609,7 @@ fn execute_tool(
         }
         "run_command" => {
             let command = args["command"].as_str().unwrap_or_default().to_string();
-            if !ask(&format!("Run command: {command}")) {
+            if !gate("command", &format!("Run command: {command}"), consent) {
                 return report(
                     "Rejected",
                     format!("Bash: {command}"),
@@ -795,6 +832,11 @@ mod tests {
     /// the model can answer.
     #[test]
     fn tool_calls_execute_in_the_workspace_and_feed_back() {
+        let _guard = mode_lock();
+        // Entry self-cleanup: a panicked sibling can leave the global mode or
+        // env corrupted; these tests each start from a known state.
+        crate::router::set_permission_mode(0);
+        std::env::remove_var("EB_PERMISSION_AUTO");
         if !python_available() {
             eprintln!("skipping: python3 not available");
             return;
@@ -866,21 +908,75 @@ mod tests {
     }
 
     #[test]
+    fn the_permission_mode_answers_without_prompting() {
+        let _guard = mode_lock();
+        // Entry self-cleanup: a panicked sibling can leave the global mode or
+        // env corrupted; these tests each start from a known state.
+        crate::router::set_permission_mode(0);
+        std::env::remove_var("EB_PERMISSION_AUTO");
+        crate::router::set_permission_mode(1); // Auto-approve
+        let (sink, _stream) = eb_api::AgentSink::channel();
+        let prompts = std::cell::Cell::new(0usize);
+        let mut consent = ToolConsent::default();
+        let mut ask = |_class: &str, _title: &str| -> PermissionDecision {
+            prompts.set(prompts.get() + 1);
+            PermissionDecision::Cancelled
+        };
+        let call = ToolCall {
+            id: "t".into(),
+            name: "run_command".into(),
+            arguments: json_args(r#"{"command": "echo hi"}"#),
+        };
+        let result = execute_tool(
+            &call,
+            std::path::Path::new("/tmp"),
+            &mut consent,
+            &mut ask,
+            &sink,
+        );
+        assert_eq!(result, "exit 0
+hi");
+        assert_eq!(prompts.get(), 0, "auto-approve must not prompt");
+
+        crate::router::set_permission_mode(2); // Read-only
+        let result = execute_tool(
+            &call,
+            std::path::Path::new("/tmp"),
+            &mut consent,
+            &mut ask,
+            &sink,
+        );
+        assert_eq!(result, "user rejected this command");
+        crate::router::set_permission_mode(0);
+    }
+
+    #[test]
     fn denials_are_reported_as_tool_results() {
+        let _guard = mode_lock();
+        // Entry self-cleanup: a panicked sibling can leave the global mode or
+        // env corrupted; these tests each start from a known state.
+        crate::router::set_permission_mode(0);
+        std::env::remove_var("EB_PERMISSION_AUTO");
         let (sink, _stream) = eb_api::AgentSink::channel();
         let mut denials = 0usize;
-        let mut ask = |title: &str| -> bool {
+        let mut consent = ToolConsent::default();
+        let mut ask = |_class: &str, title: &str| -> PermissionDecision {
             denials += 1;
             let _ = title;
-            false
+            PermissionDecision::Cancelled
         };
         let call = ToolCall {
             id: "t".into(),
             name: "run_command".into(),
             arguments: r#"{"command": "echo hi"}"#.into(),
         };
-        let result =
-            execute_tool(&call, std::path::Path::new("/tmp"), &mut ask, &sink);
+        let result = execute_tool(
+            &call,
+            std::path::Path::new("/tmp"),
+            &mut consent,
+            &mut ask,
+            &sink,
+        );
         assert_eq!(result, "user rejected this command");
         assert_eq!(denials, 1, "the rejection went through the ask");
     }
@@ -889,7 +985,10 @@ mod tests {
     fn read_file_lists_and_errors() {
         let (sink, _stream) = eb_api::AgentSink::channel();
         // Reads never prompt.
-        let mut ask = |_title: &str| -> bool { panic!("reads must not ask") };
+        let mut consent = ToolConsent::default();
+        let mut ask = |_class: &str, _title: &str| -> PermissionDecision {
+            panic!("reads must not ask")
+        };
         let dir = std::env::temp_dir().join(format!("eb-custom-read-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
@@ -901,20 +1000,24 @@ mod tests {
             arguments: json_args(r#"{"path": "a.txt"}"#),
         };
         let mut consent = ToolConsent::default();
-        assert_eq!(execute_tool(&read, &dir, &mut ask, &sink), "abc");
+        assert_eq!(
+            execute_tool(&read, &dir, &mut consent, &mut ask, &sink),
+            "abc"
+        );
         let list = ToolCall {
             id: "t".into(),
             name: "list_dir".into(),
             arguments: json_args(r#"{"path": "."}"#),
         };
-        let listing = execute_tool(&list, &dir, &mut ask, &sink);
+        let listing = execute_tool(&list, &dir, &mut consent, &mut ask, &sink);
         assert!(listing.contains("a.txt") && listing.contains("sub/"));
         let missing = ToolCall {
             id: "t".into(),
             name: "read_file".into(),
             arguments: json_args(r#"{"path": "nope.txt"}"#),
         };
-        assert!(execute_tool(&missing, &dir, &mut ask, &sink).starts_with("read failed:"));
+        assert!(execute_tool(&missing, &dir, &mut consent, &mut ask, &sink)
+            .starts_with("read failed:"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -924,23 +1027,23 @@ mod tests {
 
     #[test]
     fn always_allow_remembers_the_class_for_the_turn() {
+        let _guard = mode_lock();
+        // Entry self-cleanup: a panicked sibling can leave the global mode or
+        // env corrupted; these tests each start from a known state.
+        crate::router::set_permission_mode(0);
+        std::env::remove_var("EB_PERMISSION_AUTO");
         std::env::remove_var("EB_PERMISSION_AUTO");
         let (sink, _stream) = eb_api::AgentSink::channel();
         use std::cell::RefCell as RcCell;
         use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
         let prompts = std::rc::Rc::new(AtomicUsize::new(0));
-        let memory = std::rc::Rc::new(RcCell::new(std::collections::HashSet::new()));
+        let mut consent = ToolConsent::default();
         let prompts_for_ask = prompts.clone();
-        let memory_for_ask = memory.clone();
-        // Mirrors ToolConsent: the memory is per tool class.
-        let mut ask = move |title: &str| -> bool {
-            let class = if title.starts_with("Write file:") { "write" } else { "command" };
-            if memory_for_ask.borrow().contains(class) {
-                return true;
-            }
+        // Always answers "Always allow"; consent remembering is the code
+        // under test, so the ask itself is class-blind.
+        let mut ask = move |_class: &str, _title: &str| -> PermissionDecision {
             prompts_for_ask.fetch_add(1, AtomicOrdering::SeqCst);
-            memory_for_ask.borrow_mut().insert(class.to_string());
-            true
+            PermissionDecision::Selected("allow_always".into())
         };
 
         let dir = std::env::temp_dir().join(format!("eb-consent-{}", std::process::id()));
@@ -957,9 +1060,9 @@ mod tests {
             name: "run_command".into(),
             arguments: json_args(r#"{"command": "echo two"}"#),
         };
-        execute_tool(&first, &dir, &mut ask, &sink);
+        execute_tool(&first, &dir, &mut consent, &mut ask, &sink);
         assert_eq!(prompts.load(AtomicOrdering::SeqCst), 1, "the first call must prompt");
-        execute_tool(&second, &dir, &mut ask, &sink);
+        execute_tool(&second, &dir, &mut consent, &mut ask, &sink);
         assert_eq!(
             prompts.load(AtomicOrdering::SeqCst),
             1,
@@ -971,9 +1074,17 @@ mod tests {
             name: "write_file".into(),
             arguments: json_args(r#"{"path": "x.txt", "content": "hi"}"#),
         };
-        execute_tool(&write, &dir, &mut ask, &sink);
+        execute_tool(&write, &dir, &mut consent, &mut ask, &sink);
         assert_eq!(prompts.load(AtomicOrdering::SeqCst), 2, "a different class prompts again");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The composer permission mode and the EB_PERMISSION_AUTO env are
+    /// process-global; the tests that touch them serialize on this lock so
+    /// parallel tests cannot answer each other's prompts.
+    fn mode_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap()
     }
 
     fn python_available() -> bool {
