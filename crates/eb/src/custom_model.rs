@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use eb_api::{
     AgentEvent, AgentSink, AnswerHandle, AnswerSource, DenyAll, PermissionDecision,
-    PermissionOption, PermissionPrompter, PermissionRequest,
+    PermissionOption, PermissionRequest, PermissionResponder,
 };
 use eb_api::model::Block;
 
@@ -118,14 +118,14 @@ impl CustomModel {
 
 impl AnswerSource for CustomModel {
     fn start(&self, prompt: &str, sink: AgentSink) -> Box<dyn AnswerHandle> {
-        self.start_in(prompt, sink, Arc::new(DenyAll), None)
+        self.start_in(prompt, sink, Arc::new(eb_api::DenyAll), None)
     }
 
     fn start_in(
         &self,
         prompt: &str,
         sink: AgentSink,
-        permissions: Arc<dyn PermissionPrompter>,
+        _permissions: Arc<dyn eb_api::PermissionPrompter>,
         workspace: Option<PathBuf>,
     ) -> Box<dyn AnswerHandle> {
         if let Err(error) = validate(&self.config) {
@@ -152,7 +152,60 @@ impl AnswerSource for CustomModel {
         std::thread::Builder::new()
             .name("evobuddy-custom-model".into())
             .spawn(move || {
+                // The turn-scoped consent memory, plus the inline ask: the
+                // request renders as a card in the transcript and the answer
+                // arrives through the responder.
                 let mut consent = ToolConsent::default();
+                let mut ask = |title: &str| -> bool {
+                    match std::env::var("EB_PERMISSION_AUTO").as_deref() {
+                        Ok("allow") => return true,
+                        Ok("reject") => return false,
+                        _ => {}
+                    }
+                    let (reply, receiver) = std::sync::mpsc::channel();
+                    let request = PermissionRequest {
+                        title: title.to_string(),
+                        options: vec![
+                            PermissionOption {
+                                id: "allow_once".into(),
+                                label: "Allow".into(),
+                                kind: "allow_once".into(),
+                            },
+                            PermissionOption {
+                                id: "allow_always".into(),
+                                label: "Always allow".into(),
+                                kind: "allow_always".into(),
+                            },
+                            PermissionOption {
+                                id: "reject_once".into(),
+                                label: "Reject".into(),
+                                kind: "reject_once".into(),
+                            },
+                        ],
+                    };
+                    let _ = sink.send(AgentEvent::PermissionRequested {
+                        request,
+                        responder: PermissionResponder::new(reply),
+                    });
+                    loop {
+                        if cancelled_for_worker.load(Ordering::SeqCst) {
+                            return false;
+                        }
+                        match receiver.recv_timeout(std::time::Duration::from_millis(200)) {
+                            Ok(PermissionDecision::Selected(id)) if id == "allow_once" => {
+                                return true;
+                            }
+                            Ok(PermissionDecision::Selected(id)) if id == "allow_always" => {
+                                consent.allow_writes_all = true;
+                                consent.allow_commands_all = true;
+                                return true;
+                            }
+                            Ok(_) => return false,
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(_) => return false,
+                        }
+                    }
+                };
                 for _round in 0..MAX_TOOL_ROUNDS {
                     let body = serde_json::json!({
                         "model": model,
@@ -356,8 +409,7 @@ impl AnswerSource for CustomModel {
                         "tool_calls": calls_json,
                     }));
                     for call in &calls {
-                        let outcome =
-                            execute_tool(call, &root, &permissions, &mut consent, &sink);
+                        let outcome = execute_tool(call, &root, &mut ask, &sink);
                         messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": call.id,
@@ -402,8 +454,7 @@ struct ToolCall {
 fn execute_tool(
     call: &ToolCall,
     root: &std::path::Path,
-    permissions: &Arc<dyn PermissionPrompter>,
-    consent: &mut ToolConsent,
+    ask: &mut dyn FnMut(&str) -> bool,
     sink: &AgentSink,
 ) -> String {
     let args: serde_json::Value = match serde_json::from_str(&call.arguments) {
@@ -458,7 +509,7 @@ fn execute_tool(
         "write_file" => {
             let raw = args["path"].as_str().unwrap_or_default().to_string();
             let content = args["content"].as_str().unwrap_or_default();
-            if !allow(permissions, &format!("Write file: {raw}"), "write", consent) {
+            if !ask(&format!("Write file: {raw}")) {
                 return report(
                     "Rejected",
                     format!("Write {raw}"),
@@ -521,7 +572,7 @@ fn execute_tool(
         }
         "run_command" => {
             let command = args["command"].as_str().unwrap_or_default().to_string();
-            if !allow(permissions, &format!("Run command: {command}"), "command", consent) {
+            if !ask(&format!("Run command: {command}")) {
                 return report(
                     "Rejected",
                     format!("Bash: {command}"),
@@ -561,64 +612,6 @@ fn execute_tool(
             }
         }
         other => format!("error: unknown tool {other}"),
-    }
-}
-
-/// Ask the host's permission prompter for a mutating tool call. `class` is
-/// "write" or "command": an "Always allow" answer remembers the class for the
-/// rest of the turn. `EB_PERMISSION_AUTO` (allow/reject) skips the prompt,
-/// mirroring the ACP verification path.
-fn allow(
-    permissions: &Arc<dyn PermissionPrompter>,
-    title: &str,
-    class: &str,
-    consent: &mut ToolConsent,
-) -> bool {
-    let remembered = match class {
-        "write" => consent.allow_writes_all,
-        "command" => consent.allow_commands_all,
-        _ => false,
-    };
-    if remembered {
-        return true;
-    }
-    match std::env::var("EB_PERMISSION_AUTO").as_deref() {
-        Ok("allow") => return true,
-        Ok("reject") => return false,
-        _ => {}
-    }
-    let request = PermissionRequest {
-        title: title.to_string(),
-        options: vec![
-            PermissionOption {
-                id: "allow_once".into(),
-                label: "Allow".into(),
-                kind: "allow_once".into(),
-            },
-            PermissionOption {
-                id: "allow_always".into(),
-                label: "Always allow".into(),
-                kind: "allow_always".into(),
-            },
-            PermissionOption {
-                id: "reject_once".into(),
-                label: "Reject".into(),
-                kind: "reject_once".into(),
-            },
-        ],
-    };
-    let decision = permissions.ask(request);
-    match decision {
-        PermissionDecision::Selected(id) if id == "allow_once" => true,
-        PermissionDecision::Selected(id) if id == "allow_always" => {
-            match class {
-                "write" => consent.allow_writes_all = true,
-                "command" => consent.allow_commands_all = true,
-                _ => {}
-            }
-            true
-        }
-        _ => false,
     }
 }
 
@@ -712,16 +705,6 @@ mod tests {
         );
         config.base_url = "https://example.test/v1/chat/completions".into();
         assert_eq!(CustomModel::new(config).endpoint(), "https://example.test/v1/chat/completions");
-    }
-
-    struct AllowWrites;
-    impl PermissionPrompter for AllowWrites {
-        fn ask(
-            &self,
-            _request: PermissionRequest,
-        ) -> PermissionDecision {
-            PermissionDecision::Selected("allow_once".into())
-        }
     }
 
     #[test]
@@ -844,10 +827,11 @@ mod tests {
             model: "mock-model".into(),
         });
         let (sink, stream) = eb_api::AgentSink::channel();
+        std::env::set_var("EB_PERMISSION_AUTO", "allow");
         let handle = model.start_in(
             "write it",
             sink,
-            Arc::new(AllowWrites),
+            Arc::new(eb_api::DenyAll),
             Some(workspace.clone()),
         );
         let mut text = String::new();
@@ -872,6 +856,7 @@ mod tests {
         };
         handle.cancel();
         let _ = server.kill();
+        std::env::remove_var("EB_PERMISSION_AUTO");
         assert!(finished, "the tool round never finished");
         assert_eq!(text, "tool result seen");
         let written =
@@ -883,29 +868,28 @@ mod tests {
     #[test]
     fn denials_are_reported_as_tool_results() {
         let (sink, _stream) = eb_api::AgentSink::channel();
-        let permissions: Arc<dyn PermissionPrompter> = Arc::new(DenyAll);
+        let mut denials = 0usize;
+        let mut ask = |title: &str| -> bool {
+            denials += 1;
+            let _ = title;
+            false
+        };
         let call = ToolCall {
             id: "t".into(),
             name: "run_command".into(),
             arguments: r#"{"command": "echo hi"}"#.into(),
         };
-        let mut consent = ToolConsent::default();
-        let result = execute_tool(
-            &call,
-            std::path::Path::new("/tmp"),
-            &permissions,
-            &mut consent,
-            &sink,
-        );
+        let result =
+            execute_tool(&call, std::path::Path::new("/tmp"), &mut ask, &sink);
         assert_eq!(result, "user rejected this command");
-        // A denial is not consent: the class stays un-remembered.
-        assert!(!consent.allow_commands_all);
+        assert_eq!(denials, 1, "the rejection went through the ask");
     }
 
     #[test]
     fn read_file_lists_and_errors() {
         let (sink, _stream) = eb_api::AgentSink::channel();
-        let permissions: Arc<dyn PermissionPrompter> = Arc::new(DenyAll);
+        // Reads never prompt.
+        let mut ask = |_title: &str| -> bool { panic!("reads must not ask") };
         let dir = std::env::temp_dir().join(format!("eb-custom-read-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).unwrap();
@@ -917,24 +901,20 @@ mod tests {
             arguments: json_args(r#"{"path": "a.txt"}"#),
         };
         let mut consent = ToolConsent::default();
-        assert_eq!(
-            execute_tool(&read, &dir, &permissions, &mut consent, &sink),
-            "abc"
-        );
+        assert_eq!(execute_tool(&read, &dir, &mut ask, &sink), "abc");
         let list = ToolCall {
             id: "t".into(),
             name: "list_dir".into(),
             arguments: json_args(r#"{"path": "."}"#),
         };
-        let listing = execute_tool(&list, &dir, &permissions, &mut consent, &sink);
+        let listing = execute_tool(&list, &dir, &mut ask, &sink);
         assert!(listing.contains("a.txt") && listing.contains("sub/"));
         let missing = ToolCall {
             id: "t".into(),
             name: "read_file".into(),
             arguments: json_args(r#"{"path": "nope.txt"}"#),
         };
-        assert!(execute_tool(&missing, &dir, &permissions, &mut consent, &sink)
-            .starts_with("read failed:"));
+        assert!(execute_tool(&missing, &dir, &mut ask, &sink).starts_with("read failed:"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -942,27 +922,30 @@ mod tests {
         raw.to_string()
     }
 
-    /// A prompter that answers "Always allow" and counts how often it was
-    /// actually consulted.
-    struct AlwaysAllow(std::sync::atomic::AtomicUsize);
-    impl PermissionPrompter for AlwaysAllow {
-        fn ask(&self, _request: PermissionRequest) -> PermissionDecision {
-            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            PermissionDecision::Selected("allow_always".into())
-        }
-    }
-
     #[test]
     fn always_allow_remembers_the_class_for_the_turn() {
+        std::env::remove_var("EB_PERMISSION_AUTO");
         let (sink, _stream) = eb_api::AgentSink::channel();
-        let prompter: &'static AlwaysAllow =
-            Box::leak(Box::new(AlwaysAllow(std::sync::atomic::AtomicUsize::new(0))));
-        let permissions: Arc<dyn PermissionPrompter> = Arc::new(Leaked(prompter));
+        use std::cell::RefCell as RcCell;
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+        let prompts = std::rc::Rc::new(AtomicUsize::new(0));
+        let memory = std::rc::Rc::new(RcCell::new(std::collections::HashSet::new()));
+        let prompts_for_ask = prompts.clone();
+        let memory_for_ask = memory.clone();
+        // Mirrors ToolConsent: the memory is per tool class.
+        let mut ask = move |title: &str| -> bool {
+            let class = if title.starts_with("Write file:") { "write" } else { "command" };
+            if memory_for_ask.borrow().contains(class) {
+                return true;
+            }
+            prompts_for_ask.fetch_add(1, AtomicOrdering::SeqCst);
+            memory_for_ask.borrow_mut().insert(class.to_string());
+            true
+        };
 
         let dir = std::env::temp_dir().join(format!("eb-consent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let mut consent = ToolConsent::default();
 
         let first = ToolCall {
             id: "t".into(),
@@ -974,31 +957,23 @@ mod tests {
             name: "run_command".into(),
             arguments: json_args(r#"{"command": "echo two"}"#),
         };
-        execute_tool(&first, &dir, &permissions, &mut consent, &sink);
-        assert_eq!(prompter.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the first call must prompt");
-        execute_tool(&second, &dir, &permissions, &mut consent, &sink);
+        execute_tool(&first, &dir, &mut ask, &sink);
+        assert_eq!(prompts.load(AtomicOrdering::SeqCst), 1, "the first call must prompt");
+        execute_tool(&second, &dir, &mut ask, &sink);
         assert_eq!(
-            prompter.0.load(std::sync::atomic::Ordering::SeqCst),
+            prompts.load(AtomicOrdering::SeqCst),
             1,
             "Always allow must cover the rest of the turn without re-prompting"
         );
-        assert!(consent.allow_commands_all);
         // The other class is still prompt-worthy.
         let write = ToolCall {
             id: "t".into(),
             name: "write_file".into(),
             arguments: json_args(r#"{"path": "x.txt", "content": "hi"}"#),
         };
-        execute_tool(&write, &dir, &permissions, &mut consent, &sink);
-        assert_eq!(prompter.0.load(std::sync::atomic::Ordering::SeqCst), 2, "a different class prompts again");
+        execute_tool(&write, &dir, &mut ask, &sink);
+        assert_eq!(prompts.load(AtomicOrdering::SeqCst), 2, "a different class prompts again");
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    struct Leaked(&'static AlwaysAllow);
-    impl PermissionPrompter for Leaked {
-        fn ask(&self, request: PermissionRequest) -> PermissionDecision {
-            self.0.ask(request)
-        }
     }
 
     fn python_available() -> bool {

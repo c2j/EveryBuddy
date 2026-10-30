@@ -1782,3 +1782,18 @@ textview.eb-md-view text {
   color: @eb_text_primary;
   font-size: 15px;
 }
+
+/* Inline tool-permission card under the newest turn: the request renders in
+ * the conversation itself instead of a modal-ish popover. */
+.eb-permission-card {
+  background-color: @bg_hover_light;
+  background-image: none;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+
+.eb-permission-card-title {
+  color: @eb_text_primary;
+  font-size: 14px;
+}

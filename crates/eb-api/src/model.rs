@@ -65,6 +65,15 @@ pub enum WorkspaceState {
     Kept,
 }
 
+/// A tool decision the transcript is waiting on. Transient: never saved,
+/// cleared the moment the user answers (or the turn dies).
+#[derive(Clone, Debug)]
+pub struct PendingPermission {
+    pub title: String,
+    pub options: Vec<crate::PermissionOption>,
+    pub responder: crate::PermissionResponder,
+}
+
 /// One conversation in the sidebar list.
 #[derive(Debug)]
 pub struct Task {
@@ -100,6 +109,9 @@ pub struct Task {
     /// Archived tasks sink to the bottom of their section, greyed out, until
     /// unarchived from the task menu.
     pub archived: bool,
+    /// Set while a tool call waits for the user's decision; the transcript
+    /// renders an inline card for it. Cleared on answer.
+    pub pending_permission: Option<PendingPermission>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -325,6 +337,7 @@ impl App {
             workspace_id: None,
             agent_route: None,
             last_route: None,
+            pending_permission: None,
             usage: None,
             started_at: Some(std::time::Instant::now()),
             updated_at: Some(unix_now()),
@@ -375,6 +388,20 @@ impl App {
                 return false;
             };
             task.usage = Some((used, total));
+            return true;
+        }
+
+        // The pending decision lives on the task, not the turn: it survives
+        // transcript repaints and renders as an inline card.
+        if let AgentEvent::PermissionRequested { request, responder } = &event {
+            let Some(task) = self.tasks.get_mut(index) else {
+                return false;
+            };
+            task.pending_permission = Some(PendingPermission {
+                title: request.title.clone(),
+                options: request.options.clone(),
+                responder: responder.clone(),
+            });
             return true;
         }
 
@@ -451,11 +478,21 @@ impl App {
                 *status = Some(format!("Failed: {message}"));
             }
             AgentEvent::Artifact { .. } => unreachable!("handled above"),
+            AgentEvent::PermissionRequested { .. } => unreachable!("handled above"),
         }
         if terminal {
             task.started_at = None;
         }
         true
+    }
+
+    /// Take the open task's pending tool decision, if any, handing the
+    /// responder back so the answer reaches the waiting worker.
+    pub fn take_pending_permission(&mut self, index: usize) -> Option<PendingPermission> {
+        self.tasks
+            .get_mut(index)?
+            .pending_permission
+            .take()
     }
 
     /// Record a completed user + agent turn. Kept for callers/tests that do not
@@ -729,6 +766,7 @@ mod tests {
                 blocks,
                 streaming: false,
             }],
+            pending_permission: None,
             artifact: None,
             artifacts: Vec::new(),
             session_id: None,

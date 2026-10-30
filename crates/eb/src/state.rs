@@ -142,6 +142,7 @@ pub fn load() -> Loaded {
             workspace_id,
             agent_route: value["agent_route"].as_str().map(str::to_string),
             last_route: value["last_route"].as_str().map(str::to_string),
+            pending_permission: None,
             usage: None,
             started_at: None,
             updated_at,

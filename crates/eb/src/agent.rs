@@ -1323,6 +1323,7 @@ mod tests {
             agent_route: Some("acp:grok".into()),
             last_route: Some("acp:opencode".into()),
             usage: None,
+            pending_permission: None,
             started_at: None,
             updated_at: None,
             pinned: false,

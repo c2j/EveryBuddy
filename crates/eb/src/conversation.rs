@@ -27,6 +27,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::composer::Composer;
+use eb_api::PermissionDecision;
 use crate::model::{Artifact, Block, DiffLine, PlanEntry, Task, Turn};
 use crate::spec;
 use crate::widgets::*;
@@ -58,6 +59,9 @@ pub struct Wiring {
     /// transcript. Scroll events do not repaint on their own, and a long
     /// conversation is only rendered a window at a time.
     pub load_more: Rc<dyn Fn()>,
+    /// The user answered an inline tool-permission card: deliver the decision
+    /// to the waiting worker and schedule a repaint.
+    pub resolve_permission: Rc<dyn Fn(PermissionDecision)>,
 }
 
 /// The quick actions one painted turn can reach. Built per turn by
@@ -100,6 +104,11 @@ pub struct Conversation {
     pub search_bar: gtk::Box,
     pub search_entry: gtk::Entry,
     pub search_state: Rc<std::cell::RefCell<SearchState>>,
+    /// Answers an inline tool-permission card into the waiting worker.
+    permission_resolver: std::cell::RefCell<Option<Rc<dyn Fn(PermissionDecision)>>>,
+    /// The currently rendered card, keyed by its title so a repaint leaves it
+    /// alone instead of rebuilding (and dropping button press state).
+    permission_card: std::cell::RefCell<Option<(String, gtk::Box)>>,
     /// The topbar title, repainted with the active task's title.
     pub title: gtk::Label,
     /// The scroll region holding the messages.
@@ -603,6 +612,8 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         on_edit: wiring.edit.clone(),
         on_submit: wiring.submit.clone(),
         open_artifact_at: wiring.open_artifact_at.clone(),
+        permission_resolver: RefCell::new(Some(wiring.resolve_permission.clone())),
+        permission_card: RefCell::new(None),
     }
 }
 
@@ -648,6 +659,63 @@ struct TurnRender {
 /// `task.turns[first..]`, and everything indexed below is *window-relative* —
 /// add `first` to reach the task. The reader gets earlier turns by scrolling to
 /// the top, which lowers `first` and prepends a slice.
+/// Render (or withdraw) the inline tool-permission card under the newest
+/// turn. Keyed by title: a repaint leaves an existing card alone, so button
+/// press state survives.
+fn update_permission_card(conversation: &Conversation, task: &Task) {
+    let pending = match &task.pending_permission {
+        Some(pending) => pending,
+        None => {
+            if let Some((_, card)) = conversation.permission_card.take() {
+                conversation.messages.remove(&card);
+            }
+            return;
+        }
+    };
+    if let Some((title, _)) = conversation.permission_card.borrow().as_ref() {
+        if *title == pending.title {
+            return;
+        }
+        if let Some((_, card)) = conversation.permission_card.take() {
+            conversation.messages.remove(&card);
+        }
+    }
+
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    class(&card, "eb-permission-card");
+    let title_label = gtk::Label::new(Some(&pending.title));
+    title_label.set_line_wrap(true);
+    title_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    title_label.set_width_chars(1);
+    title_label.set_max_width_chars(60);
+    title_label.set_xalign(0.0);
+    class(&title_label, "eb-permission-card-title");
+    card.pack_start(&title_label, false, false, 0);
+
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    buttons.set_halign(gtk::Align::Start);
+    for option in &pending.options {
+        let button = gtk::Button::with_label(&option.label);
+        class(&button, "eb-chip");
+        let responder = pending.responder.clone();
+        let resolver = conversation.permission_resolver.borrow().clone();
+        let decision = PermissionDecision::Selected(option.id.clone());
+        button.connect_clicked(move |_| {
+            let _ = responder.respond(decision.clone());
+            if let Some(resolve) = &resolver {
+                resolve(decision.clone());
+            }
+        });
+        buttons.pack_start(&button, false, false, 0);
+    }
+    card.pack_start(&buttons, false, false, 0);
+
+    conversation.messages.pack_start(&card, false, false, 8);
+    card.show_all();
+    *conversation.permission_card.borrow_mut() =
+        Some((pending.title.clone(), card));
+}
+
 pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<usize>) {
     if conversation.painted_task.get() != opened {
         if let Some(target) = opened {
@@ -698,6 +766,7 @@ pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<us
                 .zip(fresh.iter())
                 .all(|(old, new)| old.sig == new.sig && old.blocks == new.blocks)
         {
+            update_permission_card(conversation, task);
             return;
         }
     }
@@ -818,6 +887,7 @@ pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<us
         );
     }
     conversation.follow_output();
+    update_permission_card(conversation, task);
 }
 
 /// The user text directly before `index`, which is what "Regenerate" resubmits.
