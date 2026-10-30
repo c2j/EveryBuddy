@@ -875,8 +875,8 @@ button.eb-context-usage:hover {
   font-size: 13px;
 }
 
-/* Streamed reasoning: a light host-rendered line (the product thinking UI
-   is not captured). */
+/* Streamed reasoning. Open while chunks arrive; folded behind the header
+   once thinking ends. The product thinking UI is not captured. */
 .eb-thought {
   color: @eb_text_tertiary;
   font-size: 13px;

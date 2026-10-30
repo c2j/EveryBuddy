@@ -1057,7 +1057,12 @@ fn sync_blocks(
                     return;
                 }
             }
-            Block::Thought { text } => {
+            Block::Thought {
+                text,
+                collapsed: false,
+            } => {
+                // Still streaming: rewrite the label. A fold replaces the
+                // widget, because the body has to disappear.
                 if rewrite_thought(&widgets[index], text) {
                     block_sigs[index] = block_sig(&blocks[index]);
                     return;
@@ -2055,7 +2060,7 @@ fn block_widget(block: &Block) -> gtk::Widget {
 fn block_widget_raw(block: &Block) -> gtk::Widget {
     match block {
         Block::Text(value) => crate::markdown::render(value).upcast(),
-        Block::Thought { text } => thought_block(text).upcast(),
+        Block::Thought { text, collapsed } => thought_block(text, *collapsed).upcast(),
         Block::Tool {
             status,
             primary,
@@ -2247,19 +2252,55 @@ fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
     card
 }
 
-/// The host's rendering of streamed reasoning: one muted italic block with a
-/// soft left rule. The product look is uncaptured, so this stays intentionally
-/// light — same discipline as the plan card.
-fn thought_block(value: &str) -> gtk::Box {
+/// Streamed reasoning. While the thought is the live tail the body stays
+/// open and grows in place. Once thinking ends the body is folded behind
+/// the header; a click opens it again. The product look is uncaptured, so
+/// the header reuses the tool-group chevron.
+fn thought_block(value: &str, collapsed: bool) -> gtk::Box {
+    let root = vbox(0);
+    class(&root, "eb-thought-block");
+
+    let header = flat_button("eb-group-header");
+    class(&header, "eb-thought-header");
+    header.set_tooltip_text(Some("Toggle reasoning"));
+    let row = hbox(8);
+    row.set_valign(gtk::Align::Center);
+    let title = text("Thinking", "eb-group-title");
+    title.set_width_chars(1);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let chevron = text(if collapsed { "›" } else { "⌄" }, "eb-group-chevron");
+    row.pack_start(&title, false, false, 0);
+    row.pack_start(&chevron, false, false, 0);
+    header.add(&row);
+
     let label = text(value, "eb-thought");
     label.set_line_wrap(true);
     label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     label.set_width_chars(1);
     label.set_xalign(0.0);
     label.set_tooltip_text(Some("Agent reasoning, not part of the answer"));
-    let block = wrap_column(0);
-    block.pack_start(&label, false, false, 0);
-    block
+    let content = wrap_column(0);
+    class(&content, "eb-thought-body");
+    content.pack_start(&label, false, false, 0);
+    let expanded = Rc::new(Cell::new(!collapsed));
+    if collapsed {
+        hide_from_show_all(&content);
+    }
+    header.connect_clicked({
+        let content = content.clone();
+        let chevron = chevron.clone();
+        let expanded = expanded.clone();
+        move |_| {
+            let next = !expanded.get();
+            expanded.set(next);
+            content.set_visible(next);
+            chevron.set_text(if next { "⌄" } else { "›" });
+        }
+    });
+
+    root.pack_start(&header, false, false, 0);
+    root.pack_start(&content, false, false, 0);
+    root
 }
 
 fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
@@ -2398,6 +2439,71 @@ mod tests {
         );
     }
 
+    /// Reasoning stays on its widget while chunks arrive, then the fold
+    /// replaces that widget with one whose body is hidden until the header
+    /// is clicked.
+    #[test]
+    fn a_streaming_thought_folds_when_thinking_ends() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let open = Block::Thought {
+            text: "one".into(),
+            collapsed: false,
+        };
+        let widget = block_widget(&open);
+        body.pack_start(&widget, false, false, 0);
+        let widget_ptr = widget.as_ptr();
+        let mut block_sigs = vec![block_sig(&open)];
+        let mut widgets = vec![widget];
+
+        let grown = Block::Thought {
+            text: "one two".into(),
+            collapsed: false,
+        };
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[grown]);
+        assert!(
+            std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
+            "a growing thought must keep its label"
+        );
+        let live = widget_by_class(&widgets[0], "eb-thought")
+            .expect("thought label")
+            .downcast::<gtk::Label>()
+            .expect("thought label");
+        assert_eq!(live.text().as_str(), "one two");
+        assert!(
+            widget_by_class(&widgets[0], "eb-thought-body")
+                .expect("thought body")
+                .is_visible(),
+            "the stream stays on screen"
+        );
+
+        let folded = Block::Thought {
+            text: "one two".into(),
+            collapsed: true,
+        };
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[folded]);
+        assert!(
+            !std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
+            "folding replaces the open thought"
+        );
+        let folded_body = widget_by_class(&widgets[0], "eb-thought-body").expect("folded body");
+        assert!(!folded_body.is_visible(), "finished thinking is folded");
+        let folded_label = widget_by_class(&widgets[0], "eb-thought")
+            .expect("folded thought label")
+            .downcast::<gtk::Label>()
+            .expect("thought label");
+        assert_eq!(folded_label.text().as_str(), "one two");
+        widget_by_class(&widgets[0], "eb-thought-header")
+            .expect("thought header")
+            .downcast::<gtk::Button>()
+            .expect("header button")
+            .clicked();
+        assert!(folded_body.is_visible(), "the header opens the thought");
+    }
+
     #[test]
     fn user_bubble_uses_the_column_for_long_text() {
         if crate::widgets::try_init_gtk_for_test().is_none() {
@@ -2451,6 +2557,7 @@ mod tests {
             messages.pack_start(
                 &block_widget(&Block::Thought {
                     text: url.clone(),
+                    collapsed: false,
                 }),
                 false,
                 false,
@@ -2694,7 +2801,10 @@ mod tests {
             &[
                 Block::Text("hi".into()),
                 // Reasoning is part of the card but not of the copyable answer.
-                Block::Thought { text: "why".into() },
+                Block::Thought {
+                    text: "why".into(),
+                    collapsed: true,
+                },
             ],
             false,
             &[],
@@ -2810,7 +2920,10 @@ mod tests {
     fn copy_answer_collects_only_the_prose() {
         let blocks = [
             Block::Text("first".into()),
-            Block::Thought { text: "hidden".into() },
+            Block::Thought {
+                text: "hidden".into(),
+                collapsed: true,
+            },
             Block::Text("second".into()),
         ];
         assert_eq!(answer_text(&blocks), "first\nsecond");

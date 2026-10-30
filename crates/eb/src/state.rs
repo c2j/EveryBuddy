@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use crate::model::{Store, Task, Turn, Workspace};
+use crate::model::{fold_thoughts, Store, Task, Turn, Workspace};
 
 pub struct Loaded {
     pub tasks: Vec<Task>,
@@ -132,10 +132,13 @@ pub fn load() -> Loaded {
             }
         }
 
+        let mut turns: Vec<Turn> =
+            serde_json::from_value(value["turns"].clone()).unwrap_or_default();
+        fold_restored_thoughts(&mut turns);
         tasks.push(Task {
             title,
             meta: String::new(),
-            turns: serde_json::from_value(value["turns"].clone()).unwrap_or_default(),
+            turns,
             artifact: None,
             artifacts: Vec::new(),
             session_id,
@@ -152,6 +155,16 @@ pub fn load() -> Loaded {
     }
 
     Loaded { tasks, workspaces }
+}
+
+/// A restored turn is never mid-thought. Fold reasoning that was saved while
+/// it was still streaming, and old transcripts that have no `collapsed` field.
+fn fold_restored_thoughts(turns: &mut [Turn]) {
+    for turn in turns {
+        if let Turn::Agent { blocks, .. } = turn {
+            fold_thoughts(blocks);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -179,6 +192,30 @@ mod tests {
             &loaded[1],
             Turn::Agent { blocks, .. }
                 if matches!(&blocks[0], crate::model::Block::Text(text) if text == "world")
+        ));
+    }
+
+    /// Transcripts saved before `collapsed` existed, and ones saved mid-stream,
+    /// reopen with the reasoning folded.
+    #[test]
+    fn a_restored_thought_is_folded() {
+        let raw = r#"[{
+            "Agent": {
+                "name": "EvoBuddy",
+                "status": null,
+                "blocks": [{ "Thought": { "text": "because" } }],
+                "streaming": true
+            }
+        }]"#;
+        let mut turns: Vec<Turn> = serde_json::from_str(raw).unwrap();
+        fold_restored_thoughts(&mut turns);
+        assert!(matches!(
+            &turns[0],
+            Turn::Agent { blocks, .. }
+                if matches!(
+                    &blocks[0],
+                    crate::model::Block::Thought { text, collapsed: true } if text == "because"
+                )
         ));
     }
 }
