@@ -57,6 +57,7 @@ impl AnswerSource for CustomModel {
         });
         let endpoint = self.endpoint();
         let key = self.config.api_key.clone();
+        let base_url = self.config.base_url.clone();
         let cancelled = Arc::new(AtomicBool::new(false));
         let child = Arc::new(Mutex::new(None));
         let child_for_handle = child.clone();
@@ -186,7 +187,9 @@ impl AnswerSource for CustomModel {
                 let detail = errors.lines().last().unwrap_or("").trim().to_string();
                 let message =
                     if detail.is_empty() { error } else { format!("{error}: {detail}") };
-                let _ = sink.send(AgentEvent::Failed { message });
+                let _ = sink.send(AgentEvent::Failed {
+                    message: hint_for(&message, &base_url),
+                });
             })
             .ok();
         let _ = cancel;
@@ -207,6 +210,22 @@ impl AnswerHandle for CustomHandle {
                 let _ = process.kill();
             }
         }
+    }
+}
+
+///bigmodel.cn 的编程套餐配额只在其 coding 端点生效;普通 paas 端点对套餐模型
+/// 返回"余额不足/无权限"。识别这组错误并直接给出改 Base URL 的指引。
+fn hint_for(message: &str, base_url: &str) -> String {
+    let base = base_url.to_lowercase();
+    let plan_related = message.contains("余额不足")
+        || message.contains("无可用资源包")
+        || message.contains("No permission to access model");
+    if base.contains("bigmodel.cn") && !base.contains("/coding/") && plan_related {
+        format!(
+            "{message}\n提示:智谱编程套餐的配额只在 coding 端点生效,请把 Base URL 改为 https://open.bigmodel.cn/api/coding/paas/v4"
+        )
+    } else {
+        message.to_string()
     }
 }
 
@@ -256,6 +275,18 @@ mod tests {
         assert_eq!(CustomModel::new(config.clone()).endpoint(), "https://example.test/v1/chat/completions");
         config.base_url = "https://example.test/v1/chat/completions".into();
         assert_eq!(CustomModel::new(config).endpoint(), "https://example.test/v1/chat/completions");
+    }
+
+    #[test]
+    fn bigmodel_plan_errors_get_the_coding_endpoint_hint() {
+        let plain = hint_for("No permission to access model: GLM-5.3", "https://open.bigmodel.cn/api/paas/v4");
+        assert!(plain.contains("/api/coding/paas/v4"), "hint missing: {plain}");
+
+        // A coding endpoint, or another provider, must stay untouched.
+        let already = hint_for("余额不足", "https://open.bigmodel.cn/api/coding/paas/v4");
+        assert_eq!(already, "余额不足");
+        let other = hint_for("余额不足", "https://api.example.com/v1");
+        assert_eq!(other, "余额不足");
     }
 
     #[test]
