@@ -140,7 +140,33 @@ impl Default for AgentRuntime {
 /// Build a bounded plain-text transcript when a conversation switches routes.
 /// ACP cannot export its internal session, so this is the portable context the
 /// next agent receives. Tool rows are summarized rather than replayed.
+/// Whether this turn's prompt should carry the prior visible conversation.
+///
+/// The custom route is a stateless HTTP chat call, so it needs the composed
+/// context on every turn after the first; stateful sources (ACP keeps a
+/// server-side session, dsh bridges one) only need it when the conversation
+/// migrates across agents.
+fn needs_migrated_context(
+    route: &str,
+    has_prior_answer: bool,
+    last_route: Option<&str>,
+    had_turns: bool,
+) -> bool {
+    if route == "custom" {
+        return has_prior_answer;
+    }
+    (last_route.is_some() || had_turns) && last_route.as_deref() != Some(route)
+}
+
 fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
+    migrated_prompt_with(task, prompt, None)
+}
+
+fn migrated_prompt_with(
+    task: &crate::model::Task,
+    prompt: &str,
+    note: Option<&str>,
+) -> String {
     let mut context = String::new();
     let end = task.turns.len().saturating_sub(2);
     for turn in task.turns.iter().take(end) {
@@ -203,9 +229,14 @@ fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
             .unwrap_or(context.len());
         context = format!("[… earlier context omitted …]\n{}", &context[start..]);
     }
-    format!(
-        "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}"
-    )
+    match note {
+        Some(note) => format!(
+            "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}{note}"
+        ),
+        None => format!(
+            "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}"
+        ),
+    }
 }
 
 pub struct Runner {
@@ -558,14 +589,43 @@ impl Runner {
             )
         };
         let route = crate::router::effective_route(route_override.as_deref());
-        let migrate = (last_route.is_some() || had_turns)
-            && last_route.as_deref() != Some(route.as_str());
+        // The custom source is a stateless HTTP chat call, so every turn
+        // after the first must carry the prior visible conversation itself;
+        // stateful sources (ACP keeps a session, dsh bridges one) only need
+        // the composed context when the conversation migrates across agents.
+        let has_prior_answer = {
+            let app = self.store.borrow();
+            app.tasks
+                .get(task)
+                .map(|task_ref| {
+                    task_ref
+                        .turns
+                        .iter()
+                        .any(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
+                })
+                .unwrap_or(false)
+        };
+        let migrate = needs_migrated_context(
+            route.as_str(),
+            has_prior_answer,
+            last_route.as_deref(),
+            had_turns,
+        );
 
         let agent_text = crate::catalog::prompt_for(&text);
         let agent_text = if migrate {
             let app = self.store.borrow();
             match app.tasks.get(task) {
-                Some(task_ref) => migrated_prompt(task_ref, &agent_text),
+                Some(task_ref) => {
+                    // The composed context mentions prior tool calls in a
+                    // `[tool: ...]` notation. On a toolless channel the model
+                    // imitates that notation and fabricates execution logs
+                    // (observed in the wild), so the note is explicit.
+                    let note = (route == "custom").then(|| {
+                        "\nNote: this channel HAS real tools (read_file, write_file, list_dir, run_command) working on the task workspace. To act, emit a function/tool call — results are executed for real and returned to you. Never narrate a command or its output without an actual tool call and its result."
+                    });
+                    migrated_prompt_with(task_ref, &agent_text, note)
+                }
                 None => agent_text,
             }
         } else {
@@ -1195,6 +1255,47 @@ fn cancel_after_ms() -> Option<u64> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn custom_route_always_carries_context_after_the_first_turn() {
+        // First message: nothing to carry.
+        assert!(!needs_migrated_context("custom", false, None, false));
+        // Every later turn: the stateless HTTP call needs the history.
+        assert!(needs_migrated_context("custom", true, Some("custom"), true));
+        assert!(needs_migrated_context("custom", true, None, true));
+    }
+
+    #[test]
+    fn migrated_prompt_carries_the_tool_note_for_custom() {
+        let mut task = task_with_turns();
+        if let crate::model::Turn::Agent { blocks, .. } = &mut task.turns[1] {
+            blocks.push(crate::model::Block::Tool {
+                status: "Ran".into(),
+                primary: "gcc quine.c".into(),
+                detail: None,
+            });
+        }
+        // migrated_prompt keeps every turn but the last pair, so one more
+        // user turn makes the tool-bearing turn part of the context.
+        task.turns.push(crate::model::Turn::User {
+            text: "run it".into(),
+            time: "now".into(),
+        });
+        let prompt = migrated_prompt_with(&task, "next", Some("\nNote: tools are real"));
+        assert!(prompt.contains("[tool: gcc quine.c]"));
+        assert!(prompt.ends_with("New request:\nnext\nNote: tools are real"));
+        // The plain migration keeps the original shape without the note.
+        assert!(!migrated_prompt(&task, "next").contains("tools are real"));
+    }
+
+    #[test]
+    fn stateful_routes_only_migrate_across_agents() {
+        // Same agent, its own session keeps the context.
+        assert!(!needs_migrated_context("acp:opencode", true, Some("acp:opencode"), true));
+        // The conversation moved to another agent: carry it.
+        assert!(needs_migrated_context("acp:grok", true, Some("acp:opencode"), true));
+        assert!(needs_migrated_context("acp:opencode", true, None, true));
+    }
+
     fn task_with_turns() -> crate::model::Task {
         crate::model::Task {
             title: "demo".into(),
@@ -1224,6 +1325,7 @@ mod tests {
             agent_route: Some("acp:grok".into()),
             last_route: Some("acp:opencode".into()),
             usage: None,
+            pending_permission: None,
             started_at: None,
             updated_at: None,
             pinned: false,

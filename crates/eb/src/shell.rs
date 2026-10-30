@@ -262,7 +262,10 @@ pub fn build(
                         }
                     }
                 }
-                Picker::Permission => app.permission = index,
+                Picker::Permission => {
+                    app.permission = index;
+                    crate::router::persist_permission_mode(index);
+                }
                 // The add-context menu performs an action; there is nothing to
                 // remember between openings.
                 Picker::Add => {}
@@ -785,6 +788,23 @@ pub fn build(
             load_more: {
                 let refresher = refresher.clone();
                 Rc::new(move || refresher.request())
+            },
+            // The inline tool-permission card hands the user's decision back
+            // to the waiting worker and repaints so the card becomes the
+            // tool's outcome block.
+            resolve_permission: {
+                let store = store.clone();
+                let refresher = refresher.clone();
+                Rc::new(move |decision| {
+                    let route = store.borrow().route.clone();
+                    if let Route::Task(index) = route {
+                        if let Some(pending) = store.borrow_mut().take_pending_permission(index)
+                        {
+                            let _ = pending.responder.respond(decision.clone());
+                        }
+                    }
+                    refresher.request();
+                })
             },
         },
         &chat_composer,

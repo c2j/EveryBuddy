@@ -27,6 +27,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 
 use crate::composer::Composer;
+use eb_api::PermissionDecision;
 use crate::model::{Artifact, Block, DiffLine, PlanEntry, Task, Turn};
 use crate::spec;
 use crate::widgets::*;
@@ -58,6 +59,9 @@ pub struct Wiring {
     /// transcript. Scroll events do not repaint on their own, and a long
     /// conversation is only rendered a window at a time.
     pub load_more: Rc<dyn Fn()>,
+    /// The user answered an inline tool-permission card: deliver the decision
+    /// to the waiting worker and schedule a repaint.
+    pub resolve_permission: Rc<dyn Fn(PermissionDecision)>,
 }
 
 /// The quick actions one painted turn can reach. Built per turn by
@@ -100,6 +104,14 @@ pub struct Conversation {
     pub search_bar: gtk::Box,
     pub search_entry: gtk::Entry,
     pub search_state: Rc<std::cell::RefCell<SearchState>>,
+    /// Floating "back to the newest message" button; visible while the reader
+    /// is scrolled up from the bottom edge.
+    pub jump_latest: gtk::Button,
+    /// Answers an inline tool-permission card into the waiting worker.
+    permission_resolver: std::cell::RefCell<Option<Rc<dyn Fn(PermissionDecision)>>>,
+    /// The currently rendered card, keyed by its title so a repaint leaves it
+    /// alone instead of rebuilding (and dropping button press state).
+    permission_card: std::cell::RefCell<Option<(String, gtk::Box)>>,
     /// The topbar title, repainted with the active task's title.
     pub title: gtk::Label,
     /// The scroll region holding the messages.
@@ -273,6 +285,36 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     let anchor: Rc<std::cell::RefCell<Option<(gtk::Widget, f64)>>> =
         Rc::new(std::cell::RefCell::new(None));
     let anchor_passes = Rc::new(Cell::new(0u8));
+    // "Back to the newest message": a floating down-arrow the reader sees
+    // after scrolling up through the history. Hidden while the view is pinned
+    // to the bottom edge (the reader is already there).
+    let jump_latest = gtk::Button::new();
+    class(&jump_latest, "eb-jump-latest");
+    jump_latest.set_label("↓");
+    jump_latest.set_tooltip_text(Some("Back to latest"));
+    jump_latest.set_valign(gtk::Align::End);
+    jump_latest.set_halign(gtk::Align::End);
+    jump_latest.set_margin_end(76);
+    jump_latest.set_margin_bottom(88);
+    jump_latest.set_can_focus(false);
+    jump_latest.set_visible(false);
+    {
+        let pinned = pinned.clone();
+        let auto_scroll = auto_scroll.clone();
+        let scroll = scroll.clone();
+        let handler_button = jump_latest.clone();
+        jump_latest.connect_clicked(move |_| {
+            pinned.set(true);
+            handler_button.set_visible(false);
+            let adjustment = scroll.vadjustment();
+            let guard = auto_scroll.clone();
+            gtk::glib::idle_add_local_once(move || {
+                guard.set(true);
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                guard.set(false);
+            });
+        });
+    }
     {
         let pinned = pinned.clone();
         let auto_scroll = auto_scroll.clone();
@@ -280,6 +322,7 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         let pending_load = pending_load.clone();
         let anchor = anchor.clone();
         let load_more = wiring.load_more.clone();
+        let jump_latest = jump_latest.clone();
         scroll.vadjustment().connect_value_changed(move |adjustment| {
             if auto_scroll.get() {
                 return;
@@ -289,6 +332,7 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
             anchor.borrow_mut().take();
             let below = adjustment.upper() - adjustment.value() - adjustment.page_size();
             pinned.set(below <= FOLLOW_SLACK);
+            jump_latest.set_visible(!pinned.get());
             // The top of the rendered window is in view and earlier turns exist:
             // raise the flag and ask for a repaint, which attaches the slice.
             // The anchor is set from the moment a slice is planned until the view
@@ -402,6 +446,8 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     mask.set_can_focus(false);
     viewport.add_overlay(&mask);
     viewport.set_overlay_pass_through(&mask, true);
+
+    viewport.add_overlay(&jump_latest);
 
     // The bar shares the scroller's own vertical adjustment, so wheel, keyboard,
     // drag and the follow-the-newest-line logic all still drive one position.
@@ -607,12 +653,15 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         anchor,
         anchor_passes,
         search_button: search,
+        jump_latest,
         search_bar,
         search_entry,
         search_state,
         on_edit: wiring.edit.clone(),
         on_submit: wiring.submit.clone(),
         open_artifact_at: wiring.open_artifact_at.clone(),
+        permission_resolver: RefCell::new(Some(wiring.resolve_permission.clone())),
+        permission_card: RefCell::new(None),
     }
 }
 
@@ -658,6 +707,71 @@ struct TurnRender {
 /// `task.turns[first..]`, and everything indexed below is *window-relative* —
 /// add `first` to reach the task. The reader gets earlier turns by scrolling to
 /// the top, which lowers `first` and prepends a slice.
+/// Render (or withdraw) the inline tool-permission card under the newest
+/// turn. Keyed by title: a repaint leaves an existing card alone, so button
+/// press state survives.
+fn update_permission_card(conversation: &Conversation, task: &Task) {
+    let pending = match &task.pending_permission {
+        Some(pending) => pending,
+        None => {
+            if let Some((_, card)) = conversation.permission_card.take() {
+                conversation.messages.remove(&card);
+            }
+            return;
+        }
+    };
+    // Snapshot the current key first: holding the borrow across `take()`
+    // below would double-borrow the RefCell and panic.
+    let existing = conversation
+        .permission_card
+        .borrow()
+        .as_ref()
+        .map(|(title, _)| title.clone());
+    match existing {
+        Some(title) if title == pending.title => return,
+        Some(_) => {
+            if let Some((_, card)) = conversation.permission_card.take() {
+                conversation.messages.remove(&card);
+            }
+        }
+        None => {}
+    }
+
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    class(&card, "eb-permission-card");
+    let title_label = gtk::Label::new(Some(&pending.title));
+    title_label.set_line_wrap(true);
+    title_label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    title_label.set_width_chars(1);
+    title_label.set_max_width_chars(60);
+    title_label.set_xalign(0.0);
+    class(&title_label, "eb-permission-card-title");
+    card.pack_start(&title_label, false, false, 0);
+
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    buttons.set_halign(gtk::Align::Start);
+    for option in &pending.options {
+        let button = gtk::Button::with_label(&option.label);
+        class(&button, "eb-chip");
+        let responder = pending.responder.clone();
+        let resolver = conversation.permission_resolver.borrow().clone();
+        let decision = PermissionDecision::Selected(option.id.clone());
+        button.connect_clicked(move |_| {
+            let _ = responder.respond(decision.clone());
+            if let Some(resolve) = &resolver {
+                resolve(decision.clone());
+            }
+        });
+        buttons.pack_start(&button, false, false, 0);
+    }
+    card.pack_start(&buttons, false, false, 0);
+
+    conversation.messages.pack_start(&card, false, false, 8);
+    card.show_all();
+    *conversation.permission_card.borrow_mut() =
+        Some((pending.title.clone(), card));
+}
+
 pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<usize>) {
     if conversation.painted_task.get() != opened {
         if let Some(target) = opened {
@@ -708,6 +822,7 @@ pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<us
                 .zip(fresh.iter())
                 .all(|(old, new)| old.sig == new.sig && old.blocks == new.blocks)
         {
+            update_permission_card(conversation, task);
             return;
         }
     }
@@ -828,6 +943,7 @@ pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<us
         );
     }
     conversation.follow_output();
+    update_permission_card(conversation, task);
 }
 
 /// The user text directly before `index`, which is what "Regenerate" resubmits.
@@ -959,7 +1075,12 @@ fn sync_blocks(
                     return;
                 }
             }
-            Block::Thought { text } => {
+            Block::Thought {
+                text,
+                collapsed: false,
+            } => {
+                // Still streaming: rewrite the label. A fold replaces the
+                // widget, because the body has to disappear.
                 if rewrite_thought(&widgets[index], text) {
                     block_sigs[index] = block_sig(&blocks[index]);
                     return;
@@ -1472,6 +1593,9 @@ impl Conversation {
     fn follow_output(&self) {
         // The screenshot harness can keep the top of a long conversation visible
         // so the first block is not clipped by the scroll-to-bottom behaviour.
+        if self.pinned.get() {
+            self.jump_latest.set_visible(false);
+        }
         if std::env::var_os("EB_NO_SCROLL").is_some() || !self.pinned.get() {
             return;
         }
@@ -2126,7 +2250,7 @@ fn block_widget(block: &Block) -> gtk::Widget {
 fn block_widget_raw(block: &Block) -> gtk::Widget {
     match block {
         Block::Text(value) => crate::markdown::render(value).upcast(),
-        Block::Thought { text } => thought_block(text).upcast(),
+        Block::Thought { text, collapsed } => thought_block(text, *collapsed).upcast(),
         Block::Tool {
             status,
             primary,
@@ -2318,19 +2442,55 @@ fn plan_block(entries: &[PlanEntry]) -> gtk::Box {
     card
 }
 
-/// The host's rendering of streamed reasoning: one muted italic block with a
-/// soft left rule. The product look is uncaptured, so this stays intentionally
-/// light — same discipline as the plan card.
-fn thought_block(value: &str) -> gtk::Box {
+/// Streamed reasoning. While the thought is the live tail the body stays
+/// open and grows in place. Once thinking ends the body is folded behind
+/// the header; a click opens it again. The product look is uncaptured, so
+/// the header reuses the tool-group chevron.
+fn thought_block(value: &str, collapsed: bool) -> gtk::Box {
+    let root = vbox(0);
+    class(&root, "eb-thought-block");
+
+    let header = flat_button("eb-group-header");
+    class(&header, "eb-thought-header");
+    header.set_tooltip_text(Some("Toggle reasoning"));
+    let row = hbox(8);
+    row.set_valign(gtk::Align::Center);
+    let title = text("Thinking", "eb-group-title");
+    title.set_width_chars(1);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let chevron = text(if collapsed { "›" } else { "⌄" }, "eb-group-chevron");
+    row.pack_start(&title, false, false, 0);
+    row.pack_start(&chevron, false, false, 0);
+    header.add(&row);
+
     let label = text(value, "eb-thought");
     label.set_line_wrap(true);
     label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
     label.set_width_chars(1);
     label.set_xalign(0.0);
     label.set_tooltip_text(Some("Agent reasoning, not part of the answer"));
-    let block = wrap_column(0);
-    block.pack_start(&label, false, false, 0);
-    block
+    let content = wrap_column(0);
+    class(&content, "eb-thought-body");
+    content.pack_start(&label, false, false, 0);
+    let expanded = Rc::new(Cell::new(!collapsed));
+    if collapsed {
+        hide_from_show_all(&content);
+    }
+    header.connect_clicked({
+        let content = content.clone();
+        let chevron = chevron.clone();
+        let expanded = expanded.clone();
+        move |_| {
+            let next = !expanded.get();
+            expanded.set(next);
+            content.set_visible(next);
+            chevron.set_text(if next { "⌄" } else { "›" });
+        }
+    });
+
+    root.pack_start(&header, false, false, 0);
+    root.pack_start(&content, false, false, 0);
+    root
 }
 
 fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
@@ -2472,6 +2632,71 @@ mod tests {
         );
     }
 
+    /// Reasoning stays on its widget while chunks arrive, then the fold
+    /// replaces that widget with one whose body is hidden until the header
+    /// is clicked.
+    #[test]
+    fn a_streaming_thought_folds_when_thinking_ends() {
+        if crate::widgets::try_init_gtk_for_test().is_none() {
+            eprintln!("skipping: gtk needs the main thread and a display");
+            return;
+        }
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let open = Block::Thought {
+            text: "one".into(),
+            collapsed: false,
+        };
+        let widget = block_widget(&open);
+        body.pack_start(&widget, false, false, 0);
+        let widget_ptr = widget.as_ptr();
+        let mut block_sigs = vec![block_sig(&open)];
+        let mut widgets = vec![widget];
+
+        let grown = Block::Thought {
+            text: "one two".into(),
+            collapsed: false,
+        };
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[grown]);
+        assert!(
+            std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
+            "a growing thought must keep its label"
+        );
+        let live = widget_by_class(&widgets[0], "eb-thought")
+            .expect("thought label")
+            .downcast::<gtk::Label>()
+            .expect("thought label");
+        assert_eq!(live.text().as_str(), "one two");
+        assert!(
+            widget_by_class(&widgets[0], "eb-thought-body")
+                .expect("thought body")
+                .is_visible(),
+            "the stream stays on screen"
+        );
+
+        let folded = Block::Thought {
+            text: "one two".into(),
+            collapsed: true,
+        };
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[folded]);
+        assert!(
+            !std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
+            "folding replaces the open thought"
+        );
+        let folded_body = widget_by_class(&widgets[0], "eb-thought-body").expect("folded body");
+        assert!(!folded_body.is_visible(), "finished thinking is folded");
+        let folded_label = widget_by_class(&widgets[0], "eb-thought")
+            .expect("folded thought label")
+            .downcast::<gtk::Label>()
+            .expect("thought label");
+        assert_eq!(folded_label.text().as_str(), "one two");
+        widget_by_class(&widgets[0], "eb-thought-header")
+            .expect("thought header")
+            .downcast::<gtk::Button>()
+            .expect("header button")
+            .clicked();
+        assert!(folded_body.is_visible(), "the header opens the thought");
+    }
+
     #[test]
     fn user_bubble_uses_the_column_for_long_text() {
         if crate::widgets::try_init_gtk_for_test().is_none() {
@@ -2525,6 +2750,7 @@ mod tests {
             messages.pack_start(
                 &block_widget(&Block::Thought {
                     text: url.clone(),
+                    collapsed: false,
                 }),
                 false,
                 false,
@@ -2918,7 +3144,10 @@ mod tests {
             &[
                 Block::Text("hi".into()),
                 // Reasoning is part of the card but not of the copyable answer.
-                Block::Thought { text: "why".into() },
+                Block::Thought {
+                    text: "why".into(),
+                    collapsed: true,
+                },
             ],
             false,
             &[],
@@ -3070,7 +3299,10 @@ mod tests {
     fn copy_answer_collects_only_the_prose() {
         let blocks = [
             Block::Text("first".into()),
-            Block::Thought { text: "hidden".into() },
+            Block::Thought {
+                text: "hidden".into(),
+                collapsed: true,
+            },
             Block::Text("second".into()),
         ];
         assert_eq!(answer_text(&blocks), "first\nsecond");

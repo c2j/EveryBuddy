@@ -82,6 +82,12 @@ pub enum AgentEvent {
         used: u32,
         total: u32,
     },
+    /// A tool call needs the user's decision. The transcript renders the
+    /// request inline and answers through the responder.
+    PermissionRequested {
+        request: PermissionRequest,
+        responder: PermissionResponder,
+    },
     Finished,
     Failed {
         message: String,
@@ -109,6 +115,35 @@ pub struct PermissionRequest {
 pub enum PermissionDecision {
     Selected(String),
     Cancelled,
+}
+
+/// The reply half of an inline permission request: the host hands it back to
+/// the answering UI, which sends the user's decision to the blocked worker.
+#[derive(Clone)]
+pub struct PermissionResponder(
+    Arc<std::sync::Mutex<Option<std::sync::mpsc::Sender<PermissionDecision>>>>,
+);
+
+impl PermissionResponder {
+    pub fn new(sender: std::sync::mpsc::Sender<PermissionDecision>) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(Some(sender))))
+    }
+
+    /// Deliver the decision exactly once; `false` means the waiter is gone.
+    pub fn respond(&self, decision: PermissionDecision) -> bool {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+            .map(|sender| sender.send(decision).is_ok())
+            .unwrap_or(false)
+    }
+}
+
+impl std::fmt::Debug for PermissionResponder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PermissionResponder")
+    }
 }
 
 /// Host-side permission UI. Called on the agent worker thread; implementations

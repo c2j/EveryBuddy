@@ -65,6 +65,15 @@ pub enum WorkspaceState {
     Kept,
 }
 
+/// A tool decision the transcript is waiting on. Transient: never saved,
+/// cleared the moment the user answers (or the turn dies).
+#[derive(Clone, Debug)]
+pub struct PendingPermission {
+    pub title: String,
+    pub options: Vec<crate::PermissionOption>,
+    pub responder: crate::PermissionResponder,
+}
+
 /// One conversation in the sidebar list.
 #[derive(Debug)]
 pub struct Task {
@@ -109,6 +118,9 @@ pub struct Task {
     /// `unread` column on the conversation and renders it as
     /// `showUnreadDot: conv.unread && !working`.
     pub unread: bool,
+    /// Set while a tool call waits for the user's decision; the transcript
+    /// renders an inline card for it. Cleared on answer.
+    pub pending_permission: Option<PendingPermission>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -153,9 +165,16 @@ pub enum DiffLine {
 pub enum Block {
     Text(String),
     /// Agent reasoning streamed apart from the answer (ACP
-    /// `agent_thought_chunk`). No product capture covers its look, so the host
-    /// renders it as a light, muted line — same discipline as `Plan`.
-    Thought { text: String },
+    /// `agent_thought_chunk`, or a Custom Model `reasoning_content` stream).
+    /// `collapsed` is false only while this block is the live tail of a
+    /// streaming turn. Once thinking ends the host folds the text; the
+    /// header stays clickable. Missing on old transcripts, which load open
+    /// and are folded when the task is restored.
+    Thought {
+        text: String,
+        #[serde(default)]
+        collapsed: bool,
+    },
     /// A tool call. `detail` is the muted secondary text (duration, target).
     Tool {
         status: String,
@@ -347,6 +366,7 @@ impl App {
             workspace_id: None,
             agent_route: None,
             last_route: None,
+            pending_permission: None,
             usage: None,
             started_at: Some(std::time::Instant::now()),
             updated_at: Some(unix_now()),
@@ -403,6 +423,20 @@ impl App {
             return true;
         }
 
+        // The pending decision lives on the task, not the turn: it survives
+        // transcript repaints and renders as an inline card.
+        if let AgentEvent::PermissionRequested { request, responder } = &event {
+            let Some(task) = self.tasks.get_mut(index) else {
+                return false;
+            };
+            task.pending_permission = Some(PendingPermission {
+                title: request.title.clone(),
+                options: request.options.clone(),
+                responder: responder.clone(),
+            });
+            return true;
+        }
+
         // The artifact lives on the task, not the turn; handle it before the
         // mutable borrow of the turn below.
         if let AgentEvent::Artifact { artifact } = event {
@@ -454,6 +488,8 @@ impl App {
             AgentEvent::Started { name: agent_name } => *name = agent_name,
             AgentEvent::Status { text } => *status = Some(text),
             AgentEvent::Delta { text } => {
+                // The answer starting is the end of the thought that preceded it.
+                fold_thoughts(blocks);
                 if let Some(Block::Text(existing)) = blocks.last_mut() {
                     existing.push_str(&text);
                 } else {
@@ -461,23 +497,38 @@ impl App {
                 }
             }
             AgentEvent::Thought { text } => {
-                if let Some(Block::Thought { text: existing }) = blocks.last_mut() {
+                if let Some(Block::Thought {
+                    text: existing,
+                    collapsed,
+                }) = blocks.last_mut()
+                {
                     existing.push_str(&text);
+                    // Still the live tail: keep the stream on screen.
+                    *collapsed = false;
                 } else {
-                    blocks.push(Block::Thought { text });
+                    blocks.push(Block::Thought {
+                        text,
+                        collapsed: false,
+                    });
                 }
             }
-            AgentEvent::Block { block } => blocks.push(block),
+            AgentEvent::Block { block } => {
+                fold_thoughts(blocks);
+                blocks.push(block);
+            }
             AgentEvent::Usage { .. } => unreachable!("handled above"),
             AgentEvent::Finished => {
+                fold_thoughts(blocks);
                 *streaming = false;
                 *status = None;
             }
             AgentEvent::Failed { message } => {
+                fold_thoughts(blocks);
                 *streaming = false;
                 *status = Some(format!("Failed: {message}"));
             }
             AgentEvent::Artifact { .. } => unreachable!("handled above"),
+            AgentEvent::PermissionRequested { .. } => unreachable!("handled above"),
         }
         if terminal {
             task.started_at = None;
@@ -490,6 +541,15 @@ impl App {
             task.failure_unseen = true;
         }
         true
+    }
+
+    /// Take the open task's pending tool decision, if any, handing the
+    /// responder back so the answer reaches the waiting worker.
+    pub fn take_pending_permission(&mut self, index: usize) -> Option<PendingPermission> {
+        self.tasks
+            .get_mut(index)?
+            .pending_permission
+            .take()
     }
 
     /// Record a completed user + agent turn. Kept for callers/tests that do not
@@ -508,6 +568,17 @@ impl App {
             }
         }
         self.detail_visible = has_artifact;
+    }
+}
+
+/// Fold every reasoning block. A thought stays open only while further
+/// `Thought` chunks are still extending it; the next answer, tool, or
+/// turn-end folds the text.
+pub fn fold_thoughts(blocks: &mut [Block]) {
+    for block in blocks {
+        if let Block::Thought { collapsed, .. } = block {
+            *collapsed = true;
+        }
     }
 }
 
@@ -569,8 +640,70 @@ mod tests {
             _ => panic!("agent turn expected"),
         };
         assert_eq!(blocks.len(), 2);
-        assert!(matches!(&blocks[0], Block::Thought { text } if text == "Thinking: greet."));
+        assert!(matches!(
+            &blocks[0],
+            Block::Thought {
+                text,
+                collapsed: true,
+            } if text == "Thinking: greet."
+        ));
         assert!(matches!(&blocks[1], Block::Text(text) if text == "Hi!"));
+    }
+
+    #[test]
+    fn a_thought_streams_open_and_folds_when_thinking_ends() {
+        let mut app = App::new();
+        let index = app.begin_task("hello").unwrap();
+        app.apply_agent_event(index, AgentEvent::Thought { text: "one ".into() });
+        app.apply_agent_event(index, AgentEvent::Thought { text: "two".into() });
+        let blocks = agent_blocks(&app, index);
+        assert!(matches!(
+            &blocks[0],
+            Block::Thought {
+                text,
+                collapsed: false,
+            } if text == "one two"
+        ));
+
+        // A tool call ends that thought. The next reasoning phase streams open.
+        app.apply_agent_event(
+            index,
+            AgentEvent::Block {
+                block: Block::Tool {
+                    status: "Ran".into(),
+                    primary: "Read a".into(),
+                    detail: None,
+                },
+            },
+        );
+        app.apply_agent_event(index, AgentEvent::Thought { text: "again".into() });
+        let blocks = agent_blocks(&app, index);
+        assert!(matches!(
+            &blocks[0],
+            Block::Thought { collapsed: true, .. }
+        ));
+        assert!(matches!(
+            &blocks[2],
+            Block::Thought {
+                text,
+                collapsed: false,
+            } if text == "again"
+        ));
+
+        // A reasoning-only finish still folds whatever was on screen.
+        app.apply_agent_event(index, AgentEvent::Finished);
+        let blocks = agent_blocks(&app, index);
+        assert!(blocks.iter().all(|block| match block {
+            Block::Thought { collapsed, .. } => *collapsed,
+            _ => true,
+        }));
+    }
+
+    fn agent_blocks(app: &App, index: usize) -> Vec<Block> {
+        match &app.tasks[index].turns[1] {
+            Turn::Agent { blocks, .. } => blocks.clone(),
+            _ => panic!("agent turn expected"),
+        }
     }
 
     #[test]
@@ -764,6 +897,7 @@ mod tests {
                 streaming: false,
                 time: None,
             }],
+            pending_permission: None,
             artifact: None,
             artifacts: Vec::new(),
             session_id: None,

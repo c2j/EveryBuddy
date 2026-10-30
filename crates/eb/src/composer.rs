@@ -439,10 +439,10 @@ impl Composer {
     /// composer instances.
     pub fn set_model_selection(&self, index: usize) {
         self.model_choice.set(index);
-        let items = crate::router::menu_labels();
-        if let Some(label) = items.get(index) {
-            self.model_label.set_text(label);
-        }
+        // route_label over menu_labels: the custom entry then carries the
+        // user's own model name instead of the generic "Custom Model".
+        let label = crate::router::route_label(crate::router::route_for_menu(index));
+        self.model_label.set_text(&label);
     }
 
     /// WorkBuddy hides the workspace picker while a workspace-assigned task is
