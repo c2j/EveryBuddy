@@ -672,13 +672,21 @@ fn update_permission_card(conversation: &Conversation, task: &Task) {
             return;
         }
     };
-    if let Some((title, _)) = conversation.permission_card.borrow().as_ref() {
-        if *title == pending.title {
-            return;
+    // Snapshot the current key first: holding the borrow across `take()`
+    // below would double-borrow the RefCell and panic.
+    let existing = conversation
+        .permission_card
+        .borrow()
+        .as_ref()
+        .map(|(title, _)| title.clone());
+    match existing {
+        Some(title) if title == pending.title => return,
+        Some(_) => {
+            if let Some((_, card)) = conversation.permission_card.take() {
+                conversation.messages.remove(&card);
+            }
         }
-        if let Some((_, card)) = conversation.permission_card.take() {
-            conversation.messages.remove(&card);
-        }
+        None => {}
     }
 
     let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
