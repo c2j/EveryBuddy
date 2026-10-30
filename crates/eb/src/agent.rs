@@ -622,7 +622,7 @@ impl Runner {
                     // imitates that notation and fabricates execution logs
                     // (observed in the wild), so the note is explicit.
                     let note = (route == "custom").then(|| {
-                        "\nNote: in this channel you have NO tool execution. Never claim to have written files, run commands, or verified anything; answer from knowledge only."
+                        "\nNote: this channel HAS real tools (read_file, write_file, list_dir, run_command) working on the task workspace. To act, emit a function/tool call — results are executed for real and returned to you. Never narrate a command or its output without an actual tool call and its result."
                     });
                     migrated_prompt_with(task_ref, &agent_text, note)
                 }
@@ -1265,7 +1265,7 @@ mod tests {
     }
 
     #[test]
-    fn migrated_prompt_carries_the_toolless_note_for_custom() {
+    fn migrated_prompt_carries_the_tool_note_for_custom() {
         let mut task = task_with_turns();
         if let crate::model::Turn::Agent { blocks, .. } = &mut task.turns[1] {
             blocks.push(crate::model::Block::Tool {
@@ -1280,11 +1280,11 @@ mod tests {
             text: "run it".into(),
             time: "now".into(),
         });
-        let prompt = migrated_prompt_with(&task, "next", Some("\nNote: no tools"));
+        let prompt = migrated_prompt_with(&task, "next", Some("\nNote: tools are real"));
         assert!(prompt.contains("[tool: gcc quine.c]"));
-        assert!(prompt.ends_with("New request:\nnext\nNote: no tools"));
+        assert!(prompt.ends_with("New request:\nnext\nNote: tools are real"));
         // The plain migration keeps the original shape without the note.
-        assert!(!migrated_prompt(&task, "next").contains("no tools"));
+        assert!(!migrated_prompt(&task, "next").contains("tools are real"));
     }
 
     #[test]
