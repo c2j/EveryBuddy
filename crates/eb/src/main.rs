@@ -307,6 +307,10 @@ fn build_ui(application: &gtk::Application) {
     if !selftest::requested() {
         let loaded = state::load();
         let mut app = store.borrow_mut();
+        // router.json was read when the host mounted. Keep the composer
+        // picker on that ◇ mode. Self-tests stay on Default so screenshots
+        // do not follow a developer's own setting.
+        app.permission = crate::router::permission_mode();
         app.workspaces = loaded.workspaces;
         app.tasks = loaded
             .tasks
@@ -406,6 +410,7 @@ fn build_ui(application: &gtk::Application) {
                 ],
                 agent_route: None,
                 last_route: None,
+                pending_permission: None,
                 started_at: None,
                 updated_at: None,
                 pinned: false,
