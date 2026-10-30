@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use eb_api::{AgentSink, AnswerHandle, AnswerSource, PermissionPrompter};
@@ -112,6 +113,7 @@ pub fn load() -> RouterConfig {
             if let Some(acp) = value["acp"].as_str().and_then(AcpChoice::parse) {
                 config.acp = acp;
             }
+            set_permission_mode(value["permission_mode"].as_u64().unwrap_or(0) as usize);
             match serde_json::from_value::<CustomConfig>(value["custom"].clone()) {
                 Ok(custom) => config.custom = custom,
                 // A failed parse must not masquerade as "no custom model":
@@ -173,6 +175,7 @@ fn save(config: &RouterConfig) -> Result<(), String> {
     let value = serde_json::json!({
         "default": config.default.id(),
         "acp": config.acp.id(),
+        "permission_mode": PERMISSION_MODE.load(Ordering::SeqCst),
         "custom": {
             "name": config.custom.name,
             "base_url": config.custom.base_url,
@@ -349,6 +352,29 @@ impl AgentRouter {
 }
 
 static ROUTER: OnceLock<Arc<AgentRouter>> = OnceLock::new();
+
+/// The composer's ◇ permission picker (0 Default Permissions, 1 Auto-approve,
+/// 2 Read-only). Process-global because tool workers reach it from their own
+/// threads at ask time; persisted in router.json.
+static PERMISSION_MODE: AtomicUsize = AtomicUsize::new(0);
+
+pub fn permission_mode() -> usize {
+    PERMISSION_MODE.load(Ordering::SeqCst)
+}
+
+pub fn set_permission_mode(mode: usize) {
+    PERMISSION_MODE.store(mode.min(2), Ordering::SeqCst);
+}
+
+/// Remember the composer ◇ choice across restarts. `load` only updates the
+/// in-memory mode; the picker is what writes `router.json`.
+pub fn persist_permission_mode(mode: usize) {
+    set_permission_mode(mode);
+    if let Some(router) = router() {
+        let config = router.config();
+        let _ = save(&config);
+    }
+}
 
 pub fn install(router: Arc<AgentRouter>) {
     let _ = ROUTER.set(router);

@@ -262,7 +262,10 @@ pub fn build(
                         }
                     }
                 }
-                Picker::Permission => app.permission = index,
+                Picker::Permission => {
+                    app.permission = index;
+                    crate::router::persist_permission_mode(index);
+                }
                 // The add-context menu performs an action; there is nothing to
                 // remember between openings.
                 Picker::Add => {}
