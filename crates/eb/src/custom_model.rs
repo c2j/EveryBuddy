@@ -139,12 +139,29 @@ impl AnswerSource for CustomModel {
                             stream_error = message.to_string();
                             break;
                         }
-                        if let Some(delta) =
-                            value["choices"][0]["delta"]["content"].as_str()
-                        {
-                            if !delta.is_empty() {
-                                streamed.push_str(delta);
-                                let _ = sink.send(AgentEvent::Delta { text: delta.to_string() });
+                        let delta = &value["choices"][0]["delta"];
+                        // Reasoning models (GLM, DeepSeek-R1, …) stream a
+                        // long thinking phase as `reasoning_content` before
+                        // any `content`; surface it as a thought so the
+                        // transcript shows live progress instead of a mute
+                        // Thinking state.
+                        for (key, event) in [
+                            ("content", "delta"),
+                            ("reasoning_content", "thought"),
+                            ("reasoning", "thought"),
+                        ] {
+                            if let Some(piece) = delta[key].as_str() {
+                                if piece.is_empty() {
+                                    continue;
+                                }
+                                if event == "delta" {
+                                    streamed.push_str(piece);
+                                    let _ = sink
+                                        .send(AgentEvent::Delta { text: piece.to_string() });
+                                } else {
+                                    let _ = sink
+                                        .send(AgentEvent::Thought { text: piece.to_string() });
+                                }
                             }
                         }
                     }
@@ -327,6 +344,7 @@ mod tests {
         let handle = model.start("what is 2 + 2", sink);
         let mut text = String::new();
         let mut deltas = 0usize;
+        let mut thoughts = 0usize;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let finished = loop {
             if std::time::Instant::now() > deadline {
@@ -336,6 +354,10 @@ mod tests {
                 Ok(eb_api::AgentEvent::Delta { text: value }) => {
                     deltas += 1;
                     text.push_str(&value);
+                }
+                Ok(eb_api::AgentEvent::Thought { text: value }) => {
+                    thoughts += 1;
+                    assert_eq!(value, "thinking hard");
                 }
                 Ok(eb_api::AgentEvent::Block { block: Block::Text(value) }) => text.push_str(&value),
                 Ok(eb_api::AgentEvent::Failed { message }) => {
@@ -351,6 +373,7 @@ mod tests {
         assert!(finished, "the turn never finished");
         assert_eq!(text, "mock says: what is 2 + 2");
         assert!(deltas >= 2, "the answer should arrive as streamed deltas, got {deltas}");
+        assert_eq!(thoughts, 1, "reasoning_content must stream as a thought");
     }
 
     fn python_available() -> bool {

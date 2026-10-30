@@ -34,6 +34,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
+        # A reasoning-model shape: thinking first, then the answer.
+        thought = json.dumps({
+            "choices": [{"delta": {"reasoning_content": "thinking hard"}}]
+        }, separators=(",", ":"))
+        self.wfile.write(f"data: {thought}\n\n".encode())
         for piece in ("mock says: ", prompt):
             chunk = json.dumps({
                 "choices": [{"delta": {"content": piece}}]
