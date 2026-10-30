@@ -1267,15 +1267,24 @@ mod tests {
     #[test]
     fn migrated_prompt_carries_the_toolless_note_for_custom() {
         let mut task = task_with_turns();
+        if let crate::model::Turn::Agent { blocks, .. } = &mut task.turns[1] {
+            blocks.push(crate::model::Block::Tool {
+                status: "Ran".into(),
+                primary: "gcc quine.c".into(),
+                detail: None,
+            });
+        }
+        // migrated_prompt keeps every turn but the last pair, so one more
+        // user turn makes the tool-bearing turn part of the context.
         task.turns.push(crate::model::Turn::User {
             text: "run it".into(),
             time: "now".into(),
         });
         let prompt = migrated_prompt_with(&task, "next", Some("\nNote: no tools"));
+        assert!(prompt.contains("[tool: gcc quine.c]"));
         assert!(prompt.ends_with("New request:\nnext\nNote: no tools"));
-        assert!(prompt.contains("[tool:"));
-        // The plain migration keeps the original shape.
-        assert!(!migrated_prompt(&task, "next").ends_with("no tools"));
+        // The plain migration keeps the original shape without the note.
+        assert!(!migrated_prompt(&task, "next").contains("no tools"));
     }
 
     #[test]
