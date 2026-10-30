@@ -159,6 +159,14 @@ fn needs_migrated_context(
 }
 
 fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
+    migrated_prompt_with(task, prompt, None)
+}
+
+fn migrated_prompt_with(
+    task: &crate::model::Task,
+    prompt: &str,
+    note: Option<&str>,
+) -> String {
     let mut context = String::new();
     let end = task.turns.len().saturating_sub(2);
     for turn in task.turns.iter().take(end) {
@@ -221,9 +229,14 @@ fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
             .unwrap_or(context.len());
         context = format!("[… earlier context omitted …]\n{}", &context[start..]);
     }
-    format!(
-        "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}"
-    )
+    match note {
+        Some(note) => format!(
+            "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}{note}"
+        ),
+        None => format!(
+            "The conversation is being continued in a different agent. The following is the prior visible conversation, provided so you can continue without losing context. Do not repeat it verbatim.\n\n{context}\n---\nNew request:\n{prompt}"
+        ),
+    }
 }
 
 pub struct Runner {
@@ -603,7 +616,16 @@ impl Runner {
         let agent_text = if migrate {
             let app = self.store.borrow();
             match app.tasks.get(task) {
-                Some(task_ref) => migrated_prompt(task_ref, &agent_text),
+                Some(task_ref) => {
+                    // The composed context mentions prior tool calls in a
+                    // `[tool: ...]` notation. On a toolless channel the model
+                    // imitates that notation and fabricates execution logs
+                    // (observed in the wild), so the note is explicit.
+                    let note = (route == "custom").then(|| {
+                        "\nNote: in this channel you have NO tool execution. Never claim to have written files, run commands, or verified anything; answer from knowledge only."
+                    });
+                    migrated_prompt_with(task_ref, &agent_text, note)
+                }
                 None => agent_text,
             }
         } else {
@@ -1240,6 +1262,20 @@ mod tests {
         // Every later turn: the stateless HTTP call needs the history.
         assert!(needs_migrated_context("custom", true, Some("custom"), true));
         assert!(needs_migrated_context("custom", true, None, true));
+    }
+
+    #[test]
+    fn migrated_prompt_carries_the_toolless_note_for_custom() {
+        let mut task = task_with_turns();
+        task.turns.push(crate::model::Turn::User {
+            text: "run it".into(),
+            time: "now".into(),
+        });
+        let prompt = migrated_prompt_with(&task, "next", Some("\nNote: no tools"));
+        assert!(prompt.ends_with("New request:\nnext\nNote: no tools"));
+        assert!(prompt.contains("[tool:"));
+        // The plain migration keeps the original shape.
+        assert!(!migrated_prompt(&task, "next").ends_with("no tools"));
     }
 
     #[test]
