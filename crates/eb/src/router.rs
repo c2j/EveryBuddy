@@ -98,6 +98,12 @@ fn home() -> PathBuf {
 
 pub fn load() -> RouterConfig {
     let mut config = RouterConfig::default();
+    if std::env::var_os("EB_DEBUG").is_some() {
+        eprintln!(
+            "router: loading {}",
+            config_path().display()
+        );
+    }
     if let Ok(text) = std::fs::read_to_string(config_path()) {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
             if let Some(default) = value["default"].as_str() {
@@ -106,8 +112,18 @@ pub fn load() -> RouterConfig {
             if let Some(acp) = value["acp"].as_str().and_then(AcpChoice::parse) {
                 config.acp = acp;
             }
-            if let Ok(custom) = serde_json::from_value::<CustomConfig>(value["custom"].clone()) {
-                config.custom = custom;
+            match serde_json::from_value::<CustomConfig>(value["custom"].clone()) {
+                Ok(custom) => config.custom = custom,
+                // A failed parse must not masquerade as "no custom model":
+                // router.json deliberately omits api_key (it lives in
+                // credentials.json), which used to fail the whole struct and
+                // silently wipe the saved model on every restart.
+                Err(error) if value.get("custom").is_some() => {
+                    if std::env::var_os("EB_DEBUG").is_some() {
+                        eprintln!("router: custom config failed to parse: {error}");
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -126,6 +142,16 @@ pub fn load() -> RouterConfig {
         config.default = DefaultRoute::Demo;
     } else if std::env::var("EB_AGENT").ok().as_deref() == Some("dsh") {
         config.default = DefaultRoute::Dsh;
+    }
+    if std::env::var_os("EB_DEBUG").is_some() {
+        eprintln!(
+            "router: default={} custom={{name: {:?}, base_url: {:?}, model: {:?}, api_key: {}}}",
+            config.default.id(),
+            config.custom.name,
+            config.custom.base_url,
+            config.custom.model,
+            if config.custom.api_key.is_empty() { "missing" } else { "present" }
+        );
     }
     config
 }
@@ -377,6 +403,41 @@ pub fn label() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The exact restart scenario from the field: router.json is saved
+    /// without api_key (it lives in credentials.json), and load() must
+    /// restore the custom model and re-attach the key.
+    #[test]
+    fn custom_config_survives_a_restart() {
+        let temp = std::env::temp_dir().join(format!("eb-router-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(temp.join(".evobuddy")).unwrap();
+        std::fs::write(
+            temp.join(".evobuddy/router.json"),
+            r#"{"acp":"opencode","custom":{"base_url":"https://open.bigmodel.cn/api/coding/paas/v4","model":"glm-5.3-flash","name":"GLM2"},"default":"custom"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp.join(".evobuddy/credentials.json"),
+            r#"{"CUSTOM_MODEL_API_KEY":"k-123"}"#,
+        )
+        .unwrap();
+
+        let previous_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &temp);
+        let config = load();
+        match previous_home {
+            Some(home) => std::env::set_var("HOME", home),
+            None => std::env::remove_var("HOME"),
+        }
+
+        assert_eq!(config.default, DefaultRoute::Custom);
+        assert_eq!(config.custom.name, "GLM2");
+        assert_eq!(config.custom.model, "glm-5.3-flash");
+        assert_eq!(config.custom.base_url, "https://open.bigmodel.cn/api/coding/paas/v4");
+        assert_eq!(config.custom.api_key, "k-123");
+        std::fs::remove_dir_all(&temp).unwrap();
+    }
 
     #[test]
     fn route_ids_round_trip() {

@@ -29,6 +29,7 @@ const MAX_TOOL_ROUNDS: usize = 8;
 const TOOL_OUTPUT_CAP: usize = 8_000;
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct CustomConfig {
     pub name: String,
     pub base_url: String,
