@@ -103,6 +103,8 @@ fn main() {
     // the desktop entry before GTK reads it.
     gtk::glib::set_prgname(Some(spec::APP_ID));
     gtk::glib::set_application_name("EvoBuddy");
+    #[cfg(target_os = "linux")]
+    integrate_desktop_entry();
 
     let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
     application.connect_startup(|_| {
@@ -223,6 +225,67 @@ fn ensure_gtk_im_modules() {}
 /// desktop entry, so an AppImage or an unpacked bundle (Kylin's dock among
 /// them) would otherwise show a generic gear.
 const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/appicon.png"));
+
+/// Running as an AppImage, the bundled desktop entry and icons sit inside
+/// the squashfs and are invisible to the desktop environment's app index:
+/// the dock maps a window's WM_CLASS / app id to an *installed* entry and
+/// falls back to the generic gear when none matches. When the AppImage
+/// runtime tells us where we live (`APPIMAGE`), install the entry and the
+/// mark into the user's XDG data dirs, with Exec pointing at the AppImage
+/// itself. Best-effort: any failure just means the gear stays.
+#[cfg(target_os = "linux")]
+fn integrate_desktop_entry() {
+    use crate::spec::APP_ID;
+    let Some(appimage) = std::env::var_os("APPIMAGE") else {
+        return;
+    };
+    let Some(data_home) = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| std::path::PathBuf::from(home).join(".local/share"))
+        })
+    else {
+        return;
+    };
+    let apps = data_home.join("applications");
+    let icons = data_home.join("icons/hicolor/256x256/apps");
+    if std::fs::create_dir_all(&apps).is_err() || std::fs::create_dir_all(&icons).is_err() {
+        return;
+    }
+    let icon_path = icons.join(format!("{APP_ID}.png"));
+    if std::fs::write(&icon_path, APP_ICON_PNG).is_err() {
+        return;
+    }
+    let entry_path = apps.join(format!("{APP_ID}.desktop"));
+    let entry = desktop_entry(&appimage.to_string_lossy());
+    // Rewrite only on change so the desktop cache's mtime signal stays clean.
+    if std::fs::read_to_string(&entry_path).ok().as_deref() != Some(entry.as_str()) {
+        let _ = std::fs::write(&entry_path, entry);
+        let _ = std::process::Command::new("update-desktop-database").arg(&apps).output();
+    }
+}
+
+/// The AppImage's self-installed launcher entry. Exec is quoted so an
+/// AppImage path with spaces still works.
+#[cfg(target_os = "linux")]
+fn desktop_entry(appimage: &str) -> String {
+    use crate::spec::APP_ID;
+    let exec = appimage.trim().trim_matches('"');
+    format!(
+        "[Desktop Entry]\n\
+Type=Application\n\
+Name=EvoBuddy\n\
+Comment=EvoBuddy desktop client\n\
+Exec=\"{exec}\"\n\
+Icon={APP_ID}\n\
+Terminal=false\n\
+Categories=Utility;\n\
+StartupNotify=true\n\
+StartupWMClass={APP_ID}\n"
+    )
+}
 
 /// Installs the embedded mark as the default icon for every window.
 fn load_app_icon() {
@@ -1913,4 +1976,21 @@ fn count_widgets(root: &gtk::Widget) -> usize {
         }
     }
     count
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_integration_tests {
+    use super::desktop_entry;
+
+    #[test]
+    fn the_entry_matches_the_bundled_one_and_quotes_exec() {
+        let entry = desktop_entry("/opt/AppImages/evobuddy 0.7.AppImage");
+        assert!(entry.starts_with("[Desktop Entry]"), "{entry}");
+        assert!(entry.contains("Exec=\"/opt/AppImages/evobuddy 0.7.AppImage\""), "{entry}");
+        assert!(entry.contains("Icon=com.evobuddy.app"), "{entry}");
+        assert!(entry.contains("StartupWMClass=com.evobuddy.app"), "{entry}");
+        // Idempotent content: a second call yields the same bytes, which the
+        // installer compares against the file on disk before rewriting.
+        assert_eq!(entry, desktop_entry("/opt/AppImages/evobuddy 0.7.AppImage"));
+    }
 }
