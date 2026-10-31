@@ -11,6 +11,7 @@ packages also include the components below. Full license texts are in
 | `agent-client-protocol` | 3.6.0 | Apache-2.0 |
 | `agent-client-protocol-derive` | 3.6.0 | Apache-2.0 |
 | `agent-client-protocol-schema` | 1.13.0 | Apache-2.0 |
+| `aho-corasick` | 1.1.5 | Unlicense OR MIT |
 | `android_system_properties` | 0.1.6 | MIT OR Apache-2.0 |
 | `anyhow` | 1.0.104 | MIT OR Apache-2.0 |
 | `atk` | 0.19.0 | MIT |
@@ -21,6 +22,7 @@ packages also include the components below. Full license texts are in
 | `bitflags` | 2.13.2 | MIT OR Apache-2.0 |
 | `block2` | 0.6.2 | MIT |
 | `bs58` | 0.5.1 | MIT/Apache-2.0 |
+| `bstr` | 1.13.1 | MIT OR Apache-2.0 |
 | `bumpalo` | 3.20.3 | MIT OR Apache-2.0 |
 | `bytes` | 1.12.1 | MIT |
 | `cairo-rs` | 0.22.9 | MIT |
@@ -34,6 +36,10 @@ packages also include the components below. Full license texts are in
 | `core-foundation-sys` | 0.8.7 | MIT OR Apache-2.0 |
 | `core-graphics` | 0.23.2 | MIT OR Apache-2.0 |
 | `core-graphics-types` | 0.1.3 | MIT OR Apache-2.0 |
+| `core_detect` | 1.0.0 | MIT/Apache-2.0 |
+| `crossbeam-deque` | 0.8.8 | MIT OR Apache-2.0 |
+| `crossbeam-epoch` | 0.9.21 | MIT OR Apache-2.0 |
+| `crossbeam-utils` | 0.8.23 | MIT OR Apache-2.0 |
 | `darling` | 0.24.1 | MIT |
 | `darling_core` | 0.24.1 | MIT |
 | `darling_macro` | 0.24.1 | MIT |
@@ -45,6 +51,8 @@ packages also include the components below. Full license texts are in
 | `derive_more-impl` | 2.1.1 | MIT |
 | `dispatch2` | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | `dyn-clone` | 1.0.20 | MIT OR Apache-2.0 |
+| `encoding_rs` | 0.8.44 | (Apache-2.0 OR MIT) AND BSD-3-Clause |
+| `encoding_rs_io` | 0.1.8 | MIT OR Apache-2.0 |
 | `equivalent` | 1.0.3 | Apache-2.0 OR MIT |
 | `fastrand` | 2.5.0 | Apache-2.0 OR MIT |
 | `field-offset` | 0.3.6 | MIT OR Apache-2.0 |
@@ -75,7 +83,11 @@ packages also include the components below. Full license texts are in
 | `glib` | 0.22.10 | MIT |
 | `glib-macros` | 0.22.9 | MIT |
 | `glib-sys` | 0.22.9 | MIT |
+| `globset` | 0.4.21 | Unlicense OR MIT |
 | `gobject-sys` | 0.22.9 | MIT |
+| `grep-matcher` | 0.1.9 | Unlicense OR MIT |
+| `grep-regex` | 0.1.14 | Unlicense OR MIT |
+| `grep-searcher` | 0.1.17 | Unlicense OR MIT |
 | `gtk` | 0.19.0 | MIT |
 | `gtk-sys` | 0.19.0 | MIT |
 | `gtk3-macros` | 0.19.0 | MIT |
@@ -86,6 +98,7 @@ packages also include the components below. Full license texts are in
 | `iana-time-zone` | 0.1.65 | MIT OR Apache-2.0 |
 | `iana-time-zone-haiku` | 0.1.2 | MIT OR Apache-2.0 |
 | `ident_case` | 1.0.1 | MIT/Apache-2.0 |
+| `ignore` | 0.4.34 | Unlicense OR MIT |
 | `indexmap` | 1.9.3 | Apache-2.0 OR MIT |
 | `indexmap` | 2.14.2 | Apache-2.0 OR MIT |
 | `itoa` | 1.0.18 | MIT OR Apache-2.0 |
@@ -98,7 +111,9 @@ packages also include the components below. Full license texts are in
 | `libc` | 0.2.190 | MIT OR Apache-2.0 |
 | `log` | 0.4.34 | MIT OR Apache-2.0 |
 | `memchr` | 2.8.3 | Unlicense OR MIT |
+| `memmap2` | 0.9.12 | MIT OR Apache-2.0 |
 | `memoffset` | 0.9.1 | MIT |
+| `multiversion_no_op` | 1.0.0 | Apache-2.0 OR MIT |
 | `num-conv` | 0.2.2 | MIT OR Apache-2.0 |
 | `num-traits` | 0.2.19 | MIT OR Apache-2.0 |
 | `objc2` | 0.6.5 | MIT |
@@ -134,12 +149,16 @@ packages also include the components below. Full license texts are in
 | `r-efi` | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | `ref-cast` | 1.0.27 | MIT OR Apache-2.0 |
 | `ref-cast-impl` | 1.0.27 | MIT OR Apache-2.0 |
+| `regex-automata` | 0.4.18 | MIT OR Apache-2.0 |
+| `regex-syntax` | 0.8.11 | MIT OR Apache-2.0 |
 | `rustc-hash` | 2.1.3 | Apache-2.0 OR MIT |
 | `rustc_version` | 0.4.1 | MIT OR Apache-2.0 |
 | `rustversion` | 1.0.23 | MIT OR Apache-2.0 |
 | `rutis` | 0.11.0 | MIT |
+| `same-file` | 1.0.6 | Unlicense/MIT |
 | `schemars` | 0.9.0 | MIT |
 | `schemars` | 1.2.3 | MIT |
+| `scopeguard` | 1.2.0 | MIT OR Apache-2.0 |
 | `semver` | 1.0.28 | MIT OR Apache-2.0 |
 | `serde` | 1.0.229 | MIT OR Apache-2.0 |
 | `serde_core` | 1.0.229 | MIT OR Apache-2.0 |
@@ -149,6 +168,7 @@ packages also include the components below. Full license texts are in
 | `serde_with` | 3.24.0 | MIT OR Apache-2.0 |
 | `serde_with_macros` | 3.24.0 | MIT OR Apache-2.0 |
 | `shlex` | 2.0.1 | MIT OR Apache-2.0 |
+| `simdutf8` | 0.1.5 | MIT OR Apache-2.0 |
 | `slab` | 0.4.12 | MIT |
 | `smallvec` | 1.16.3 | MIT OR Apache-2.0 |
 | `strsim` | 0.11.1 | MIT |
@@ -181,10 +201,12 @@ packages also include the components below. Full license texts are in
 | `uuid` | 1.29.0 | Apache-2.0 OR MIT |
 | `version-compare` | 0.2.1 | MIT |
 | `version_check` | 0.9.5 | MIT/Apache-2.0 |
+| `walkdir` | 2.5.0 | Unlicense/MIT |
 | `wasm-bindgen` | 0.2.130 | MIT OR Apache-2.0 |
 | `wasm-bindgen-macro` | 0.2.130 | MIT OR Apache-2.0 |
 | `wasm-bindgen-macro-support` | 0.2.130 | MIT OR Apache-2.0 |
 | `wasm-bindgen-shared` | 0.2.130 | MIT OR Apache-2.0 |
+| `winapi-util` | 0.1.11 | Unlicense OR MIT |
 | `windows-core` | 0.62.2 | MIT OR Apache-2.0 |
 | `windows-implement` | 0.60.2 | MIT OR Apache-2.0 |
 | `windows-interface` | 0.59.3 | MIT OR Apache-2.0 |

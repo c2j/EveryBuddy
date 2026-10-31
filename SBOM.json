@@ -52,6 +52,18 @@
    "version": "1.13.0"
   },
   {
+   "bom-ref": "pkg:cargo/aho-corasick@1.1.5",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "aho-corasick",
+   "purl": "pkg:cargo/aho-corasick@1.1.5",
+   "type": "library",
+   "version": "1.1.5"
+  },
+  {
    "bom-ref": "pkg:cargo/android_system_properties@0.1.6",
    "licenses": [
     {
@@ -170,6 +182,18 @@
    "purl": "pkg:cargo/bs58@0.5.1",
    "type": "library",
    "version": "0.5.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/bstr@1.13.1",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "bstr",
+   "purl": "pkg:cargo/bstr@1.13.1",
+   "type": "library",
+   "version": "1.13.1"
   },
   {
    "bom-ref": "pkg:cargo/bumpalo@3.20.3",
@@ -328,6 +352,54 @@
    "version": "0.1.3"
   },
   {
+   "bom-ref": "pkg:cargo/core_detect@1.0.0",
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "core_detect",
+   "purl": "pkg:cargo/core_detect@1.0.0",
+   "type": "library",
+   "version": "1.0.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-deque@0.8.8",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-deque",
+   "purl": "pkg:cargo/crossbeam-deque@0.8.8",
+   "type": "library",
+   "version": "0.8.8"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-epoch@0.9.21",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-epoch",
+   "purl": "pkg:cargo/crossbeam-epoch@0.9.21",
+   "type": "library",
+   "version": "0.9.21"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-utils@0.8.23",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-utils",
+   "purl": "pkg:cargo/crossbeam-utils@0.8.23",
+   "type": "library",
+   "version": "0.8.23"
+  },
+  {
    "bom-ref": "pkg:cargo/darling@0.24.1",
    "licenses": [
     {
@@ -458,6 +530,30 @@
    "purl": "pkg:cargo/dyn-clone@1.0.20",
    "type": "library",
    "version": "1.0.20"
+  },
+  {
+   "bom-ref": "pkg:cargo/encoding_rs@0.8.44",
+   "licenses": [
+    {
+     "expression": "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+    }
+   ],
+   "name": "encoding_rs",
+   "purl": "pkg:cargo/encoding_rs@0.8.44",
+   "type": "library",
+   "version": "0.8.44"
+  },
+  {
+   "bom-ref": "pkg:cargo/encoding_rs_io@0.1.8",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "encoding_rs_io",
+   "purl": "pkg:cargo/encoding_rs_io@0.1.8",
+   "type": "library",
+   "version": "0.1.8"
   },
   {
    "bom-ref": "pkg:cargo/equivalent@1.0.3",
@@ -820,6 +916,18 @@
    "version": "0.22.9"
   },
   {
+   "bom-ref": "pkg:cargo/globset@0.4.21",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "globset",
+   "purl": "pkg:cargo/globset@0.4.21",
+   "type": "library",
+   "version": "0.4.21"
+  },
+  {
    "bom-ref": "pkg:cargo/gobject-sys@0.22.9",
    "licenses": [
     {
@@ -830,6 +938,42 @@
    "purl": "pkg:cargo/gobject-sys@0.22.9",
    "type": "library",
    "version": "0.22.9"
+  },
+  {
+   "bom-ref": "pkg:cargo/grep-matcher@0.1.9",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "grep-matcher",
+   "purl": "pkg:cargo/grep-matcher@0.1.9",
+   "type": "library",
+   "version": "0.1.9"
+  },
+  {
+   "bom-ref": "pkg:cargo/grep-regex@0.1.14",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "grep-regex",
+   "purl": "pkg:cargo/grep-regex@0.1.14",
+   "type": "library",
+   "version": "0.1.14"
+  },
+  {
+   "bom-ref": "pkg:cargo/grep-searcher@0.1.17",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "grep-searcher",
+   "purl": "pkg:cargo/grep-searcher@0.1.17",
+   "type": "library",
+   "version": "0.1.17"
   },
   {
    "bom-ref": "pkg:cargo/gtk@0.19.0",
@@ -950,6 +1094,18 @@
    "purl": "pkg:cargo/ident_case@1.0.1",
    "type": "library",
    "version": "1.0.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/ignore@0.4.34",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "ignore",
+   "purl": "pkg:cargo/ignore@0.4.34",
+   "type": "library",
+   "version": "0.4.34"
   },
   {
    "bom-ref": "pkg:cargo/indexmap@1.9.3",
@@ -1096,6 +1252,18 @@
    "version": "2.8.3"
   },
   {
+   "bom-ref": "pkg:cargo/memmap2@0.9.12",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "memmap2",
+   "purl": "pkg:cargo/memmap2@0.9.12",
+   "type": "library",
+   "version": "0.9.12"
+  },
+  {
    "bom-ref": "pkg:cargo/memoffset@0.9.1",
    "licenses": [
     {
@@ -1106,6 +1274,18 @@
    "purl": "pkg:cargo/memoffset@0.9.1",
    "type": "library",
    "version": "0.9.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/multiversion_no_op@1.0.0",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "multiversion_no_op",
+   "purl": "pkg:cargo/multiversion_no_op@1.0.0",
+   "type": "library",
+   "version": "1.0.0"
   },
   {
    "bom-ref": "pkg:cargo/num-conv@0.2.2",
@@ -1528,6 +1708,30 @@
    "version": "1.0.27"
   },
   {
+   "bom-ref": "pkg:cargo/regex-automata@0.4.18",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "regex-automata",
+   "purl": "pkg:cargo/regex-automata@0.4.18",
+   "type": "library",
+   "version": "0.4.18"
+  },
+  {
+   "bom-ref": "pkg:cargo/regex-syntax@0.8.11",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "regex-syntax",
+   "purl": "pkg:cargo/regex-syntax@0.8.11",
+   "type": "library",
+   "version": "0.8.11"
+  },
+  {
    "bom-ref": "pkg:cargo/rustc-hash@2.1.3",
    "licenses": [
     {
@@ -1576,6 +1780,18 @@
    "version": "0.11.0"
   },
   {
+   "bom-ref": "pkg:cargo/same-file@1.0.6",
+   "licenses": [
+    {
+     "expression": "Unlicense/MIT"
+    }
+   ],
+   "name": "same-file",
+   "purl": "pkg:cargo/same-file@1.0.6",
+   "type": "library",
+   "version": "1.0.6"
+  },
+  {
    "bom-ref": "pkg:cargo/schemars@0.9.0",
    "licenses": [
     {
@@ -1598,6 +1814,18 @@
    "purl": "pkg:cargo/schemars@1.2.3",
    "type": "library",
    "version": "1.2.3"
+  },
+  {
+   "bom-ref": "pkg:cargo/scopeguard@1.2.0",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "scopeguard",
+   "purl": "pkg:cargo/scopeguard@1.2.0",
+   "type": "library",
+   "version": "1.2.0"
   },
   {
    "bom-ref": "pkg:cargo/semver@1.0.28",
@@ -1706,6 +1934,18 @@
    "purl": "pkg:cargo/shlex@2.0.1",
    "type": "library",
    "version": "2.0.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/simdutf8@0.1.5",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "simdutf8",
+   "purl": "pkg:cargo/simdutf8@0.1.5",
+   "type": "library",
+   "version": "0.1.5"
   },
   {
    "bom-ref": "pkg:cargo/slab@0.4.12",
@@ -2092,6 +2332,18 @@
    "version": "0.9.5"
   },
   {
+   "bom-ref": "pkg:cargo/walkdir@2.5.0",
+   "licenses": [
+    {
+     "expression": "Unlicense/MIT"
+    }
+   ],
+   "name": "walkdir",
+   "purl": "pkg:cargo/walkdir@2.5.0",
+   "type": "library",
+   "version": "2.5.0"
+  },
+  {
    "bom-ref": "pkg:cargo/wasm-bindgen@0.2.130",
    "licenses": [
     {
@@ -2138,6 +2390,18 @@
    "purl": "pkg:cargo/wasm-bindgen-shared@0.2.130",
    "type": "library",
    "version": "0.2.130"
+  },
+  {
+   "bom-ref": "pkg:cargo/winapi-util@0.1.11",
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "winapi-util",
+   "purl": "pkg:cargo/winapi-util@0.1.11",
+   "type": "library",
+   "version": "0.1.11"
   },
   {
    "bom-ref": "pkg:cargo/windows-core@0.62.2",
