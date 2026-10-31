@@ -1552,7 +1552,8 @@ impl TerminalExit {
     fn from_process_status(
         status: std::process::ExitStatus,
     ) -> acp::TerminalExitStatus {
-        acp::TerminalExitStatus::new().exit_code(status.code().unwrap_or(0))
+        acp::TerminalExitStatus::new()
+            .exit_code(u32::try_from(status.code().unwrap_or(0)).unwrap_or(0))
     }
 }
 
