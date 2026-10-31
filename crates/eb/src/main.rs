@@ -31,6 +31,8 @@
 mod agent;
 mod bridge;
 mod catalog;
+mod schedule;
+mod schedule_ui;
 mod plugin_panel;
 mod preview_server;
 mod composer;
@@ -90,6 +92,17 @@ const DEMO_PROMPT: &str = "Show me what a task's conversation looks like.";
 fn main() {
     if let Ok(requested) = std::env::var("EB_ACP_PROBE") {
         std::process::exit(acp_probe(&requested));
+    }
+    // The schedule smoke writes scheduled.json and plans.json beside EB_STATE.
+    // Point that at a temp directory before the first poll so a harness run
+    // cannot append a plan to the user's real queue.
+    if std::env::var_os("EB_SCHEDULE_SMOKE").is_some() {
+        let dir = std::env::temp_dir().join(format!(
+            "evobuddy-schedule-smoke-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("EB_STATE", dir.join("tasks.json"));
     }
 
     ensure_gtk_im_modules();
@@ -511,6 +524,9 @@ fn build_ui(application: &gtk::Application) {
                 archived: false,
                 failure_unseen: false,
                 unread: false,
+                origin: None,
+                plan_item_id: None,
+                dispatch_queued: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

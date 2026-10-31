@@ -589,84 +589,21 @@ pub fn connectors() -> Vec<(String, String)> {
     out
 }
 
-fn scheduled_path() -> PathBuf {
-    home().join(".evobuddy/scheduled.json")
-}
-
-fn scheduled_values() -> Vec<serde_json::Value> {
-    std::fs::read_to_string(scheduled_path())
-        .ok()
-        .and_then(|text| serde_json::from_str::<Vec<serde_json::Value>>(&text).ok())
-        .unwrap_or_default()
-}
-
 pub fn scheduled() -> Vec<(String, String, String)> {
-    scheduled_values()
+    crate::schedule::rows()
         .into_iter()
-        .map(|value| {
-            (
-                value["title"].as_str().unwrap_or("Scheduled task").into(),
-                value["prompt"].as_str().unwrap_or("").into(),
-                value["due_at"]
-                    .as_str()
-                    .map(str::to_string)
-                    .or_else(|| value["due_at"].as_u64().map(|at| at.to_string()))
-                    .unwrap_or_else(|| "manual".into()),
-            )
-        })
+        .map(|row| (row.title, row.prompt, row.when))
         .collect()
 }
 
-/// Claim every job whose numeric `due_at` epoch has passed, removing it from
-/// the persisted queue.
+/// Claim every one-shot job whose `due_at` has passed. Plan jobs stay in the
+/// file; [`crate::schedule::tick`] is what turns those into a plan.
 pub fn take_due() -> Vec<(String, String)> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|time| time.as_secs())
-        .unwrap_or(0);
-    let mut due = Vec::new();
-    let mut remaining = Vec::new();
-    for value in scheduled_values() {
-        let at = value["due_at"]
-            .as_u64()
-            .or_else(|| value["due_at"].as_str().and_then(|text| text.parse().ok()));
-        if at.is_some_and(|at| at <= now) {
-            due.push((
-                value["title"].as_str().unwrap_or("Scheduled task").into(),
-                value["prompt"].as_str().unwrap_or("").into(),
-            ));
-        } else {
-            remaining.push(value);
-        }
-    }
-    if !due.is_empty() {
-        let _ = std::fs::write(
-            scheduled_path(),
-            serde_json::to_string_pretty(&remaining).unwrap_or_default(),
-        );
-    }
-    due
+    crate::schedule::claim_once_prompts()
 }
 
 pub fn add_scheduled(title: &str, prompt: &str, delay_secs: u64) {
-    let mut values = scheduled_values();
-    let due = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|time| time.as_secs())
-        .unwrap_or(0)
-        + delay_secs;
-    values.push(serde_json::json!({
-        "title": title,
-        "prompt": prompt,
-        "due_at": due,
-    }));
-    if let Some(parent) = scheduled_path().parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(
-        scheduled_path(),
-        serde_json::to_string_pretty(&values).unwrap_or_default(),
-    );
+    crate::schedule::add_once(title, prompt, delay_secs);
 }
 
 #[cfg(test)]
@@ -731,23 +668,9 @@ mod tests {
 }
 
 pub fn remove_scheduled(index: usize) {
-    let mut values = scheduled_values();
-    if index < values.len() {
-        values.remove(index);
-        let _ = std::fs::write(
-            scheduled_path(),
-            serde_json::to_string_pretty(&values).unwrap_or_default(),
-        );
-    }
+    crate::schedule::remove_at(index);
 }
 
 pub fn run_scheduled(index: usize) {
-    let mut values = scheduled_values();
-    if let Some(value) = values.get_mut(index) {
-        value["due_at"] = serde_json::json!(0);
-        let _ = std::fs::write(
-            scheduled_path(),
-            serde_json::to_string_pretty(&values).unwrap_or_default(),
-        );
-    }
+    let _ = crate::schedule::run_now(index);
 }

@@ -47,6 +47,10 @@ eb-plugin-composer = { path = "../plugins/eb-plugin-composer" }
 eb-plugin-demo-agent = { path = "../plugins/eb-plugin-demo-agent" }
 eb-plugin-acp-agent = { path = "../plugins/eb-plugin-acp-agent" }
 
+# Local daily times (scheduled plans) use `localtime_r` on Unix.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Needed to locate the loaded libgtk (dladdr) on macOS, see src/main.rs.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

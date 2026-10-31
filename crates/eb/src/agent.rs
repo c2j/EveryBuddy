@@ -270,6 +270,21 @@ struct PermissionBridge {
     tx: mpsc::Sender<PermissionJob>,
 }
 
+/// Allow a tool call from a plan item the user already approved.
+struct AllowPlan;
+
+impl PermissionPrompter for AllowPlan {
+    fn ask(&self, request: PermissionRequest) -> PermissionDecision {
+        request
+            .options
+            .iter()
+            .find(|option| option.kind.contains("allow"))
+            .or_else(|| request.options.first())
+            .map(|option| PermissionDecision::Selected(option.id.clone()))
+            .unwrap_or(PermissionDecision::Cancelled)
+    }
+}
+
 impl PermissionPrompter for PermissionBridge {
     fn ask(&self, request: PermissionRequest) -> PermissionDecision {
         let (reply, answer) = mpsc::sync_channel(1);
@@ -478,6 +493,48 @@ impl Runner {
             self.refresher.request();
             return;
         };
+        self.launch_turn(task, text);
+    }
+
+    /// Start the agent for a task that already holds the user's prompt.
+    ///
+    /// A dispatched plan item does not move the open route. Its tool calls are
+    /// pre-approved because the user already approved the plan item.
+    fn launch_turn(self: &Rc<Self>, task: usize, text: String) {
+        let dispatched = self
+            .store
+            .borrow()
+            .tasks
+            .get(task)
+            .and_then(|task| task.origin.clone())
+            == Some("dispatched".into());
+        if dispatched {
+            let item_id = {
+                let mut app = self.store.borrow_mut();
+                let Some(task_ref) = app.tasks.get_mut(task) else {
+                    return;
+                };
+                task_ref.dispatch_queued = false;
+                if let Some(turn) = task_ref.turns.iter_mut().rev().find(|turn| {
+                    matches!(turn, crate::model::Turn::Agent { .. })
+                }) {
+                    if let crate::model::Turn::Agent {
+                        status, streaming, ..
+                    } = turn
+                    {
+                        *streaming = true;
+                        if status.as_deref() == Some("Queued") {
+                            *status = None;
+                        }
+                    }
+                }
+                task_ref.plan_item_id.clone()
+            };
+            if let Some(item_id) = item_id {
+                crate::schedule::mark_started(&item_id);
+            }
+            crate::state::save(&self.store);
+        }
         // Carry the composer's model choice into a brand-new task. Without
         // this, the first turn falls back to the global default while the
         // picker still shows the model the user picked.
@@ -495,7 +552,14 @@ impl Runner {
         // new task. Otherwise the first prompt creates a Temporary one below.
         {
             let mut app = self.store.borrow_mut();
-            if app.tasks.get(task).is_some_and(|task| task.workspace_id.is_none()) {
+            // A dispatched item keeps the workspace recorded on the plan. The
+            // composer's current pick belongs to the conversation on screen.
+            if !dispatched
+                && app
+                    .tasks
+                    .get(task)
+                    .is_some_and(|task| task.workspace_id.is_none())
+            {
                 let selected = app.workspace;
                 if selected >= 2 && selected <= app.workspaces.len() + 1 {
                     let id = app.workspaces[selected - 2].id.clone();
@@ -528,7 +592,9 @@ impl Runner {
         });
         let workspace = match existing_root {
             Some(root) => Some(std::path::PathBuf::from(root)),
-            None if self.store.borrow().workspace == 1 => None,
+            // The welcome picker's "unassigned" choice applies to a prompt the
+            // user is typing, not to a plan item that simply has no workspace yet.
+            None if !dispatched && self.store.borrow().workspace == 1 => None,
             None => {
                 let created = crate::workspace::create(&title);
                 if let Some(workspace) = &created {
@@ -561,8 +627,16 @@ impl Runner {
         if let Err(error) = crate::bridge::create_session(&session_id) {
             eprintln!("phase1: create_session failed: {error}");
         } else {
-            if let Some(task) = self.store.borrow_mut().tasks.get_mut(task) {
-                task.session_id = Some(session_id);
+            let item_id = {
+                let mut app = self.store.borrow_mut();
+                let Some(task_ref) = app.tasks.get_mut(task) else {
+                    return;
+                };
+                task_ref.session_id = Some(session_id.clone());
+                task_ref.plan_item_id.clone()
+            };
+            if let Some(item_id) = item_id {
+                crate::schedule::note_session(&item_id, &session_id);
             }
             crate::state::save(&self.store);
         }
@@ -632,6 +706,11 @@ impl Runner {
             agent_text
         };
         let (sink, stream) = AgentSink::channel();
+        let permissions: Arc<dyn PermissionPrompter> = if dispatched {
+            Arc::new(AllowPlan)
+        } else {
+            self.permissions.clone()
+        };
         let handle =
             match self
                 .runtime
@@ -639,7 +718,7 @@ impl Runner {
                     self.source.clone(),
                     agent_text,
                     sink,
-                    self.permissions.clone(),
+                    permissions,
                     workspace.clone(),
                     Some(route.clone()),
                 )
@@ -677,6 +756,119 @@ impl Runner {
                 runner.cancel();
             });
         }
+    }
+
+    /// Claim due schedules, then start at most one approved plan item.
+    ///
+    /// One-shot jobs still submit through the normal composer path. Plan runs
+    /// are recorded here and only become conversations after the user approves
+    /// them. Returns notice text for a plan that was just written or expired.
+    pub fn poll_schedule(self: &Rc<Self>) -> Vec<String> {
+        let snaps = {
+            let app = self.store.borrow();
+            crate::schedule::snapshots(&app.tasks, &app.workspaces)
+        };
+        let mut notices = Vec::new();
+        for event in crate::schedule::tick(crate::schedule::unix_now(), &snaps) {
+            match event {
+                crate::schedule::Tick::RunPrompt { title, prompt } => {
+                    eprintln!("scheduler: running '{title}'");
+                    if !prompt.is_empty() {
+                        self.submit(prompt);
+                    }
+                }
+                crate::schedule::Tick::PlanReady { title, items } => {
+                    eprintln!("scheduler: plan '{title}' ready ({items} items)");
+                    notices.push(format!(
+                        "Daily plan \"{title}\" is ready ({items} items)."
+                    ));
+                }
+                crate::schedule::Tick::PlanExpired { title } => {
+                    eprintln!("scheduler: plan '{title}' timed out");
+                    notices.push(format!(
+                        "Plan \"{title}\" timed out and will merge into the next one."
+                    ));
+                }
+            }
+        }
+        self.pump_dispatches();
+        notices
+    }
+
+    /// Create sidebar rows for approved items and start one when the agent slot
+    /// is free. ACP has a single session, so a dispatched turn waits while any
+    /// ACP turn — including the user's — is still running.
+    pub fn pump_dispatches(self: &Rc<Self>) {
+        let mut created = false;
+        for item in crate::schedule::dispatch_queue() {
+            let exists = self.store.borrow().tasks.iter().any(|task| {
+                task.plan_item_id.as_deref() == Some(item.item_id.as_str())
+            });
+            if exists {
+                continue;
+            }
+            let Some(index) = self
+                .store
+                .borrow_mut()
+                .begin_background_task(&item.title, &item.prompt)
+            else {
+                continue;
+            };
+            {
+                let mut app = self.store.borrow_mut();
+                if let Some(task) = app.tasks.get_mut(index) {
+                    task.plan_item_id = Some(item.item_id.clone());
+                    task.workspace_id = item.workspace_id.clone();
+                    task.agent_route = item.agent_route.clone();
+                }
+            }
+            crate::schedule::note_session(&item.item_id, &format!("task:{index}"));
+            created = true;
+        }
+        if created {
+            crate::state::save(&self.store);
+            self.refresher.request();
+        }
+        let candidate = {
+            let app = self.store.borrow();
+            app.tasks.iter().enumerate().find_map(|(index, task)| {
+                if task.dispatch_queued && task.origin.as_deref() == Some("dispatched") {
+                    let prompt = task.turns.iter().rev().find_map(|turn| match turn {
+                        crate::model::Turn::User { text, .. } => Some(text.clone()),
+                        crate::model::Turn::Agent { .. } => None,
+                    })?;
+                    Some((index, task.agent_route.clone(), prompt))
+                } else {
+                    None
+                }
+            })
+        };
+        let Some((index, route, prompt)) = candidate else {
+            return;
+        };
+        if self.dispatch_blocked(index, route.as_deref()) {
+            return;
+        }
+        self.launch_turn(index, prompt);
+    }
+
+    fn dispatch_blocked(&self, index: usize, route: Option<&str>) -> bool {
+        let active = self.active.borrow();
+        if active.iter().any(|slot| slot.task == index) {
+            return true;
+        }
+        let app = self.store.borrow();
+        let starting_acp = crate::router::effective_route(route).starts_with("acp");
+        active.iter().any(|slot| {
+            let Some(task) = app.tasks.get(slot.task) else {
+                return false;
+            };
+            if task.origin.as_deref() == Some("dispatched") {
+                return true;
+            }
+            starting_acp
+                && crate::router::effective_route(task.agent_route.as_deref()).starts_with("acp")
+        })
     }
 
     /// Cancel the turn streaming in the task the user is looking at; the
@@ -1058,6 +1250,11 @@ impl Runner {
             // starved while a modal permission popover owns a nested loop.
             self.refresh_now();
         }
+        if closed_any {
+            // The slot just freed. Start the next approved plan item, if one
+            // is queued and the shared agent session is idle.
+            self.pump_dispatches();
+        }
     }
 
     /// Commit a finished turn to the task's dsh session — but only while that
@@ -1332,6 +1529,9 @@ mod tests {
             archived: false,
             failure_unseen: false,
             unread: false,
+            origin: None,
+            plan_item_id: None,
+            dispatch_queued: false,
         }
     }
 

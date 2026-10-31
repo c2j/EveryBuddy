@@ -47,6 +47,9 @@ pub fn save(store: &Store) {
                 "archived": task.archived,
                 "failure_unseen": task.failure_unseen,
                 "unread": task.unread,
+                "origin": task.origin,
+                "plan_item_id": task.plan_item_id,
+                "dispatch_queued": task.dispatch_queued,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -155,6 +158,9 @@ pub fn load() -> Loaded {
             archived: value["archived"].as_bool().unwrap_or(false),
             failure_unseen: value["failure_unseen"].as_bool().unwrap_or(false),
             unread: value["unread"].as_bool().unwrap_or(false),
+            origin: value["origin"].as_str().map(str::to_string),
+            plan_item_id: value["plan_item_id"].as_str().map(str::to_string),
+            dispatch_queued: value["dispatch_queued"].as_bool().unwrap_or(false),
         });
     }
 
