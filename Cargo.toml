@@ -25,9 +25,18 @@ members = [
 exclude = ["vendor", "prototype"]
 
 [workspace.package]
-version = "0.7.24"
+version = "0.7.25"
 edition = "2021"
 license = "MIT"
+
+# Shared tool-library versions. The Custom Model agent's search tools are
+# built on the ripgrep library family (crates/eb/src/tools/search.rs); pinning
+# them here keeps every future consumer on one tested combination.
+[workspace.dependencies]
+ignore = "0.4"
+globset = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
 
 [profile.release]
 lto = true

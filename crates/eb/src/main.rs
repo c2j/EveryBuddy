@@ -39,6 +39,7 @@ mod detail;
 mod dsh_agent;
 mod host;
 mod markdown;
+mod tools;
 mod icons;
 mod agents;
 mod custom_model;

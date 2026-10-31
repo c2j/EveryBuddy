@@ -23,8 +23,10 @@ use eb_api::{
 };
 use eb_api::model::Block;
 
-/// Tool rounds per turn, so a confused model cannot loop forever.
-const MAX_TOOL_ROUNDS: usize = 8;
+/// Tool rounds per turn, so a confused model cannot loop forever. When the
+/// budget runs out the turn is not failed outright: one last request goes
+/// out with the tools withheld, so the model must answer in prose.
+const MAX_TOOL_ROUNDS: usize = 32;
 /// Command output kept per tool result, tail-trimmed.
 const TOOL_OUTPUT_CAP: usize = 8_000;
 
@@ -56,63 +58,6 @@ impl CustomModel {
         } else {
             format!("{base}/chat/completions")
         }
-    }
-
-    /// The built-in toolset, in OpenAI tool schema.
-    fn tool_definitions() -> serde_json::Value {
-        serde_json::json!([
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_file",
-                    "description": "Read a UTF-8 text file. Relative paths resolve against the task workspace.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": { "path": { "type": "string", "description": "File path" } },
-                        "required": ["path"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "write_file",
-                    "description": "Create or overwrite a UTF-8 text file (parents are created). Requires permission.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": { "type": "string", "description": "File path" },
-                            "content": { "type": "string", "description": "Full file content" }
-                        },
-                        "required": ["path", "content"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_dir",
-                    "description": "List a directory's entries.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": { "path": { "type": "string", "description": "Directory path, '.' for the workspace root" } },
-                        "required": ["path"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "run_command",
-                    "description": "Run a shell command in the task workspace and capture its output. Requires permission.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": { "command": { "type": "string", "description": "Shell command" } },
-                        "required": ["command"]
-                    }
-                }
-            }
-        ])
     }
 }
 
@@ -155,7 +100,8 @@ impl AnswerSource for CustomModel {
                 // The turn-scoped consent memory, plus the inline ask: the
                 // request renders as a card in the transcript and the answer
                 // arrives through the responder.
-                let mut consent = ToolConsent::default();
+                let mut consent = crate::tools::ToolConsent::default();
+                let mut jobs = crate::tools::exec::JobTable::default();
                 let mut ask = |_class: &str, title: &str| -> PermissionDecision {
                     // The headless verification path answers before the card:
                     // EB_PERMISSION_AUTO=allow|reject short-circuits it.
@@ -202,168 +148,52 @@ impl AnswerSource for CustomModel {
                         }
                     }
                 };
-                for _round in 0..MAX_TOOL_ROUNDS {
-                    let body = serde_json::json!({
+                // One request/execute round. `tools` is `None` on the
+                // wrap-up call after the budget runs out, which takes the
+                // toolset away so the model has to answer in prose.
+                let request = |messages: &[serde_json::Value],
+                               tools: Option<serde_json::Value>|
+                 -> RoundOutcome {
+                    let mut body = serde_json::json!({
                         "model": model,
                         "messages": messages,
                         "stream": true,
-                        "tools": CustomModel::tool_definitions(),
                     });
-
-                    let mut command = Command::new("curl");
-                    command
-                        .args([
-                            "-sS",
-                            "-N",
-                            "--max-time",
-                            "300",
-                            "-X",
-                            "POST",
-                            // The JSON body arrives on stdin; without `-d @-`
-                            // the request goes out with an empty body.
-                            "-d",
-                            "@-",
-                            &endpoint,
-                            "-H",
-                            "Content-Type: application/json",
-                            "-H",
-                            "Accept: application/json",
-                        ])
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped());
-                    if !key.trim().is_empty() {
-                        command.arg("-H").arg(format!("Authorization: Bearer {key}"));
+                    if let Some(tools) = tools {
+                        body["tools"] = tools;
+                    } else {
+                        body["tool_choice"] = serde_json::json!("none");
                     }
-                    let Ok(mut process) = command.spawn() else {
-                        let _ = sink.send(AgentEvent::Failed {
-                            message: "cannot start curl".into(),
-                        });
+                    request_round(&body, &endpoint, &key, &child, &cancelled_for_worker, &sink)
+                };
+                for _round in 0..MAX_TOOL_ROUNDS {
+                    let outcome = request(&messages, Some(crate::tools::tool_definitions()));
+                    if !outcome.started {
+                        // curl could not spawn; the failure is already out.
                         return;
-                    };
-                    // Take the stdin pipe so it drops right after the write:
-                    // curl reads the body to EOF and must see the pipe close.
-                    if let Some(mut stdin) = process.stdin.take() {
-                        let _ = stdin.write_all(body.to_string().as_bytes());
                     }
-                    if let Ok(mut slot) = child.lock() {
-                        *slot = Some(process);
-                    }
-
-                    // Stream the SSE lines: content deltas land as Delta,
-                    // reasoning chunks as Thought, and tool-call fragments
-                    // accumulate for execution once the stream ends.
-                    let stdout = child
-                        .lock()
-                        .ok()
-                        .and_then(|mut slot| slot.as_mut().and_then(|p| p.stdout.take()));
-                    let mut streamed = String::new();
-                    let mut raw = String::new();
-                    let mut stream_error = String::new();
-                    let mut calls: BTreeMap<usize, ToolCall> = BTreeMap::new();
-                    if let Some(stdout) = stdout {
-                        let reader = BufReader::new(stdout);
-                        for line in reader.lines().map_while(Result::ok) {
-                            if cancelled_for_worker.load(Ordering::SeqCst) {
-                                break;
-                            }
-                            raw.push_str(&line);
-                            raw.push('\n');
-                            let payload = match line.strip_prefix("data:") {
-                                Some(payload) => payload.trim(),
-                                None => continue,
-                            };
-                            if payload == "[DONE]" {
-                                break;
-                            }
-                            let Ok(value) =
-                                serde_json::from_str::<serde_json::Value>(payload)
-                            else {
-                                continue;
-                            };
-                            if let Some(message) = value["error"]["message"].as_str() {
-                                stream_error = message.to_string();
-                                break;
-                            }
-                            let choice = &value["choices"][0];
-                            let delta = &choice["delta"];
-                            if let Some(piece) = delta["content"].as_str() {
-                                if !piece.is_empty() {
-                                    streamed.push_str(piece);
-                                    let _ = sink.send(AgentEvent::Delta {
-                                        text: piece.to_string(),
-                                    });
-                                }
-                            }
-                            for (key, event) in
-                                [("reasoning_content", "thought"), ("reasoning", "thought")]
-                            {
-                                if let Some(piece) = delta[key].as_str() {
-                                    if !piece.is_empty() {
-                                        let _ = sink.send(AgentEvent::Thought {
-                                            text: piece.to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                            if let Some(fragments) = delta["tool_calls"].as_array() {
-                                for fragment in fragments {
-                                    let index = fragment["index"].as_u64().unwrap_or(0) as usize;
-                                    let entry = calls.entry(index).or_default();
-                                    if let Some(id) = fragment["id"].as_str() {
-                                        entry.id = id.to_string();
-                                    }
-                                    if let Some(name) =
-                                        fragment["function"]["name"].as_str()
-                                    {
-                                        entry.name = name.to_string();
-                                    }
-                                    if let Some(arguments) =
-                                        fragment["function"]["arguments"].as_str()
-                                    {
-                                        entry.arguments.push_str(arguments);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Drain stderr and wait for the exit so the handle's kill
-                    // stays meaningful to the very end.
-                    let errors = {
-                        let mut errors = String::new();
-                        if let Ok(mut slot) = child.lock() {
-                            if let Some(process) = slot.as_mut() {
-                                if let Some(mut stderr) = process.stderr.take() {
-                                    let _ = stderr.read_to_string(&mut errors);
-                                }
-                                let _ = process.wait();
-                            }
-                        }
-                        errors
-                    };
                     if cancelled_for_worker.load(Ordering::SeqCst) {
                         let _ = sink.send(AgentEvent::Failed { message: "Cancelled".into() });
                         return;
                     }
 
-                    let calls: Vec<ToolCall> = calls.into_values().collect();
+                    let calls = outcome.calls;
                     if calls.is_empty() {
                         // No tools requested: the streamed content (or the
                         // plain-JSON fallback) is the answer.
-                        if !stream_error.is_empty() {
+                        if !outcome.stream_error.is_empty() {
                             let _ = sink.send(AgentEvent::Failed {
-                                message: hint_for(&stream_error, &base_url),
+                                message: hint_for(&outcome.stream_error, &base_url),
                             });
                             return;
                         }
-                        if !streamed.is_empty() {
+                        if !outcome.streamed.is_empty() {
                             let _ = sink.send(AgentEvent::Finished);
                             return;
                         }
                         // A server that ignored `stream` answered with one
                         // plain JSON body: parse it as the answer.
-                        let failure = match parse_response(&raw) {
+                        let failure = match parse_response(&outcome.raw) {
                             Ok(text) => {
                                 let _ = sink.send(AgentEvent::Block {
                                     block: Block::Text(text),
@@ -373,7 +203,13 @@ impl AnswerSource for CustomModel {
                             }
                             Err(error) => error,
                         };
-                        let detail = errors.lines().last().unwrap_or("").trim().to_string();
+                        let detail = outcome
+                            .errors
+                            .lines()
+                            .last()
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
                         let message = if detail.is_empty() {
                             failure
                         } else {
@@ -385,9 +221,15 @@ impl AnswerSource for CustomModel {
                         return;
                     }
 
-                    // Tool round: append the assistant's tool_calls, execute
-                    // each, and feed the results back for the next round.
-                    let calls_json: Vec<serde_json::Value> = calls
+                    // Tool round: append the assistant's tool_calls (keeping
+                    // any prose it streamed, so it does not restate it next
+                    // round), execute each, and feed the results back for
+                    // the next round.
+                    let mut assistant = serde_json::json!({ "role": "assistant" });
+                    if !outcome.streamed.trim().is_empty() {
+                        assistant["content"] = serde_json::json!(outcome.streamed);
+                    }
+                    assistant["tool_calls"] = serde_json::json!(calls
                         .iter()
                         .map(|call| {
                             serde_json::json!({
@@ -399,20 +241,46 @@ impl AnswerSource for CustomModel {
                                 }
                             })
                         })
-                        .collect();
-                    messages.push(serde_json::json!({
-                        "role": "assistant",
-                        "tool_calls": calls_json,
-                    }));
+                        .collect::<Vec<_>>());
+                    messages.push(assistant);
                     for call in &calls {
-                        let outcome =
-                            execute_tool(call, &root, &mut consent, &mut ask, &sink);
+                        let result =
+                            crate::tools::execute_tool(call, &root, &mut consent, &mut ask, &sink, &mut jobs);
                         messages.push(serde_json::json!({
                             "role": "tool",
                             "tool_call_id": call.id,
-                            "content": outcome,
+                            "content": result,
                         }));
                     }
+                }
+
+                // The budget ran out. Rather than failing the whole turn,
+                // take the tools away and ask for a wrap-up: the model must
+                // summarize what it did and what is left, instead of
+                // reaching for another tool call.
+                messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": "The tool round budget for this turn is exhausted. \
+Do not call any more tools. Give your final answer now, summarizing what \
+you did and what remains undone.",
+                }));
+                let outcome = request(&messages, None);
+                if !outcome.started {
+                    return;
+                }
+                if !outcome.streamed.trim().is_empty() {
+                    let _ = sink.send(AgentEvent::Finished);
+                    return;
+                }
+                // Nothing streamed: either a non-streaming reply or a server
+                // that still returned tool calls despite `tool_choice`. Try
+                // the plain-JSON parse, then fall back to the budget error.
+                if let Ok(text) = parse_response(&outcome.raw) {
+                    let _ = sink.send(AgentEvent::Block {
+                        block: Block::Text(text),
+                    });
+                    let _ = sink.send(AgentEvent::Finished);
+                    return;
                 }
                 let _ = sink.send(AgentEvent::Failed {
                     message: format!(
@@ -426,243 +294,6 @@ impl AnswerSource for CustomModel {
             child: child_for_handle,
         })
     }
-}
-
-/// Turn-scoped consent memory: an "Always allow" answer covers the rest of
-/// the turn for that tool class, so a multi-step task does not re-prompt on
-/// every call. Scoped to the turn (not the process) on purpose — each new
-/// task re-earns trust.
-#[derive(Default)]
-struct ToolConsent {
-    allow_writes_all: bool,
-    allow_commands_all: bool,
-}
-
-impl ToolConsent {
-    fn allows(&self, class: &str) -> bool {
-        match class {
-            "write" => self.allow_writes_all,
-            "command" => self.allow_commands_all,
-            _ => false,
-        }
-    }
-
-    fn remember(&mut self, class: &str) {
-        match class {
-            "write" => self.allow_writes_all = true,
-            "command" => self.allow_commands_all = true,
-            _ => {}
-        }
-    }
-}
-
-/// One accumulated tool call from the stream, in arrival (index) order.
-#[derive(Default)]
-struct ToolCall {
-    id: String,
-    name: String,
-    arguments: String,
-}
-
-/// Execute one built-in tool. Mutating tools go through the permission
-/// prompter; a rejection is reported back to the model as the tool result.
-fn execute_tool(
-    call: &ToolCall,
-    root: &std::path::Path,
-    consent: &mut ToolConsent,
-    ask: &mut dyn FnMut(&str, &str) -> PermissionDecision,
-    sink: &AgentSink,
-) -> String {
-    // Gate order for a mutating call: turn-scoped Always-allow memory, then
-    // the composer's ◇ permission picker (Auto-approve answers everything,
-    // Read-only rejects), then the inline card.
-    let mut gate = |class: &str, title: &str, consent: &mut ToolConsent| -> bool {
-        if consent.allows(class) {
-            return true;
-        }
-        match crate::router::permission_mode() {
-            1 => return true,
-            2 => return false,
-            _ => {}
-        }
-        match ask(class, title) {
-            PermissionDecision::Selected(id) if id == "allow_always" => {
-                consent.remember(class);
-                true
-            }
-            PermissionDecision::Selected(_) => true,
-            _ => false,
-        }
-    };
-    let args: serde_json::Value = match serde_json::from_str(&call.arguments) {
-        Ok(value) => value,
-        Err(error) => return format!("error: invalid arguments JSON: {error}"),
-    };
-    let resolve = |raw: &str| {
-        let path = std::path::Path::new(raw);
-        if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            root.join(path)
-        }
-    };
-    let report = |status: &str, primary: String, result: String, sink: &AgentSink| {
-        let _ = sink.send(AgentEvent::Block {
-            block: Block::Tool {
-                status: status.to_string(),
-                primary,
-                detail: None,
-            },
-        });
-        result
-    };
-
-    match call.name.as_str() {
-        "read_file" => {
-            let raw = args["path"].as_str().unwrap_or_default();
-            let path = resolve(raw);
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    let trimmed = truncate_tail(&content, TOOL_OUTPUT_CAP);
-                    report(
-                        "Ran",
-                        format!("Read {raw}"),
-                        if content.len() > trimmed.len() {
-                            format!("[… head trimmed …]\n{trimmed}")
-                        } else {
-                            trimmed
-                        },
-                        sink,
-                    )
-                }
-                Err(error) => report(
-                    "Failed",
-                    format!("Read {raw}"),
-                    format!("read failed: {error}"),
-                    sink,
-                ),
-            }
-        }
-        "write_file" => {
-            let raw = args["path"].as_str().unwrap_or_default().to_string();
-            let content = args["content"].as_str().unwrap_or_default();
-            if !gate("write", &format!("Write file: {raw}"), consent) {
-                return report(
-                    "Rejected",
-                    format!("Write {raw}"),
-                    "user rejected this write".into(),
-                    sink,
-                );
-            }
-            let path = resolve(&raw);
-            let write = std::fs::create_dir_all(
-                path.parent().unwrap_or(std::path::Path::new(".")),
-            )
-            .and_then(|_| std::fs::write(&path, content));
-            match write {
-                Ok(()) => report(
-                    "Ran",
-                    format!("Write {raw}"),
-                    format!("wrote {} bytes to {raw}", content.len()),
-                    sink,
-                ),
-                Err(error) => report(
-                    "Failed",
-                    format!("Write {raw}"),
-                    format!("write failed: {error}"),
-                    sink,
-                ),
-            }
-        }
-        "list_dir" => {
-            let raw = args["path"].as_str().unwrap_or(".").to_string();
-            let path = resolve(&raw);
-            let mut entries: Vec<String> = Vec::new();
-            match std::fs::read_dir(&path) {
-                Ok(read) => {
-                    for entry in read.flatten() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        let mark =
-                            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                                "/"
-                            } else {
-                                ""
-                            };
-                        entries.push(format!("{name}{mark}"));
-                    }
-                    entries.sort();
-                    let listing = entries.join("\n");
-                    report(
-                        "Ran",
-                        format!("List {raw}"),
-                        truncate_tail(&listing, TOOL_OUTPUT_CAP),
-                        sink,
-                    )
-                }
-                Err(error) => report(
-                    "Failed",
-                    format!("List {raw}"),
-                    format!("list failed: {error}"),
-                    sink,
-                ),
-            }
-        }
-        "run_command" => {
-            let command = args["command"].as_str().unwrap_or_default().to_string();
-            if !gate("command", &format!("Run command: {command}"), consent) {
-                return report(
-                    "Rejected",
-                    format!("Bash: {command}"),
-                    "user rejected this command".into(),
-                    sink,
-                );
-            }
-            let output = Command::new("sh")
-                .arg("-c")
-                .arg(&command)
-                .current_dir(root)
-                .stdin(Stdio::null())
-                .output();
-            match output {
-                Ok(output) => {
-                    let mut combined = String::new();
-                    combined.push_str(&String::from_utf8_lossy(&output.stdout));
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    if !stderr.trim().is_empty() {
-                        combined.push_str(&stderr);
-                    }
-                    let code = output.status.code().unwrap_or(-1);
-                    let body = truncate_tail(combined.trim(), TOOL_OUTPUT_CAP);
-                    report(
-                        if code == 0 { "Ran" } else { "Failed" },
-                        format!("Bash: {command}"),
-                        format!("exit {code}\n{body}"),
-                        sink,
-                    )
-                }
-                Err(error) => report(
-                    "Failed",
-                    format!("Bash: {command}"),
-                    format!("spawn failed: {error}"),
-                    sink,
-                ),
-            }
-        }
-        other => format!("error: unknown tool {other}"),
-    }
-}
-
-/// Keep the tail of `text` within `cap` bytes, cutting at a char boundary.
-fn truncate_tail(text: &str, cap: usize) -> String {
-    if text.len() <= cap {
-        return text.to_string();
-    }
-    let start = text
-        .char_indices()
-        .map(|(index, _)| index)
-        .find(|&index| index >= text.len() - cap)
-        .unwrap_or(text.len());
-    format!("[… head trimmed …]\n{}", &text[start..])
 }
 
 struct CustomHandle {
@@ -692,6 +323,157 @@ fn validate(config: &CustomConfig) -> Result<(), String> {
         return Err("custom model id is required".into());
     }
     Ok(())
+}
+
+/// One model request. Streams `Delta`/`Thought` events through `sink`,
+/// accumulates the answer text, raw body, stderr, stream error and tool-call
+/// fragments. `started` is false when curl could not spawn; the failure has
+/// already been reported to the sink in that case.
+struct RoundOutcome {
+    started: bool,
+    streamed: String,
+    raw: String,
+    errors: String,
+    stream_error: String,
+    calls: Vec<crate::tools::ToolCall>,
+}
+
+fn request_round(
+    body: &serde_json::Value,
+    endpoint: &str,
+    key: &str,
+    child: &Arc<Mutex<Option<Child>>>,
+    cancelled: &AtomicBool,
+    sink: &AgentSink,
+) -> RoundOutcome {
+    let mut outcome = RoundOutcome {
+        started: false,
+        streamed: String::new(),
+        raw: String::new(),
+        errors: String::new(),
+        stream_error: String::new(),
+        calls: Vec::new(),
+    };
+    let mut command = Command::new("curl");
+    command
+        .args([
+            "-sS",
+            "-N",
+            "--max-time",
+            "300",
+            "-X",
+            "POST",
+            // The JSON body arrives on stdin; without `-d @-`
+            // the request goes out with an empty body.
+            "-d",
+            "@-",
+            endpoint,
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            "Accept: application/json",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if !key.trim().is_empty() {
+        command.arg("-H").arg(format!("Authorization: Bearer {key}"));
+    }
+    let Ok(mut process) = command.spawn() else {
+        let _ = sink.send(AgentEvent::Failed {
+            message: "cannot start curl".into(),
+        });
+        return outcome;
+    };
+    // Take the stdin pipe so it drops right after the write:
+    // curl reads the body to EOF and must see the pipe close.
+    if let Some(mut stdin) = process.stdin.take() {
+        let _ = stdin.write_all(body.to_string().as_bytes());
+    }
+    if let Ok(mut slot) = child.lock() {
+        *slot = Some(process);
+    }
+    outcome.started = true;
+
+    // Stream the SSE lines: content deltas land as Delta, reasoning chunks
+    // as Thought, and tool-call fragments accumulate for execution once the
+    // stream ends.
+    let stdout = child
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.as_mut().and_then(|p| p.stdout.take()));
+    let mut calls: BTreeMap<usize, crate::tools::ToolCall> = BTreeMap::new();
+    if let Some(stdout) = stdout {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().map_while(Result::ok) {
+            if cancelled.load(Ordering::SeqCst) {
+                break;
+            }
+            outcome.raw.push_str(&line);
+            outcome.raw.push('\n');
+            let payload = match line.strip_prefix("data:") {
+                Some(payload) => payload.trim(),
+                None => continue,
+            };
+            if payload == "[DONE]" {
+                break;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+                continue;
+            };
+            if let Some(message) = value["error"]["message"].as_str() {
+                outcome.stream_error = message.to_string();
+                break;
+            }
+            let choice = &value["choices"][0];
+            let delta = &choice["delta"];
+            if let Some(piece) = delta["content"].as_str() {
+                if !piece.is_empty() {
+                    outcome.streamed.push_str(piece);
+                    let _ = sink.send(AgentEvent::Delta {
+                        text: piece.to_string(),
+                    });
+                }
+            }
+            for (key, event) in [("reasoning_content", "thought"), ("reasoning", "thought")] {
+                if let Some(piece) = delta[key].as_str() {
+                    if !piece.is_empty() {
+                        let _ = sink.send(AgentEvent::Thought {
+                            text: piece.to_string(),
+                        });
+                    }
+                }
+            }
+            if let Some(fragments) = delta["tool_calls"].as_array() {
+                for fragment in fragments {
+                    let index = fragment["index"].as_u64().unwrap_or(0) as usize;
+                    let entry = calls.entry(index).or_default();
+                    if let Some(id) = fragment["id"].as_str() {
+                        entry.id = id.to_string();
+                    }
+                    if let Some(name) = fragment["function"]["name"].as_str() {
+                        entry.name = name.to_string();
+                    }
+                    if let Some(arguments) = fragment["function"]["arguments"].as_str() {
+                        entry.arguments.push_str(arguments);
+                    }
+                }
+            }
+        }
+    }
+
+    // Drain stderr and wait for the exit so the handle's kill stays
+    // meaningful to the very end.
+    if let Ok(mut slot) = child.lock() {
+        if let Some(process) = slot.as_mut() {
+            if let Some(mut stderr) = process.stderr.take() {
+                let _ = stderr.read_to_string(&mut outcome.errors);
+            }
+            let _ = process.wait();
+        }
+    }
+    outcome.calls = calls.into_values().collect();
+    outcome
 }
 
 fn parse_response(body: &str) -> Result<String, String> {
@@ -726,7 +508,22 @@ fn hint_for(message: &str, base_url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::exec::JobTable;
+    use crate::tools::{ToolCall, ToolConsent};
     use std::io::BufRead;
+
+    /// Legacy-signature shim over the tools-module dispatcher, so the test
+    /// call sites below stay focused on behavior, not plumbing.
+    fn execute_tool(
+        call: &ToolCall,
+        root: &std::path::Path,
+        consent: &mut ToolConsent,
+        ask: &mut dyn FnMut(&str, &str) -> eb_api::PermissionDecision,
+        sink: &AgentSink,
+    ) -> String {
+        let mut jobs = JobTable::default();
+        crate::tools::execute_tool(call, root, consent, ask, sink, &mut jobs)
+    }
 
     #[test]
     fn endpoint_accepts_base_v1_and_full_paths() {
@@ -907,6 +704,100 @@ mod tests {
         std::fs::remove_dir_all(&workspace).unwrap();
     }
 
+    /// The full multi-tool script from the mock: search_content finds the
+    /// seeded marker, replace_in_file edits the line, todo_write publishes
+    /// the plan, and the model answers in prose. This exercises the round
+    /// loop feeding results back across four requests — the plumbing the
+    /// single-tool test cannot see.
+    #[test]
+    fn multi_tool_turn_searches_edits_plans_and_answers() {
+        let _guard = mode_lock();
+        crate::router::set_permission_mode(0);
+        std::env::remove_var("EB_PERMISSION_AUTO");
+        if !python_available() {
+            eprintln!("skipping: python3 not available");
+            return;
+        }
+        let workspace = std::env::temp_dir().join(format!(
+            "eb-custom-multi-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&workspace);
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(workspace.join("todo.txt"), "REPLACE_MARKER original\n").unwrap();
+
+        let mut server = std::process::Command::new("python3")
+            .args(["tests/fixtures/openai_mock.py"])
+            .env("MOCK_MODE", "multi")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start mock server");
+        let address = {
+            let stdout = server.stdout.take().expect("mock server stdout");
+            let mut lines = BufReader::new(stdout).lines();
+            lines.next().expect("mock server prints its address").unwrap()
+        };
+
+        let model = CustomModel::new(CustomConfig {
+            name: "mock".into(),
+            base_url: format!("http://{address}/v1"),
+            api_key: "test-key".into(),
+            model: "mock-model".into(),
+        });
+        let (sink, stream) = eb_api::AgentSink::channel();
+        std::env::set_var("EB_PERMISSION_AUTO", "allow");
+        let handle = model.start_in(
+            "fix the marker",
+            sink,
+            Arc::new(eb_api::DenyAll),
+            Some(workspace.clone()),
+        );
+
+        let mut text = String::new();
+        let mut saw_search = false;
+        let mut saw_edit = false;
+        let mut saw_plan = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let finished = loop {
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            match stream.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(eb_api::AgentEvent::Delta { text: value }) => text.push_str(&value),
+                Ok(eb_api::AgentEvent::Block { block }) => match block {
+                    Block::Tool { status, primary, .. } => {
+                        saw_search |= status == "Ran" && primary.starts_with("Search ");
+                        saw_edit |= status == "Ran" && primary.starts_with("Edit ");
+                    }
+                    Block::Plan { entries } => {
+                        saw_plan = entries.len() == 3
+                            && entries.iter().all(|entry| entry.status == "completed");
+                    }
+                    _ => {}
+                },
+                Ok(eb_api::AgentEvent::Failed { message }) => {
+                    panic!("turn failed: {message}");
+                }
+                Ok(eb_api::AgentEvent::Finished) => break true,
+                Ok(_) => {}
+                Err(_) => break false,
+            }
+        };
+        handle.cancel();
+        let _ = server.kill();
+        std::env::remove_var("EB_PERMISSION_AUTO");
+        assert!(finished, "the multi-tool turn never finished");
+        assert!(saw_search, "no Search tool row on the transcript");
+        assert!(saw_edit, "no Edit tool row on the transcript");
+        assert!(saw_plan, "no Plan card on the transcript");
+        assert_eq!(text, "multi-tool turn complete");
+        let edited =
+            std::fs::read_to_string(workspace.join("todo.txt")).unwrap();
+        assert_eq!(edited, "REPLACE_MARKER edited\n");
+        std::fs::remove_dir_all(&workspace).unwrap();
+    }
+
     #[test]
     fn the_permission_mode_answers_without_prompting() {
         let _guard = mode_lock();
@@ -1000,9 +891,11 @@ hi");
             arguments: json_args(r#"{"path": "a.txt"}"#),
         };
         let mut consent = ToolConsent::default();
-        assert_eq!(
-            execute_tool(&read, &dir, &mut consent, &mut ask, &sink),
-            "abc"
+        // The new read_file prefixes a line-count header.
+        let read_result = execute_tool(&read, &dir, &mut consent, &mut ask, &sink);
+        assert!(
+            read_result.starts_with("(1 lines)") && read_result.ends_with("abc"),
+            "{read_result}"
         );
         let list = ToolCall {
             id: "t".into(),

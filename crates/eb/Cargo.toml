@@ -25,6 +25,13 @@ cairo-rs = { version = "0.22", features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# The ripgrep library family backs the agent's search tools. Versions are
+# pinned once at the workspace root; see tools/search.rs for the usage.
+ignore = { workspace = true }
+globset = { workspace = true }
+grep-regex = { workspace = true }
+grep-searcher = { workspace = true }
+
 # The plugin surface and the built-in plugins. The host must never reach into a
 # plugin crate; plugins must never reach back here — that direction is what the
 # workspace layout enforces.

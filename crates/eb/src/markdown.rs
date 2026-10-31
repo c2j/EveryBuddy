@@ -27,6 +27,9 @@ pub fn render(value: &str) -> gtk::Box {
             Chunk::Code { language, body } => {
                 root.pack_start(&code_block(&language, &body), false, false, 0);
             }
+            Chunk::Table { header, rows } => {
+                root.pack_start(&table_block(&header, &rows), false, false, 0);
+            }
         }
     }
     root
@@ -39,25 +42,31 @@ const BODY_LINE_PX: i32 = 26;
 const PARAGRAPH_GAP: i32 = 12;
 
 /// One run of consecutive markdown text lines.
+#[derive(Debug)]
 enum Seg {
     Para(String),
     Heading(usize, String),
     Item(String, String),
 }
 
+#[derive(Debug)]
 enum Chunk {
     Text(Vec<Seg>),
     Code { language: String, body: String },
+    Table {
+        header: Vec<String>,
+        rows: Vec<Vec<String>>,
+    },
 }
 
 /// Replace the buffer of an existing markdown text view. Returns false when
-/// `value` contains a fence, so the caller rebuilds the code card instead.
+/// `value` contains a fence or a table, so the caller rebuilds the code card
+/// or the table grid instead.
 pub fn write_markdown_text(view: &gtk::TextView, value: &str) -> bool {
     let chunks = parse(value);
-    if chunks
-        .iter()
-        .any(|chunk| matches!(chunk, Chunk::Code { .. }))
-    {
+    if chunks.iter().any(|chunk| {
+        matches!(chunk, Chunk::Code { .. } | Chunk::Table { .. })
+    }) {
         return false;
     }
     let segs = chunks.into_iter().fold(Vec::new(), |mut all, chunk| {
@@ -188,9 +197,13 @@ fn parse(value: &str) -> Vec<Chunk> {
     let mut segs = Vec::new();
     let mut paragraph = Vec::new();
     let mut code: Option<(String, Vec<String>)> = None;
-    let lines: Vec<&str> = value.lines().collect();
+    // Some endpoints collapse the model's newlines into spaces, so a whole
+    // table arrives on one line; split those back into logical lines first.
+    let lines: Vec<String> = expand_collapsed_tables(value);
 
-    for (position, line) in lines.iter().copied().enumerate() {
+    let mut position = 0usize;
+    while position < lines.len() {
+        let line = lines[position].as_str();
         if code.is_some() {
             if line.trim_start().starts_with("```") {
                 if let Some((language, body)) = code.take() {
@@ -202,6 +215,7 @@ fn parse(value: &str) -> Vec<Chunk> {
             } else if let Some((_, body)) = code.as_mut() {
                 body.push(line.to_string());
             }
+            position += 1;
             continue;
         }
 
@@ -209,6 +223,7 @@ fn parse(value: &str) -> Vec<Chunk> {
         if let Some(language) = trimmed.trim_start().strip_prefix("```") {
             flush_text(&mut chunks, &mut segs, &mut paragraph);
             code = Some((language.trim().to_string(), Vec::new()));
+            position += 1;
             continue;
         }
         if trimmed.trim().is_empty() {
@@ -216,17 +231,33 @@ fn parse(value: &str) -> Vec<Chunk> {
             // ends the paragraph.
             let next_content = lines[position + 1..]
                 .iter()
+                .map(String::as_str)
                 .find(|candidate| !candidate.trim().is_empty());
-            let continues_list = next_content.is_some_and(|candidate| is_list_item(candidate));
+            let continues_list = next_content.is_some_and(is_list_item);
             if continues_list && paragraph.is_empty() {
+                position += 1;
                 continue;
             }
             flush_paragraph(&mut segs, &mut paragraph);
+            position += 1;
             continue;
+        }
+        // A markdown table: `|` row followed by a `|---|---|` separator.
+        if trimmed.trim_start().starts_with('|') {
+            if let Some((chunk, consumed)) = parse_table(&lines, position) {
+                // flush_text, not flush_paragraph: the preceding text must be
+                // emitted as its own chunk *before* the table, or the table
+                // grid lands above the sentence that introduced it.
+                flush_text(&mut chunks, &mut segs, &mut paragraph);
+                chunks.push(chunk);
+                position += consumed;
+                continue;
+            }
         }
         if let Some((level, rest)) = heading(trimmed) {
             flush_paragraph(&mut segs, &mut paragraph);
             segs.push(Seg::Heading(level, rest.trim().to_string()));
+            position += 1;
             continue;
         }
         if let Some(rest) = trimmed
@@ -236,14 +267,17 @@ fn parse(value: &str) -> Vec<Chunk> {
         {
             flush_paragraph(&mut segs, &mut paragraph);
             segs.push(Seg::Item("•".into(), rest.trim().to_string()));
+            position += 1;
             continue;
         }
         if let Some((number, rest)) = numbered(trimmed.trim_start()) {
             flush_paragraph(&mut segs, &mut paragraph);
             segs.push(Seg::Item(number, rest.trim().to_string()));
+            position += 1;
             continue;
         }
         paragraph.push(trimmed.trim().to_string());
+        position += 1;
     }
 
     if let Some((language, body)) = code.take() {
@@ -255,6 +289,163 @@ fn parse(value: &str) -> Vec<Chunk> {
     }
     flush_text(&mut chunks, &mut segs, &mut paragraph);
     chunks
+}
+
+/// The table grammar needs each row on its own line, but streamed model text
+/// sometimes arrives with the newlines collapsed to spaces:
+/// `| a | b | |---|---| | c | d |`. Detect the embedded separator run and
+/// split the line back into header / separator / data lines.
+fn expand_collapsed_tables(value: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in value.lines() {
+        if line.contains('|') {
+            if let Some(split) = split_collapsed_table(line) {
+                lines.extend(split);
+                continue;
+            }
+        }
+        lines.push(line.to_string());
+    }
+    lines
+}
+
+/// Split one collapsed table line into logical table lines, or `None` when
+/// the line is not a collapsed table (plain `|` prose stays untouched).
+/// Text before the first `|` and after the last cell is kept as prose.
+fn split_collapsed_table(line: &str) -> Option<Vec<String>> {
+    let start = line.find('|')?;
+    let prefix = line[..start].trim();
+    let mut tokens: Vec<String> = line[start..]
+        .split('|')
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    // Header cells end where the separator run starts.
+    let sep_start = tokens.iter().position(|token| is_separator_cell(token))?;
+    let mut sep_end = sep_start;
+    while sep_end < tokens.len() && is_separator_cell(&tokens[sep_end]) {
+        sep_end += 1;
+    }
+    let width = sep_start;
+    if width == 0 || sep_end - sep_start != width {
+        return None;
+    }
+    let row = |cells: &[String]| format!("| {} |", cells.join(" | "));
+    let mut lines = Vec::new();
+    if !prefix.is_empty() {
+        lines.push(prefix.to_string());
+    }
+    lines.push(row(&tokens[..width]));
+    lines.push(row(&tokens[sep_start..sep_end]));
+    tokens.drain(..sep_end);
+    while tokens.len() >= width {
+        let rest = tokens.split_off(width);
+        lines.push(row(&tokens));
+        tokens = rest;
+    }
+    // Whatever trails the table on the same line is prose, not a lost cell.
+    if !tokens.is_empty() {
+        lines.push(tokens.join(" "));
+    }
+    Some(lines)
+}
+
+/// `---`, `:---`, `---:` and `:---:`.
+fn is_separator_cell(cell: &str) -> bool {
+    let inner = cell
+        .strip_prefix(':')
+        .unwrap_or(cell)
+        .strip_suffix(':')
+        .unwrap_or(cell);
+    !inner.is_empty() && inner.chars().all(|ch| ch == '-')
+}
+
+/// Cells of one `| a | b |` row (or `| a | b` — trailing pipe is optional).
+fn cells(line: &str) -> Option<Vec<String>> {
+    let body = line.trim().strip_prefix('|')?;
+    let body = body.strip_suffix('|').unwrap_or(body);
+    Some(body.split('|').map(|cell| cell.trim().to_string()).collect())
+}
+
+/// Parse the table starting at `lines[position]`; returns the table and the
+/// number of lines it consumed. Requires the separator row on the next line,
+/// so a lone `|` line (inline code, prose) is never mistaken for a table.
+fn parse_table(lines: &[String], position: usize) -> Option<(Chunk, usize)> {
+    let header = cells(&lines[position])?;
+    let separator = cells(lines.get(position + 1)?)?;
+    if header.is_empty()
+        || separator.len() != header.len()
+        || !separator.iter().all(|cell| is_separator_cell(cell))
+    {
+        return None;
+    }
+    let mut rows = Vec::new();
+    let mut index = position + 2;
+    while let Some(line) = lines.get(index) {
+        if !line.trim().starts_with('|') {
+            break;
+        }
+        let mut row = cells(line).unwrap_or_default();
+        row.resize(header.len(), String::new());
+        rows.push(row);
+        index += 1;
+    }
+    Some((
+        Chunk::Table {
+            header,
+            rows,
+        },
+        index - position,
+    ))
+}
+
+/// A table as a GtkGrid: one bold label per header cell, wrapped plain
+/// labels for the data cells, so wide cells wrap instead of scrolling the
+/// transcript sideways.
+fn table_block(header: &[String], rows: &[Vec<String>]) -> gtk::Box {
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    class(&card, "eb-md-table");
+    card.set_hexpand(true);
+    let grid = gtk::Grid::new();
+    grid.set_column_spacing(12);
+    grid.set_row_spacing(4);
+    grid.set_margin_top(4);
+    grid.set_margin_bottom(8);
+    grid.set_margin_start(2);
+    grid.set_margin_end(2);
+    grid.set_hexpand(true);
+    let width = header.len();
+    for (column, cell) in header.iter().enumerate() {
+        let label = gtk::Label::new(None);
+        label.set_markup(&inline(cell));
+        style_table_label(&label, true);
+        grid.attach(&label, column as i32, 0, 1, 1);
+    }
+    for (row_index, row) in rows.iter().enumerate() {
+        for column in 0..width {
+            let label = gtk::Label::new(None);
+            let cell = row.get(column).cloned().unwrap_or_default();
+            label.set_markup(&inline(&cell));
+            style_table_label(&label, false);
+            grid.attach(&label, column as i32, row_index as i32 + 1, 1, 1);
+        }
+    }
+    card.pack_start(&grid, false, false, 0);
+    card
+}
+
+fn style_table_label(label: &gtk::Label, header: bool) {
+    label.set_use_markup(true);
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    label.set_hexpand(true);
+    if header {
+        class(label, "eb-md-table-head");
+    }
 }
 
 fn is_list_item(line: &str) -> bool {
@@ -482,6 +673,44 @@ mod tests {
         assert!(value.contains("<span"));
         assert!(value.contains("<b>ship</b>"));
         assert!(!value.contains('`'));
+    }
+
+    #[test]
+    fn a_proper_table_parses_into_rows() {
+        let value = "前置说明\n\n| 路由 | 实现 |\n|---|---|\n| acp:* | ACP 插件 |\n| dsh | 桥接 |\n\n后置说明";
+        let chunks = parse(value);
+        assert_eq!(chunks.len(), 3, "text, table, text: {chunks:?}");
+        let Chunk::Table { header, rows } = &chunks[1] else {
+            panic!("expected a table chunk, got {:?}", chunks[1]);
+        };
+        assert_eq!(header, &vec!["路由".to_string(), "实现".to_string()]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], vec!["acp:*".to_string(), "ACP 插件".to_string()]);
+        assert_eq!(rows[1], vec!["dsh".to_string(), "桥接".to_string()]);
+    }
+
+    /// The streaming endpoints sometimes collapse the model's newlines into
+    /// spaces, so the whole table arrives on one line. The repair pass must
+    /// split it back into a table, and plain `|` prose must stay untouched.
+    #[test]
+    fn a_collapsed_one_line_table_is_repaired() {
+        let value = "路由器如下: | 路由 | 实现 | |---|---| | acp:* | ACP 插件 | | dsh | 桥接 | 另有权限模式。";
+        let chunks = parse(value);
+        let table = chunks.iter().find_map(|chunk| match chunk {
+            Chunk::Table { header, rows } => Some((header, rows)),
+            _ => None,
+        });
+        let Some((header, rows)) = table else {
+            panic!("the collapsed table was not repaired: {chunks:?}");
+        };
+        assert_eq!(header.len(), 2);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], "acp:*");
+        assert_eq!(rows[1][0], "dsh");
+
+        // A lone pipe line without a separator is prose, not a table.
+        let prose = parse("the flag is `-a | -b`");
+        assert!(matches!(prose.as_slice(), [Chunk::Text(_)]), "{prose:?}");
     }
 
     #[test]

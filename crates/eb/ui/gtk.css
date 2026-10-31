@@ -815,6 +815,13 @@ button.eb-icon-mini:hover {
   font-size: 15px;
 }
 
+/* Markdown tables: bold header cells, wrapped data cells. */
+.eb-md-table-head {
+  font-weight: 600;
+  padding-bottom: 2px;
+  border-bottom: 1px solid @border_strong;
+}
+
 .eb-code-block {
   background-color: @bg_secondary;
   border: 1px solid @border_strong;
