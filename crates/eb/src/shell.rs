@@ -130,6 +130,9 @@ pub struct Views {
     toggle_artifact: Rc<dyn Fn()>,
     /// A sidebar section header was clicked.
     section_toggle: Rc<dyn Fn(usize)>,
+    /// A workspace row's folder icon was clicked: fold or unfold that
+    /// workspace's task group.
+    workspace_fold_toggle: Rc<dyn Fn(String)>,
     workspace_action: Rc<dyn Fn(crate::sidebar::WorkspaceAction, String)>,
     new_workspace: Rc<dyn Fn()>,
     task_action: Rc<dyn Fn(crate::sidebar::TaskAction, usize)>,
@@ -570,6 +573,11 @@ pub fn build(
             *slot = !*slot;
         }
     });
+    let workspace_fold_toggle = act1(store, &refresher, |app, id: String| {
+        let folded = app.workspace_folded.entry(id).or_insert(false);
+        *folded = !*folded;
+    });
+
 
     // ---- composers ------------------------------------------------------
     // Built once and never rebuilt: a rebuild would discard typed text. Two
@@ -928,6 +936,7 @@ pub fn build(
         open_task,
         toggle_artifact,
         section_toggle: section,
+        workspace_fold_toggle: workspace_fold_toggle,
         workspace_action,
         new_workspace,
         task_action,
@@ -1311,6 +1320,8 @@ impl Views {
             &self.workspace_action,
             &self.new_workspace,
             &self.task_action,
+            &app.workspace_folded,
+            &self.workspace_fold_toggle,
         );
         let sidebar_ms = if debug {
             Some(stage.elapsed().as_secs_f64() * 1000.0)

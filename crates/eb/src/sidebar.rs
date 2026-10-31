@@ -373,6 +373,8 @@ pub fn fill_content(
     workspace_action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
     new_workspace: &std::rc::Rc<dyn Fn()>,
     task_action: &std::rc::Rc<dyn Fn(TaskAction, usize)>,
+    workspace_folded: &std::collections::BTreeMap<String, bool>,
+    workspace_toggle: &std::rc::Rc<dyn Fn(String)>,
 ) {
     clear(content);
 
@@ -460,8 +462,19 @@ pub fn fill_content(
         workspaces_list.pack_start(&text("No workspaces", "eb-task-placeholder"), false, false, 0);
     } else {
         for workspace in workspaces {
-            let header = workspace_header(workspace, workspace_action);
+            // The folder icon is the fold: open shows the group's tasks,
+            // closed hides them. WorkBuddy's capture has no folding here
+            // (ui-spec §10-41), so the open/closed pair is this build's own
+            // behaviour, like the section pills.
+            let folded = workspace_folded
+                .get(&workspace.id)
+                .copied()
+                .unwrap_or(false);
+            let header = workspace_header(workspace, workspace_action, folded, workspace_toggle);
             workspaces_list.pack_start(&header, false, false, 0);
+            if folded {
+                continue;
+            }
             if let Some(tasks_in_group) = grouped.get(&workspace.id) {
                 for row in tasks_in_group {
                     workspaces_list.pack_start(
@@ -556,16 +569,39 @@ fn section(
 fn workspace_header(
     workspace: &Workspace,
     action: &std::rc::Rc<dyn Fn(WorkspaceAction, String)>,
+    folded: bool,
+    toggle: &std::rc::Rc<dyn Fn(String)>,
 ) -> gtk::Box {
     // WorkBuddy row: [icon] name ..... [...] [+]. Both round buttons reveal on
     // hover; "..." opens Open Folder / Rename / Delete Workspace, "+" starts a
     // new task in this workspace.
     let container = hbox(2);
 
+    let fold = flat_button("eb-workspace-fold");
+    fold.set_tooltip_text(Some(if folded {
+        "Expand workspace tasks"
+    } else {
+        "Fold workspace tasks"
+    }));
+    // Open folder while the tasks show, closed once they are folded away.
+    let mark = if folded {
+        crate::icons::image("folder", 16)
+    } else {
+        crate::icons::image("folder-open", 16)
+    };
+    match mark {
+        Some(image) => fold.add(&image),
+        None => fold.add(&glyph(if folded { "▱" } else { "▱" })),
+    }
+    {
+        let toggle = toggle.clone();
+        let id = workspace.id.clone();
+        fold.connect_clicked(move |_| toggle(id.clone()));
+    }
+
     let button = flat_button("eb-workspace");
     button.set_tooltip_text(Some("Workspace actions"));
     let row = hbox(8);
-    row.pack_start(&glyph("▱"), false, false, 0);
     row.pack_start(
         &ellipsized(&crate::workspace::display_name(workspace), "eb-workspace-title"),
         true,
@@ -621,6 +657,7 @@ fn workspace_header(
         plus.connect_clicked(move |_| action(WorkspaceAction::NewTask, id.clone()));
     }
 
+    container.pack_start(&fold, false, false, 0);
     // Hover reveals the "..." affordance and the trailing "+" round button,
     // like WorkBuddy. They stay realised (opacity 0) so the row keeps its
     // height and hit area; only the paint toggles.

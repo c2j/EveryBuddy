@@ -247,6 +247,9 @@ pub struct App {
     /// 2 = Workspaces. The Pinned slot exists even while that section is not
     /// drawn, so the other two keep their index.
     pub collapsed: [bool; 3],
+    /// Workspaces whose task group the reader folded via the folder icon.
+    /// Absent means expanded; session-only, like the section folds.
+    pub workspace_folded: std::collections::BTreeMap<String, bool>,
     /// Catalog tab: 0 = Experts, 1 = Skills, 2 = Connectors.
     pub catalog_tab: usize,
     /// Catalog text filter applied on Enter.
@@ -282,6 +285,7 @@ impl App {
             workspace: 0,
             permission: 0,
             collapsed: [false, false, false],
+            workspace_folded: std::collections::BTreeMap::new(),
             catalog_tab: 1,
             catalog_query: String::new(),
             catalog_filter: 0,

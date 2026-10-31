@@ -16,6 +16,7 @@ fn bytes(name: &str) -> Option<&'static [u8]> {
         "calendar" => include_bytes!("../assets/icons/calendar.png"),
         "library" => include_bytes!("../assets/icons/library.png"),
         "folder" => include_bytes!("../assets/icons/folder.png"),
+        "folder-open" => include_bytes!("../assets/icons/folder-open.png"),
         "search" => include_bytes!("../assets/icons/search.png"),
         "search-dim" => include_bytes!("../assets/icons/search-dim.png"),
         "share" => include_bytes!("../assets/icons/share.png"),
@@ -122,5 +123,16 @@ pub fn named(name: &str, size: i32, class_name: &str) -> gtk::Widget {
         let label = gtk::Label::new(None);
         crate::widgets::class(&label, class_name);
         label.upcast()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_folder_pair_is_bundled_and_distinct() {
+        let closed = super::bytes("folder").expect("closed folder icon missing");
+        let open = super::bytes("folder-open").expect("open folder icon missing");
+        assert!(!closed.is_empty() && !open.is_empty());
+        assert_ne!(closed, open, "the two marks must be different files");
     }
 }
