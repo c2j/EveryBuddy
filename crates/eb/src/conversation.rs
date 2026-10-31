@@ -106,7 +106,6 @@ pub struct Conversation {
     pub search_state: Rc<std::cell::RefCell<SearchState>>,
     /// Floating "back to the newest message" button; visible while the reader
     /// is scrolled up from the bottom edge.
-    pub jump_latest: gtk::Button,
     /// Answers an inline tool-permission card into the waiting worker.
     permission_resolver: std::cell::RefCell<Option<Rc<dyn Fn(PermissionDecision)>>>,
     /// The currently rendered card, keyed by its title so a repaint leaves it
@@ -285,36 +284,8 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     let anchor: Rc<std::cell::RefCell<Option<(gtk::Widget, f64)>>> =
         Rc::new(std::cell::RefCell::new(None));
     let anchor_passes = Rc::new(Cell::new(0u8));
-    // "Back to the newest message": a floating down-arrow the reader sees
-    // after scrolling up through the history. Hidden while the view is pinned
-    // to the bottom edge (the reader is already there).
-    let jump_latest = gtk::Button::new();
-    class(&jump_latest, "eb-jump-latest");
-    jump_latest.set_label("↓");
-    jump_latest.set_tooltip_text(Some("Back to latest"));
-    jump_latest.set_valign(gtk::Align::End);
-    jump_latest.set_halign(gtk::Align::End);
-    jump_latest.set_margin_end(76);
-    jump_latest.set_margin_bottom(88);
-    jump_latest.set_can_focus(false);
-    jump_latest.set_visible(false);
-    {
-        let pinned = pinned.clone();
-        let auto_scroll = auto_scroll.clone();
-        let scroll = scroll.clone();
-        let handler_button = jump_latest.clone();
-        jump_latest.connect_clicked(move |_| {
-            pinned.set(true);
-            handler_button.set_visible(false);
-            let adjustment = scroll.vadjustment();
-            let guard = auto_scroll.clone();
-            gtk::glib::idle_add_local_once(move || {
-                guard.set(true);
-                adjustment.set_value(adjustment.upper() - adjustment.page_size());
-                guard.set(false);
-            });
-        });
-    }
+    // "Back to the newest message" is the centred overlay attached further
+    // down (attach_jump_latest); its sync closure drives visibility.
     {
         let pinned = pinned.clone();
         let auto_scroll = auto_scroll.clone();
@@ -322,7 +293,6 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         let pending_load = pending_load.clone();
         let anchor = anchor.clone();
         let load_more = wiring.load_more.clone();
-        let jump_latest = jump_latest.clone();
         scroll.vadjustment().connect_value_changed(move |adjustment| {
             if auto_scroll.get() {
                 return;
@@ -332,7 +302,6 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
             anchor.borrow_mut().take();
             let below = adjustment.upper() - adjustment.value() - adjustment.page_size();
             pinned.set(below <= FOLLOW_SLACK);
-            jump_latest.set_visible(!pinned.get());
             // The top of the rendered window is in view and earlier turns exist:
             // raise the flag and ask for a repaint, which attaches the slice.
             // The anchor is set from the moment a slice is planned until the view
@@ -446,8 +415,6 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
     mask.set_can_focus(false);
     viewport.add_overlay(&mask);
     viewport.set_overlay_pass_through(&mask, true);
-
-    viewport.add_overlay(&jump_latest);
 
     // The bar shares the scroller's own vertical adjustment, so wheel, keyboard,
     // drag and the follow-the-newest-line logic all still drive one position.
@@ -653,7 +620,6 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         anchor,
         anchor_passes,
         search_button: search,
-        jump_latest,
         search_bar,
         search_entry,
         search_state,
@@ -1593,9 +1559,6 @@ impl Conversation {
     fn follow_output(&self) {
         // The screenshot harness can keep the top of a long conversation visible
         // so the first block is not clipped by the scroll-to-bottom behaviour.
-        if self.pinned.get() {
-            self.jump_latest.set_visible(false);
-        }
         if std::env::var_os("EB_NO_SCROLL").is_some() || !self.pinned.get() {
             return;
         }
