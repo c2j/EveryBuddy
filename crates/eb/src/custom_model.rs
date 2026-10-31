@@ -97,6 +97,10 @@ impl AnswerSource for CustomModel {
         std::thread::Builder::new()
             .name("evobuddy-custom-model".into())
             .spawn(move || {
+                // A panic in here used to kill the thread silently: the
+                // stream channel closed and the user only saw the generic
+                // "agent stream closed". Catch it and report the truth.
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // The turn-scoped consent memory, plus the inline ask: the
                 // request renders as a card in the transcript and the answer
                 // arrives through the responder.
@@ -287,6 +291,13 @@ you did and what remains undone.",
                         "tool loop exceeded {MAX_TOOL_ROUNDS} rounds without a final answer"
                     ),
                 });
+                }));
+                if outcome.is_err() {
+                    // The default hook already printed the panic to stderr.
+                    let _ = sink.send(AgentEvent::Failed {
+                        message: "model worker panicked (details on stderr; run with EB_DEBUG=1 for event-level logs)".into(),
+                    });
+                }
             })
             .ok();
         Box::new(CustomHandle {

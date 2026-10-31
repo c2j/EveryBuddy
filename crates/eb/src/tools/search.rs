@@ -35,6 +35,21 @@ fn walker(root: &Path, respect_gitignore: bool) -> WalkBuilder {
     walk
 }
 
+/// Shorten one matched line for the transcript, cutting on a **char
+/// boundary**. A raw byte slice here once panicked the whole model worker
+/// thread on CJK text — the turn then died as a generic "agent stream
+/// closed" with no real error surfaced.
+fn trim_line(text: &str, cap: usize) -> &str {
+    if text.len() <= cap {
+        return text;
+    }
+    let mut cut = cap;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &text[..cut]
+}
+
 /// `search_content(pattern, path?, regex?, ignore_case?, respect_gitignore?)`
 /// — search file contents, reporting `path:line: text`.
 pub struct SearchContent;
@@ -61,8 +76,7 @@ impl Sink for ContentSink<'_> {
         }
         self.hits += 1;
         let text = String::from_utf8_lossy(mat.bytes());
-        let text = text.trim_end();
-        let text = if text.len() > 300 { &text[..300] } else { text };
+        let text = trim_line(text.trim_end(), 300);
         self.out.push_str(&format!("{}:{}: {}\n", self.path, mat.line_number().unwrap_or(0), text));
         Ok(true)
     }
@@ -278,5 +292,25 @@ returned; use list_dir for a plain listing."
             format!("Find {pattern} in {raw}"),
             truncate_tail(&summary, TOOL_OUTPUT_CAP),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The exact crash shape that produced "agent stream closed": a match
+    /// line over 300 bytes whose 300th byte lands inside a CJK character.
+    #[test]
+    fn trim_line_cuts_on_char_boundaries() {
+        let line = format!("{}x{}", "a".repeat(299), "汉".repeat(10));
+        assert!(line.len() > 300);
+        let trimmed = trim_line(&line, 300);
+        assert!(trimmed.len() <= 300);
+        assert!(trimmed.ends_with('x'), "cut mid-character: {trimmed:?}");
+        // Whole-string and short-line cases pass through.
+        assert_eq!(trim_line("short", 300), "short");
+        let cjk = "汉".repeat(200);
+        assert_eq!(trim_line(&cjk, 300).chars().count(), 100);
     }
 }
