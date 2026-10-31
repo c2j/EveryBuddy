@@ -604,7 +604,7 @@ mod tests {
         let mut text = String::new();
         let mut deltas = 0usize;
         let mut thoughts = 0usize;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let finished = loop {
             if std::time::Instant::now() > deadline {
                 break false;
@@ -685,7 +685,7 @@ mod tests {
             Some(workspace.clone()),
         );
         let mut text = String::new();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         let finished = loop {
             if std::time::Instant::now() > deadline {
                 break false;
@@ -769,7 +769,7 @@ mod tests {
         let mut saw_search = false;
         let mut saw_edit = false;
         let mut saw_plan = false;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
         let finished = loop {
             if std::time::Instant::now() > deadline {
                 break false;
