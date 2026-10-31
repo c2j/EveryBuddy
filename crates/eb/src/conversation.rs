@@ -2329,8 +2329,12 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
     scroll.set_max_content_width(spec::MESSAGE_WIDTH_CLOSED);
     scroll.set_min_content_width(1);
     scroll.set_hexpand(true);
-    scroll.set_min_content_height(300);
-    scroll.set_size_request(1, 300);
+    let output_lines = output.lines().count().max(1) as i32;
+    // Height follows the output: one line of `echo` should not cost a
+    // 300px card, a build log still scrolls within the cap.
+    let height = (output_lines * 18 + 50).clamp(72, 300);
+    scroll.set_min_content_height(height);
+    scroll.set_size_request(1, height);
     class(&scroll, "eb-exec-card");
     class(&scroll, "eb-radius-2xl");
     if let Some(code) = exit_code {
@@ -2368,9 +2372,8 @@ fn exec_block(command: &str, output: &str, exit_code: Option<i32>) -> gtk::Scrol
     if let Some(buffer) = output_view.buffer() {
         buffer.set_text(output);
     }
-    let lines = output.lines().count().max(1) as i32;
     output_view.set_hexpand(true);
-    output_view.set_size_request(1, lines * 18);
+    output_view.set_size_request(1, output_lines * 18);
     body.pack_start(&output_view, false, false, 0);
 
     scroll.add(&body);

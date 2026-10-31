@@ -234,10 +234,17 @@ permission."
                     }
                     let code = output.status.code().unwrap_or(-1);
                     let body = truncate_tail(combined.trim(), TOOL_OUTPUT_CAP);
-                    report(
+                    let title = if code == 0 {
+                        format!("Bash: {command}")
+                    } else {
+                        format!("Bash (exit {code}): {command}")
+                    };
+                    report_group(
                         ctx,
-                        if code == 0 { "Ran" } else { "Failed" },
-                        format!("Bash: {command}"),
+                        &title,
+                        &command,
+                        &body,
+                        Some(code),
                         format!("exit {code}\n{body}"),
                     )
                 }
@@ -250,6 +257,33 @@ permission."
             }
         }
     }
+}
+
+/// Emit a command run as a collapsed group: one quiet header line with the
+/// command, the full output inside an exec card behind a chevron. Long
+/// output (say, a build log) no longer floods the transcript; the reader
+/// expands it when they want it. The model still receives `result` as the
+/// tool message, unchanged.
+fn report_group(
+    ctx: &mut ToolContext,
+    title: &str,
+    command: &str,
+    output: &str,
+    exit_code: Option<i32>,
+    result: String,
+) -> String {
+    let _ = ctx.sink.send(eb_api::AgentEvent::Block {
+        block: eb_api::model::Block::Group {
+            title: title.to_string(),
+            blocks: vec![eb_api::model::Block::Exec {
+                command: command.to_string(),
+                output: output.to_string(),
+                exit_code,
+            }],
+            collapsed: true,
+        },
+    });
+    result
 }
 
 fn job_args_error(args: &serde_json::Value, ctx: &mut ToolContext, label: &str) -> Option<u32> {
@@ -309,10 +343,12 @@ run_command(run_in_background=true), and whether it has finished."
         } else {
             text
         };
-        report(
+        report_group(
             ctx,
-            "Ran",
-            format!("Output job {id}"),
+            &format!("Output job {id} ({status})"),
+            &format!("job {id}"),
+            &trimmed,
+            None,
             format!("{status}\n{}", if trimmed.is_empty() { "(no output yet)" } else { &trimmed }),
         )
     }
@@ -369,5 +405,67 @@ impl BuiltinTool for KillCommand {
                 format!("job {id} already exited")
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::{ToolCall, ToolConsent};
+
+    /// A run now lands as a collapsed group wrapping an exec card — the
+    /// transcript stays quiet for a long build log — while the tool result
+    /// text the model reads keeps the exit-code line.
+    #[test]
+    fn run_command_is_a_collapsed_group_with_the_output_inside() {
+        let (sink, stream) = eb_api::AgentSink::channel();
+        let mut consent = ToolConsent::default();
+        let mut jobs = JobTable::default();
+        crate::router::set_permission_mode(1); // auto-approve, no prompts
+        let call = ToolCall {
+            id: "t".into(),
+            name: "run_command".into(),
+            arguments: r#"{"command": "echo hi"}"#.into(),
+        };
+        let root = std::env::temp_dir();
+        let result = crate::tools::execute_tool(
+            &call, &root, &mut consent, &mut |_c, _t| {
+                PermissionDecision::Selected("allow_once".into())
+            },
+            &sink,
+            &mut jobs,
+        );
+        crate::router::set_permission_mode(0);
+        assert_eq!(result, "exit 0\nhi");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let group = loop {
+            match stream.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(eb_api::AgentEvent::Block {
+                    block: block @ eb_api::model::Block::Group { .. },
+                }) => break Some(block),
+                Ok(_) => {}
+                Err(_) => break None,
+            }
+            if std::time::Instant::now() > deadline {
+                break None;
+            }
+        };
+        match group {
+            Some(eb_api::model::Block::Group { title, blocks, collapsed }) => {
+                assert!(title.starts_with("Bash: echo hi"), "{title}");
+                assert!(collapsed, "the group must start collapsed");
+                assert_eq!(blocks.len(), 1);
+                match &blocks[0] {
+                    eb_api::model::Block::Exec { command, output, exit_code } => {
+                        assert_eq!(command, "echo hi");
+                        assert_eq!(output.trim(), "hi");
+                        assert_eq!(*exit_code, Some(0));
+                    }
+                    other => panic!("expected an exec card, got {other:?}"),
+                }
+            }
+            other => panic!("no group block emitted: {other:?}"),
+        }
     }
 }
