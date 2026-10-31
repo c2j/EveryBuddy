@@ -236,7 +236,11 @@ const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "
 #[cfg(target_os = "linux")]
 fn integrate_desktop_entry() {
     use crate::spec::APP_ID;
+    // One line per outcome: a silent skip made a gear-icon report
+    // undiagnosable from the terminal alone.
+    let report = |message: &str| eprintln!("[evobuddy] desktop entry: {message}");
     let Some(appimage) = std::env::var_os("APPIMAGE") else {
+        report("not an AppImage run (APPIMAGE unset), skipped");
         return;
     };
     let Some(data_home) = std::env::var_os("XDG_DATA_HOME")
@@ -247,23 +251,38 @@ fn integrate_desktop_entry() {
                 .map(|home| std::path::PathBuf::from(home).join(".local/share"))
         })
     else {
+        report("no XDG_DATA_HOME or HOME, skipped");
         return;
     };
     let apps = data_home.join("applications");
     let icons = data_home.join("icons/hicolor/256x256/apps");
     if std::fs::create_dir_all(&apps).is_err() || std::fs::create_dir_all(&icons).is_err() {
+        report(&format!("cannot create {} or {}", apps.display(), icons.display()));
         return;
     }
     let icon_path = icons.join(format!("{APP_ID}.png"));
     if std::fs::write(&icon_path, APP_ICON_PNG).is_err() {
+        report(&format!("cannot write {}", icon_path.display()));
         return;
     }
     let entry_path = apps.join(format!("{APP_ID}.desktop"));
     let entry = desktop_entry(&appimage.to_string_lossy());
     // Rewrite only on change so the desktop cache's mtime signal stays clean.
     if std::fs::read_to_string(&entry_path).ok().as_deref() != Some(entry.as_str()) {
-        let _ = std::fs::write(&entry_path, entry);
+        match std::fs::write(&entry_path, entry) {
+            Ok(()) => report(&format!(
+                "installed {} (icon {})",
+                entry_path.display(),
+                icon_path.display()
+            )),
+            Err(error) => {
+                report(&format!("cannot write {}: {error}", entry_path.display()));
+                return;
+            }
+        }
         let _ = std::process::Command::new("update-desktop-database").arg(&apps).output();
+    } else {
+        report(&format!("already installed {}", entry_path.display()));
     }
 }
 
