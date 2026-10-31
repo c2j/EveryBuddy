@@ -1508,18 +1508,16 @@ impl Views {
         // the scroller scrolls horizontally, so it advertises its own minimum
         // (`min_content_width`, 1) and never the child's.
         let pane_width = sash - sidebar;
-        let message_width = if open {
-            spec::MESSAGE_WIDTH
-        } else {
-            spec::MESSAGE_WIDTH_CLOSED
-        }
-        .min(pane_width);
+        let message_width = adaptive_message_width(pane_width, open);
         self.conversation.scroll.set_max_content_width(message_width);
         self.conversation.messages.set_size_request(message_width, -1);
+        // The composer tracks the message column so a wide layout does not
+        // leave the input card stranded at its own fixed width. The 80 is
+        // the closed card's own padding band (832 area vs 752 column).
         let input_width = if open {
             spec::CONVERSATION_WIDTH
         } else {
-            spec::CHAT_INPUT_AREA_WIDTH_CLOSED
+            message_width + (spec::CHAT_INPUT_AREA_WIDTH_CLOSED - spec::MESSAGE_WIDTH_CLOSED)
         };
         let input_margin = ((pane_width - input_width) / 2).max(0);
         self.chat_composer.root.set_margin_start(input_margin);
@@ -1534,6 +1532,26 @@ impl Views {
                 detail_ms.unwrap_or_default(),
             );
         }
+    }
+}
+
+/// The message column width for one pane width.
+///
+/// WorkBuddy's measured column is 752 wide with the artifact panel closed,
+/// and that stays the geometry for every window the replica was captured
+/// at (the selftest asserts it). But past twice the design width the fixed
+/// column wastes most of the screen, so the column grows to two thirds of
+/// the pane, capped at 1600 for readability.
+fn adaptive_message_width(pane_width: i32, panel_open: bool) -> i32 {
+    let design = if panel_open {
+        spec::MESSAGE_WIDTH
+    } else {
+        spec::MESSAGE_WIDTH_CLOSED
+    };
+    if !panel_open && pane_width > 2 * spec::MESSAGE_WIDTH_CLOSED {
+        ((pane_width * 2) / 3).clamp(spec::MESSAGE_WIDTH_CLOSED, 1600)
+    } else {
+        design.min(pane_width)
     }
 }
 
@@ -2856,6 +2874,27 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
 
 #[cfg(test)]
 mod tests {
+    use super::adaptive_message_width;
+
+    /// The replica geometry must be untouched at captured window sizes, and
+    /// wide panes must actually gain width instead of centering a 752px
+    /// column in half a screen.
+    #[test]
+    fn message_column_widens_only_on_wide_panes() {
+        // Captured sizes: 1440 window (pane 1160) stays at the design 752.
+        assert_eq!(adaptive_message_width(1160, false), 752);
+        assert_eq!(adaptive_message_width(1504, false), 752);
+        // At and below the threshold the replica wins; a narrow pane clamps.
+        assert_eq!(adaptive_message_width(1505, false), 1003);
+        assert_eq!(adaptive_message_width(1640, false), 1093);
+        // The 1600 readability cap holds on ultrawides.
+        assert_eq!(adaptive_message_width(3160, false), 1600);
+        // A pane too small for the design column shrinks with it.
+        assert_eq!(adaptive_message_width(600, false), 600);
+        // The artifact-open branch keeps its measured 500.
+        assert_eq!(adaptive_message_width(1640, true), 500);
+    }
+
     use super::*;
 
     /// The 1440 baseline is a captured number (ui-spec §4.4) and must not move;

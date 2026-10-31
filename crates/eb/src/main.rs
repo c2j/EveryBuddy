@@ -94,6 +94,16 @@ fn main() {
 
     ensure_gtk_im_modules();
 
+    // The dock/taskbar matches a window to its launcher entry through the
+    // WM_CLASS (X11) or the app id (Wayland), both of which default to the
+    // binary name ("evobuddy"). The desktop entry — bundled in the AppImage
+    // and installed by install.sh — is com.evobuddy.app with
+    // StartupWMClass=com.evobuddy.app, so nothing matched and a directly-run
+    // AppImage showed the generic gear icon. Align the process identity with
+    // the desktop entry before GTK reads it.
+    gtk::glib::set_prgname(Some(spec::APP_ID));
+    gtk::glib::set_application_name("EvoBuddy");
+
     let application = gtk::Application::new(Some(spec::APP_ID), Default::default());
     application.connect_startup(|_| {
         load_css();
