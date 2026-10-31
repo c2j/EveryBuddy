@@ -814,13 +814,24 @@ fn unread_dot() -> gtk::Box {
 /// path coordinates; the light theme's line-art ring variant is not
 /// implemented because EvoBuddy only ships the dark capture (ui-spec §10-40).
 fn failure_badge() -> gtk::Widget {
-    // Embedded bytes, so the only way this fails is a truncated asset.
-    let badge: gtk::Widget = crate::icons::image("task-failed", 16)
-        .expect("assets/icons/task-failed.png is embedded")
-        .upcast();
-    class(&badge, "eb-row-alert");
-    badge.set_valign(gtk::Align::Center);
-    badge.set_tooltip_text(Some("Task failed"));
+    // The pixbuf decode can fail in a bare environment (a missing
+    // gdk-pixbuf loader cache, as in the Debian 10 verify container), so a
+    // text glyph backs the image up instead of aborting the app.
+    let badge: gtk::Widget = match crate::icons::image("task-failed", 16) {
+        Some(image) => {
+            class(&image, "eb-row-alert");
+            image.set_valign(gtk::Align::Center);
+            image.set_tooltip_text(Some("Task failed"));
+            image.upcast()
+        }
+        None => {
+            let fallback = gtk::Label::new(Some("!"));
+            class(&fallback, "eb-row-alert");
+            fallback.set_valign(gtk::Align::Center);
+            fallback.set_tooltip_text(Some("Task failed"));
+            fallback.upcast()
+        }
+    };
     badge
 }
 
