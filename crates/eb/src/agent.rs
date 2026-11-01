@@ -617,6 +617,9 @@ impl Runner {
         let workspace = match existing_root {
             Some(root) if !cross_workspace => Some(std::path::PathBuf::from(root)),
             Some(_) => None,
+            // Cross runs bind to no workspace: never inherit one and never
+            // create one named after the task.
+            None if cross_workspace => None,
             // The welcome picker's "unassigned" choice applies to a prompt the
             // user is typing, not to a plan item that simply has no workspace yet.
             None if !dispatched && self.store.borrow().workspace == 1 => None,
