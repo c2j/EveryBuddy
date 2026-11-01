@@ -590,20 +590,30 @@ impl Runner {
                 .find(|workspace| workspace.id == id)
                 .map(|workspace| workspace.root.clone())
         });
-        // A cross-workspace plan item searches every agent's and custom
-        // model's conversations, so it deliberately binds to no workspace.
-        let cross_workspace = dispatched && {
-            let item_id = self
-                .store
-                .borrow()
-                .tasks
-                .get(task)
-                .and_then(|task| task.plan_item_id.clone());
-            item_id
-                .and_then(|id| crate::schedule::item_workspace_scope(&id))
-                .as_deref()
-                == Some("cross")
-        };
+        // A cross-workspace run searches every agent's and custom model's
+        // conversations, so it deliberately binds to no workspace. Two paths
+        // set the flag: plan-dispatched items read the item's scope, and
+        // cross prompt jobs carry `cross_workspace` on the task itself.
+        let cross_workspace = dispatched
+            && {
+                let app = self.store.borrow();
+                app.tasks
+                    .get(task)
+                    .map(|task| task.cross_workspace)
+                    .unwrap_or(false)
+            }
+            || dispatched && {
+                let item_id = self
+                    .store
+                    .borrow()
+                    .tasks
+                    .get(task)
+                    .and_then(|task| task.plan_item_id.clone());
+                item_id
+                    .and_then(|id| crate::schedule::item_workspace_scope(&id))
+                    .as_deref()
+                    == Some("cross")
+            };
         let workspace = match existing_root {
             Some(root) if !cross_workspace => Some(std::path::PathBuf::from(root)),
             Some(_) => None,
