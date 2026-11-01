@@ -1545,6 +1545,14 @@ fn item_from_snap(job: &Job, snap: &TaskSnap, previous: &Option<PlanRun>) -> Pla
     } else {
         "low"
     };
+    // A cross job aggregates across workspaces: even items derived from a
+    // single unfinished session dispatch workspace-less, so a leftover
+    // workspace from an earlier buggy run never re-binds the run.
+    let (scope, agent_route, workspace_id, workspace_name) = if job.scope == "cross" {
+        ("cross", snap.agent_route.clone(), None, "")
+    } else {
+        ("task", snap.agent_route.clone(), snap.workspace_id.clone(), snap.workspace_name.as_str())
+    };
     draft_item(
         job,
         &snap.title,
@@ -1552,10 +1560,10 @@ fn item_from_snap(job: &Job, snap: &TaskSnap, previous: &Option<PlanRun>) -> Pla
         "The session finishes without an error.",
         source,
         risk,
-        snap.agent_route.clone(),
-        snap.workspace_id.clone(),
-        &snap.workspace_name,
-        "task",
+        agent_route,
+        workspace_id,
+        workspace_name,
+        scope,
     )
 }
 
@@ -1586,6 +1594,7 @@ fn carried_item(job: &Job, old: &PlanItem) -> PlanItem {
         }
         context.push_str("Carried over from the previous plan.");
     }
+    let scope = if job.scope == "cross" { "cross" } else { old.workspace_scope.as_str() };
     draft_item(
         job,
         &old.title,
@@ -1594,9 +1603,9 @@ fn carried_item(job: &Job, old: &PlanItem) -> PlanItem {
         "carried",
         "high",
         old.agent_route.clone(),
-        old.workspace_id.clone(),
-        &old.workspace_name,
-        &old.workspace_scope,
+        if scope == "cross" { None } else { old.workspace_id.clone() },
+        if scope == "cross" { "" } else { &old.workspace_name },
+        scope,
     )
 }
 
