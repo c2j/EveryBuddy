@@ -907,7 +907,7 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     class(&scope_label, "eb-skill-meta");
     scope_row.pack_start(&scope_label, false, false, 0);
     let scope = gtk::ComboBoxText::new();
-    scope.append_text("the source task's workspace");
+    scope.append_text("no workspace (global conversation)");
     scope.append_text("cross-workspace: search every agent and custom model");
     scope.set_active(Some(0));
     scope_row.pack_start(&scope, true, true, 0);

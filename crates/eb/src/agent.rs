@@ -801,34 +801,32 @@ impl Runner {
                     if prompt.is_empty() {
                         continue;
                     }
-                    if scope == "cross" {
-                        // A cross-workspace prompt job searches every agent's
-                        // and custom model's conversations: run it as a
-                        // background task bound to no workspace, with the
-                        // digest folded into the prompt.
-                        let prompt = {
-                            let app = self.store.borrow();
-                            let snaps =
-                                crate::schedule::snapshots(&app.tasks, &app.workspaces);
-                            format!(
-                                "{prompt}\n\n[cross-workspace context]\n{}",
-                                crate::schedule::cross_digest(&snaps)
-                            )
-                        };
-                        let index = self
-                            .store
-                            .borrow_mut()
-                            .begin_background_task(&title, &prompt);
-                        if let Some(index) = index {
-                            if let Some(task) = self.store.borrow_mut().tasks.get_mut(index) {
-                                task.cross_workspace = true;
-                            }
-                            crate::state::save(&self.store);
-                            self.refresher.request();
-                            self.pump_dispatches();
-                        }
+                    // Scheduler prompt jobs are agent conversations, not
+                    // workspace-bound work: run them all as background tasks
+                    // bound to no workspace, so a scheduled run never creates
+                    // or lands in a workspace. Cross jobs additionally fold
+                    // in the cross-workspace digest.
+                    let prompt = if scope == "cross" {
+                        let app = self.store.borrow();
+                        let snaps = crate::schedule::snapshots(&app.tasks, &app.workspaces);
+                        format!(
+                            "{prompt}\n\n[cross-workspace context]\n{}",
+                            crate::schedule::cross_digest(&snaps)
+                        )
                     } else {
-                        self.submit(prompt);
+                        prompt
+                    };
+                    let index = self
+                        .store
+                        .borrow_mut()
+                        .begin_background_task(&title, &prompt);
+                    if let Some(index) = index {
+                        if let Some(task) = self.store.borrow_mut().tasks.get_mut(index) {
+                            task.cross_workspace = true;
+                        }
+                        crate::state::save(&self.store);
+                        self.refresher.request();
+                        self.pump_dispatches();
                     }
                 }
                 crate::schedule::Tick::PlanReady { title, items } => {
