@@ -93,6 +93,12 @@ fn main() {
     if let Ok(requested) = std::env::var("EB_ACP_PROBE") {
         std::process::exit(acp_probe(&requested));
     }
+    // `evobuddy schedule --run-due` advances plan files and exits. It must
+    // run before GTK is initialized: the OS timer calls it with no display
+    // session to spare, and it does not start an agent session.
+    if let Some(code) = headless_schedule() {
+        std::process::exit(code);
+    }
     // The schedule smoke writes scheduled.json and plans.json beside EB_STATE.
     // Point that at a temp directory before the first poll so a harness run
     // cannot append a plan to the user's real queue.
@@ -129,6 +135,58 @@ fn main() {
     preview_server::ensure();
     application.run();
     bridge::stop();
+}
+
+/// `evobuddy schedule --run-due` generates due plans and expires unanswered
+/// ones, then exits. One-shot jobs stay for the window. Approved items stay
+/// queued until the window's dispatcher starts them. Returns `None` when the
+/// process was not invoked as that command.
+fn headless_schedule() -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("schedule") {
+        return None;
+    }
+    if args.next().as_deref() != Some("--run-due") || args.next().is_some() {
+        eprintln!("usage: evobuddy schedule --run-due");
+        return Some(2);
+    }
+    Some(run_schedule_due())
+}
+
+fn run_schedule_due() -> i32 {
+    let loaded = match state::load_readable() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("schedule: {error}");
+            return 1;
+        }
+    };
+    let snaps = schedule::snapshots(&loaded.tasks, &loaded.workspaces);
+    let events = schedule::tick_plans(schedule::unix_now(), &snaps);
+    if events.is_empty() {
+        println!("schedule: nothing due");
+        return 0;
+    }
+    let mut notices = Vec::new();
+    for event in &events {
+        match event {
+            schedule::Tick::PlanReady { title, items } => {
+                let text = format!("Daily plan \"{title}\" is ready ({items} items).");
+                println!("schedule: {text}");
+                notices.push(text);
+            }
+            schedule::Tick::PlanExpired { title } => {
+                let text = format!("Plan \"{title}\" timed out and will merge into the next one.");
+                println!("schedule: {text}");
+                notices.push(text);
+            }
+            schedule::Tick::RunPrompt { .. } => {}
+        }
+    }
+    if !notices.is_empty() {
+        schedule_ui::notify_desktop(&notices.join(" "));
+    }
+    0
 }
 
 /// `EB_ACP_PROBE=1` probes the selected ACP slot; `EB_ACP_PROBE=jcode` probes a

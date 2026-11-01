@@ -10,7 +10,9 @@
 //! plan is either a real item list or an explicit empty list, never free text
 //! the queue cannot render.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::fs::OpenOptions;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,6 +28,7 @@ const MAX_ITEMS: usize = 20;
 
 thread_local! {
     static DIR_OVERRIDE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    static LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 struct DirGuard {
@@ -44,6 +47,166 @@ impl Drop for DirGuard {
         let prev = self.prev.take();
         DIR_OVERRIDE.with(|slot| *slot.borrow_mut() = prev);
     }
+}
+
+/// Exclusive lock for `scheduled.json` and `plans.json`.
+///
+/// The window poll and `evobuddy schedule --run-due` both read, modify, and
+/// write those files. The lock is held across one whole update. A second
+/// acquire on the same thread nests instead of locking the file again.
+struct LockGuard {
+    file: Option<std::fs::File>,
+}
+
+impl LockGuard {
+    fn acquire() -> io::Result<Self> {
+        let depth = LOCK_DEPTH.with(Cell::get);
+        if depth > 0 {
+            LOCK_DEPTH.with(|slot| slot.set(depth + 1));
+            return Ok(Self { file: None });
+        }
+        let path = dir().join("schedule.lock");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)?;
+        lock_exclusive(&file)?;
+        LOCK_DEPTH.with(|slot| slot.set(1));
+        Ok(Self { file: Some(file) })
+    }
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let depth = LOCK_DEPTH.with(Cell::get);
+        if depth > 0 {
+            LOCK_DEPTH.with(|slot| slot.set(depth - 1));
+        }
+        if depth == 1 {
+            if let Some(file) = self.file.take() {
+                let _ = unlock_exclusive(&file);
+            }
+        }
+    }
+}
+
+fn try_lock() -> Option<LockGuard> {
+    match LockGuard::acquire() {
+        Ok(guard) => Some(guard),
+        Err(error) => {
+            eprintln!("scheduler: could not lock schedule files: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lock_exclusive(file: &std::fs::File) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+fn unlock_exclusive(file: &std::fs::File) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+fn lock_exclusive(file: &std::fs::File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    let mut overlapped = WindowsOverlapped::default();
+    let ok = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as *mut core::ffi::c_void,
+            2,
+            0,
+            1,
+            0,
+            &mut overlapped,
+        )
+    };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn unlock_exclusive(file: &std::fs::File) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    let mut overlapped = WindowsOverlapped::default();
+    let ok = unsafe {
+        UnlockFileEx(
+            file.as_raw_handle() as *mut core::ffi::c_void,
+            0,
+            1,
+            0,
+            &mut overlapped,
+        )
+    };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct WindowsOverlapped {
+    internal: usize,
+    internal_high: usize,
+    offset: u32,
+    offset_high: u32,
+    event: *mut core::ffi::c_void,
+}
+
+#[cfg(windows)]
+impl Default for WindowsOverlapped {
+    fn default() -> Self {
+        Self {
+            internal: 0,
+            internal_high: 0,
+            offset: 0,
+            offset_high: 0,
+            event: std::ptr::null_mut(),
+        }
+    }
+}
+
+#[cfg(windows)]
+extern "system" {
+    fn LockFileEx(
+        file: *mut core::ffi::c_void,
+        flags: u32,
+        reserved: u32,
+        bytes_low: u32,
+        bytes_high: u32,
+        overlapped: *mut WindowsOverlapped,
+    ) -> i32;
+    fn UnlockFileEx(
+        file: *mut core::ffi::c_void,
+        reserved: u32,
+        bytes_low: u32,
+        bytes_high: u32,
+        overlapped: *mut WindowsOverlapped,
+    ) -> i32;
 }
 
 fn dir() -> PathBuf {
@@ -309,8 +472,21 @@ pub fn tick(now: u64, snaps: &[TaskSnap]) -> Vec<Tick> {
     tick_inner(now, local_offset_secs(now), snaps)
 }
 
+/// Expire and generate due plans. One-shot jobs stay in the file, and no
+/// session is started. `evobuddy schedule --run-due` uses this so a closed
+/// window still produces a plan the next launch can dispatch.
+pub fn tick_plans(now: u64, snaps: &[TaskSnap]) -> Vec<Tick> {
+    let Some(_lock) = try_lock() else {
+        return Vec::new();
+    };
+    plans_due(now, local_offset_secs(now), snaps)
+}
+
 /// Remove due one-shot jobs and return their prompts. Does not generate a plan.
 pub fn claim_once_prompts() -> Vec<(String, String)> {
+    let Some(_lock) = try_lock() else {
+        return Vec::new();
+    };
     claim_once(unix_now())
         .into_iter()
         .filter_map(|event| match event {
@@ -325,15 +501,35 @@ fn tick_at(dir: &Path, now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
     tick_inner(now, offset, snaps)
 }
 
+fn tick_plans_at(dir: &Path, now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
+    let _guard = DirGuard::push(dir.to_path_buf());
+    let Some(_lock) = try_lock() else {
+        return Vec::new();
+    };
+    plans_due(now, offset, snaps)
+}
+
 fn tick_inner(now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
+    let Some(_lock) = try_lock() else {
+        return Vec::new();
+    };
     let mut events = Vec::new();
     events.extend(claim_once(now));
+    events.extend(plans_due(now, offset, snaps));
+    events
+}
+
+fn plans_due(now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
+    let mut events = Vec::new();
     events.extend(expire_pending(now));
     events.extend(generate_due(now, offset, snaps));
     events
 }
 
 pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut jobs = load_jobs();
     let due = unix_now().saturating_add(delay_secs);
     jobs.push(Job {
@@ -353,6 +549,9 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
 }
 
 pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let now = unix_now();
     let offset = local_offset_secs(now);
     let mut jobs = load_jobs();
@@ -373,6 +572,9 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
 }
 
 pub fn remove_at(index: usize) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut jobs = load_jobs();
     if index < jobs.len() {
         jobs.remove(index);
@@ -383,6 +585,9 @@ pub fn remove_at(index: usize) {
 /// Make job `index` due on the next tick. A plan that already has a pending
 /// run is left alone; the caller should show that the queue is occupied.
 pub fn run_now(index: usize) -> bool {
+    let Some(_lock) = try_lock() else {
+        return false;
+    };
     let mut jobs = load_jobs();
     let Some(job) = jobs.get_mut(index) else {
         return false;
@@ -444,6 +649,9 @@ pub fn pending_count() -> usize {
 }
 
 pub fn set_selected(plan_id: &str, item_id: &str, selected: bool) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut plans = load_plans();
     if let Some(plan) = plans.iter_mut().find(|plan| plan.id == plan_id && plan.status == "pending")
     {
@@ -455,6 +663,9 @@ pub fn set_selected(plan_id: &str, item_id: &str, selected: bool) {
 }
 
 pub fn set_prompt(plan_id: &str, item_id: &str, prompt: &str) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut plans = load_plans();
     if let Some(plan) = plans.iter_mut().find(|plan| plan.id == plan_id && plan.status == "pending")
     {
@@ -468,6 +679,9 @@ pub fn set_prompt(plan_id: &str, item_id: &str, prompt: &str) {
 
 /// Approve or skip a pending plan. Already-decided plans are left unchanged.
 pub fn decide(plan_id: &str, kind: DecisionKind) -> usize {
+    let Some(_lock) = try_lock() else {
+        return 0;
+    };
     let mut plans = load_plans();
     let Some(plan) = plans.iter_mut().find(|plan| plan.id == plan_id) else {
         return 0;
@@ -534,6 +748,9 @@ pub fn dispatch_queue() -> Vec<DispatchItem> {
 }
 
 pub fn note_session(item_id: &str, session_id: &str) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut plans = load_plans();
     for plan in &mut plans {
         if let Some(item) = plan.items.iter_mut().find(|item| item.id == item_id) {
@@ -544,6 +761,9 @@ pub fn note_session(item_id: &str, session_id: &str) {
 }
 
 pub fn mark_started(item_id: &str) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
     let mut plans = load_plans();
     for plan in &mut plans {
         if let Some(item) = plan.items.iter_mut().find(|item| item.id == item_id) {
@@ -1197,5 +1417,49 @@ mod tests {
         done.plan_item_id = Some(item_id);
         let events = tick_at(&dir, next, 0, &[done]);
         assert!(matches!(&events[0], Tick::PlanReady { items: 0, .. }));
+    }
+
+    #[test]
+    fn a_headless_tick_writes_the_plan_and_leaves_the_one_shot() {
+        let dir = temp_dir("headless");
+        let day = 10_000 * 86_400;
+        let slot = day + 510 * 60;
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([
+                { "title": "Ping", "prompt": "Say hi", "due_at": 1 },
+                {
+                    "id": "job-1",
+                    "kind": "plan",
+                    "title": "Daily",
+                    "daily_minutes": 510,
+                    "next_run_at": slot,
+                    "suggest": ["Changelog"]
+                }
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let events = tick_plans_at(&dir, slot, 0, &[]);
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, Tick::RunPrompt { .. })),
+            "a headless tick must not consume a one-shot"
+        );
+        assert!(matches!(&events[0], Tick::PlanReady { items: 1, .. }));
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        let jobs = left.as_array().unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().any(|job| job["prompt"] == "Say hi"));
+        let _guard = DirGuard::push(dir.clone());
+        let plan = plans().pop().unwrap();
+        assert_eq!(plan.status, "pending");
+        assert!(dispatch_queue().is_empty());
+        drop(_guard);
+        let claimed = tick_at(&dir, slot + 10, 0, &[]);
+        assert!(matches!(&claimed[0], Tick::RunPrompt { prompt, .. } if prompt == "Say hi"));
     }
 }

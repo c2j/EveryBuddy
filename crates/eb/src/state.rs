@@ -71,6 +71,27 @@ pub fn save(store: &Store) {
     );
 }
 
+/// Load history for a second process. A missing file is empty history. A
+/// file that exists but is not a JSON array is an error, so a reader does
+/// not treat a half-written `tasks.json` as "no sessions" and generate a
+/// plan from that.
+pub fn load_readable() -> Result<Loaded, String> {
+    let task_path = path();
+    match std::fs::read_to_string(&task_path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(load()),
+        Err(error) => Err(format!("{}: {error}", task_path.display())),
+        Ok(text) => {
+            if serde_json::from_str::<Vec<serde_json::Value>>(&text).is_err() {
+                return Err(format!(
+                    "{} is not valid JSON; the plan files were left unchanged",
+                    task_path.display()
+                ));
+            }
+            Ok(load())
+        }
+    }
+}
+
 pub fn load() -> Loaded {
     let Ok(text) = std::fs::read_to_string(path()) else {
         return Loaded {

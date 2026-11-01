@@ -156,3 +156,71 @@ DispatchSession   派发的后台会话：session_id, plan_item_id, status, resu
 | P2 | 待审批队列 UI + 批准/跳过 + 按模板派发 | P1 |
 | P3 | 超时策略、部分批准、微调记忆、计划 diff | P2 |
 | P4 | 低风险免审批、外部数据源连接器（Git/PM） | P2 + 连接器体系 |
+
+> 实施状态：P1–P3 核心链路已由 PR c2j/EveryBuddy#39 交付（本地汇总、审批队列、
+> 超时合并、模板派发、桌面通知），汇总范围为简化版（仅"昨日全天"）；
+> §4 的完整汇总范围与 P4 未实现。`AllowPlan` 预批准的会话摘录注入面为已知风险。
+> §9.1 的 `schedule --run-due` 与 `schedule.lock` 已接上。三平台定时器只放了模板，
+> 程序不会自行安装。§9.2 常驻 daemon 未做。
+
+## 9. OS 集成与 Daemon 演进（两步走）
+
+调度器目前只活在 GUI 进程里（5s 轮询），应用关闭即停摆。本节定义补齐
+"应用未开时谁来跑"的两阶段方案：**先 P1 验证使用模式，再决定是否进入 P2。**
+
+### 9.1 P1：headless 子命令 + OS 定时器（无新进程模型）
+
+给 `evobuddy` 增加 headless 子命令，不建 GTK、跑完即退：
+
+```text
+evobuddy schedule --run-due   # 执行一次 tick：生成到期计划、过期收敛、
+                              # 把已批准条目标记为待派发（不启动会话）
+```
+
+语义约定：
+
+- headless 运行**不派发会话**（`Runner`/ACP 在 GUI 进程），只推进
+  `scheduled.json` / `plans.json`；用户下次打开 GUI 时由现有
+  `pump_dispatches` 补拉起
+- 审批仍回到 GUI 待审批队列；headless 可选发一条桌面通知提示"计划已生成"
+- **单写者约束**：headless 与 GUI 不应同时写状态文件。实现是 `schedule.lock`
+  上的排他锁，包住 `scheduled.json` / `plans.json` 的一次完整读改写。
+  `tasks.json` 只读；读到的内容不是合法 JSON 时本次直接退出，不生成计划
+
+三平台注册方式：
+
+| 平台 | 登录自启（GUI 兜底） | 定时调起 headless |
+|---|---|---|
+| Linux | XDG Autostart `~/.config/autostart/evobuddy.desktop` | systemd user timer：`OnCalendar=*-*-* 08:30:00` + `evobuddy-plan.service` |
+| macOS | LaunchAgent `~/Library/LaunchAgents/com.evobuddy.plist`（`RunAtLoad`）；分发版用 SMAppService | launchd `StartCalendarInterval` 08:30；休眠唤醒后的补跑语义需实测 |
+| Windows | Startup 文件夹 / `HKCU\...\Run` | Task Scheduler 每日 08:30 + "missed start 尽快补跑"（`schtasks /sc daily /st 08:30`） |
+
+测试/CI 配套（跨平台差异封装）：Linux 用 `xvfb-run`；macOS 需真实 GUI
+session、无 `timeout` 命令（用 `perl alarm` 或后台+kill）、产物在 `$TMPDIR`
+而非 `/tmp`；Windows 需 MSYS2 GTK3。selftest 已内置 12s 超时兜底，外部
+timeout 仅作双保险。
+
+### 9.2 P2：常驻 Daemon（正确终态，按需启动）
+
+仅在 P1 验证后确认需求真实存在时进入。架构要点：
+
+- **单一写者 = daemon**：三个状态文件只由 daemon 写；GUI、CLI、未来托盘都是
+  IPC 客户端（Unix socket / named pipe，协议从简）
+- **`Runner`/ACP 移入 daemon**（或拆出无 GTK 的 `eb-core`）：派发会话真正
+  脱离 GUI 生命周期；该拆分同时改善可测试性
+- **权限桥跨进程**：dispatched 会话的预批准在 daemon；交互式权限转发 GUI 弹窗
+- **通知升级**：daemon 内做桌面通知与微信/企微推送（§3.2-d 的推送开关届时落点）
+
+| 平台 | 常驻方式 |
+|---|---|
+| Linux | systemd user service（`WantedBy=default.target`） |
+| macOS | LaunchAgent（`KeepAlive`）或菜单栏托盘 |
+| Windows | 登录触发的计划任务常驻，或系统托盘 |
+
+### 9.3 进入 P2 的判定条件
+
+满足任一条再启动，避免为 10% 的收益付 90% 的重构成本：
+
+1. P1 使用后"应用没开导致审批/派发延迟"成为实际抱怨；
+2. 出现无 GUI 机器（服务器/CI）也要跑计划任务的需求；
+3. 需要微信/企微推送且要求应用未开也能送达。
