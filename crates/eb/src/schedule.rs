@@ -1676,6 +1676,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "prompt": job.prompt,
             "periodic": job.periodic,
             "next_run_at": job.next_run_at,
+            "paused": job.paused,
         })
     } else if job.kind == "daily" || job.kind == "interval" {
         serde_json::json!({
@@ -1686,6 +1687,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "daily_minutes": job.daily_minutes,
             "interval_hours": job.interval_hours,
             "next_run_at": job.next_run_at,
+            "paused": job.paused,
         })
     } else {
         serde_json::json!({
@@ -2114,6 +2116,38 @@ mod tests {
         assert_eq!(
             next_periodic_run(sat + 10 * 3600, &yearly, 0),
             Some((20_757 + 62) * 86_400 + 10 * 3600)
+        );
+    }
+
+    #[test]
+    fn claiming_a_sibling_keeps_the_paused_flag_on_disk() {
+        let dir = temp_dir("pause-persist");
+        let now = unix_now();
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([
+                { "id": "job-live", "kind": "interval", "title": "Stretch",
+                  "prompt": "stretch", "interval_hours": 2, "next_run_at": now - 10 },
+                { "id": "job-halt", "kind": "daily", "title": "Halted",
+                  "prompt": "nope", "daily_minutes": 510,
+                  "next_run_at": now - 10, "paused": true },
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        tick_at(&dir, now, 0, &[]);
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        let halted = left
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|job| job["id"] == "job-halt")
+            .unwrap();
+        assert_eq!(
+            halted["paused"], true,
+            "a sibling claim must not lose the paused flag"
         );
     }
 
