@@ -966,6 +966,7 @@ mod tests {
         Task {
             title: "t".into(),
             meta: String::new(),
+            cross_workspace: false,
             turns: vec![Turn::Agent {
                 name: "A".into(),
                 status: status.map(String::from),
