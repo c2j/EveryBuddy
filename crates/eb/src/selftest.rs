@@ -62,6 +62,7 @@ pub fn requested() -> bool {
         "EB_DEMO_BLOCKS",
         "EB_ACP_DEMO",
         "EB_SCHEDULE_SMOKE",
+        "EB_SCHEDULE_SHOTS",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -127,6 +128,10 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
                 }
                 if std::env::var_os("EB_SCHEDULE_SMOKE").is_some() {
                     start_schedule_smoke(&views, &application);
+                    return;
+                }
+                if let Some(dir) = std::env::var_os("EB_SCHEDULE_SHOTS") {
+                    start_schedule_shots(&views, &application, std::path::PathBuf::from(dir.to_string_lossy().into_owned()));
                     return;
                 }
                 if click_requested() {
@@ -358,6 +363,224 @@ fn assert_click_observation(label: &str, observed: &str) {
     }
     eprintln!("click: ASSERT FAILED: {label}: missing {missing:?} in {observed:?}");
     CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
+}
+
+/// `EB_SCHEDULE_SHOTS=<dir>` walks the Scheduled page and its two dialogs,
+/// writing a PNG of each surface for visual comparison against the design
+/// mockup. State comes from the seeded `EB_STATE` directory.
+/// Draw the toplevel window whose title equals `title` into a PNG. Modal
+/// dialogs are their own toplevels, so `snapshot` (which draws the main
+/// window) cannot see them.
+fn snapshot_titled(title: &str, path: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        if window.title().as_deref() != Some(title) || !window.is_visible() {
+            continue;
+        }
+        window.size_allocate(&window.allocation());
+        let allocation = window.allocation();
+        let (width, height) = (allocation.width(), allocation.height());
+        if width <= 0 || height <= 0 {
+            return false;
+        }
+        let Some(surface) =
+            gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, width, height).ok()
+        else {
+            return false;
+        };
+        let Some(context) = gtk::cairo::Context::new(&surface).ok() else {
+            return false;
+        };
+        window.draw(&context);
+        let Ok(mut file) = std::fs::File::create(path) else {
+            return false;
+        };
+        if surface.write_to_png(&mut file).is_err() {
+            return false;
+        }
+        println!("schedule-shots: wrote {path} ({width}x{height})");
+        return true;
+    }
+    false
+}
+
+/// Click the first button whose label starts with `prefix` (tab labels embed
+/// a live count, e.g. `Approvals (2)`).
+fn click_labeled_prefix(prefix: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        let mut button = None;
+        walk_widgets(window.upcast_ref(), &mut |widget| {
+            if button.is_some() {
+                return;
+            }
+            if let Ok(found) = widget.clone().downcast::<gtk::Button>() {
+                if found
+                    .label()
+                    .as_deref()
+                    .is_some_and(|text| text.starts_with(prefix))
+                {
+                    button = Some(found);
+                }
+            }
+        });
+        if let Some(button) = button {
+            button.emit_clicked();
+            return true;
+        }
+    }
+    false
+}
+
+fn start_schedule_shots(views: &Rc<Views>, application: &gtk::Application, dir: std::path::PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    views.window.present();
+    let steps: Vec<(&str, Box<dyn Fn() -> bool>)> = vec![
+        ("open", {
+            let views = views.clone();
+            Box::new(move || smoke_open(&views).is_ok())
+        }),
+        (
+            "tasks",
+            Box::new({
+            let views = views.clone();
+            let dir = dir.clone();
+            move || {
+                snapshot(&views, &dir.join("1-tasks.png").to_string_lossy());
+                true
+            }
+        }),
+        ),
+        (
+            "to-approvals",
+            Box::new(|| click_labeled_prefix("Approvals (")),
+        ),
+        (
+            "approvals",
+            Box::new({
+                let views = views.clone();
+                let dir = dir.clone();
+                move || {
+                    snapshot(&views, &dir.join("2-approvals.png").to_string_lossy());
+                    true
+                }
+            }),
+        ),
+        (
+            "to-records",
+            Box::new(|| click_labeled("Records")),
+        ),
+        (
+            "records",
+            Box::new({
+            let views = views.clone();
+            let dir = dir.clone();
+            move || {
+                snapshot(&views, &dir.join("3-records.png").to_string_lossy());
+                true
+            }
+        }),
+        ),
+        (
+            "back-to-tasks",
+            Box::new(|| click_labeled("Tasks")),
+        ),
+        (
+            "open-daily-plan",
+            Box::new(|| click_labeled("Daily plan")),
+        ),
+        (
+            "plan-dialog",
+            Box::new({
+                let dir = dir.clone();
+                let dialog_title = "Daily plan".to_string();
+                move || {
+                    snapshot_titled(
+                        &dialog_title,
+                        &dir.join("4-plan-dialog.png").to_string_lossy(),
+                    )
+                }
+            }),
+        ),
+        ("close-plan", Box::new(|| click_labeled("Cancel"))),
+        (
+            "open-new",
+            Box::new(|| click_labeled("+ New")),
+        ),
+        (
+            "new-dialog",
+            Box::new({
+                let dir = dir.clone();
+                let dialog_title = "New Scheduled Task".to_string();
+                move || {
+                    snapshot_titled(
+                        &dialog_title,
+                        &dir.join("5-new-dialog.png").to_string_lossy(),
+                    )
+                }
+            }),
+        ),
+        ("close-new", Box::new(|| click_labeled("Cancel"))),
+    ];
+    let done = Rc::new(Cell::new(false));
+    {
+        let done = done.clone();
+        gtk::glib::timeout_add_seconds_local(90, move || {
+            if !done.get() {
+                eprintln!("schedule-shots: FAIL timed out");
+                std::process::exit(1);
+            }
+            gtk::glib::ControlFlow::Break
+        });
+    }
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_shots(views, application, dir.clone(), Rc::new(
+                steps
+                    .into_iter()
+                    .map(|(label, run): (&str, Box<dyn Fn() -> bool>)| {
+                        (label.to_string(), run)
+                    })
+                    .collect::<Vec<_>>(),
+            ), Rc::new(Cell::new(0)), done);
+    });
+}
+
+fn drive_shots(
+    views: Rc<Views>,
+    application: gtk::Application,
+    dir: std::path::PathBuf,
+    steps: Rc<Vec<(String, Box<dyn Fn() -> bool>)>>,
+    index: Rc<Cell<usize>>,
+    done: Rc<Cell<bool>>,
+) {
+    let position = index.get();
+    if position >= steps.len() {
+        done.set(true);
+        println!("schedule-shots: OK -> {}", dir.display());
+        application.quit();
+        return;
+    }
+    let (label, run) = &steps[position];
+    if !run() {
+        eprintln!("schedule-shots: FAIL step {position} ({label})");
+        std::process::exit(1);
+    }
+    println!("schedule-shots: step {position} {label} ok");
+    index.set(position + 1);
+    // A deferred repaint must land before the next click or the next shot.
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_shots(views, application, dir, steps, index, done);
+    });
 }
 
 /// `EB_SCHEDULE_SMOKE=1` opens Scheduled, saves a daily plan, runs it, approves

@@ -54,6 +54,9 @@ pub fn fill(
     on_run: &Rc<dyn Fn()>,
     open_task: &Rc<dyn Fn(usize)>,
 ) {
+    // Refresh rebuilds the page; without this every poll would stack another
+    // copy of every card on top of the last one.
+    clear(container);
     let tab = TAB.with(|slot| slot.get());
     let pending = schedule::pending_count();
 
@@ -543,38 +546,6 @@ fn fill_approvals(
             container.pack_start(&card, false, false, 0);
         }
     }
-    // Expired plans stay visible with what happened to them, but carry no
-    // actions: their remaining items already merged into the next plan.
-    let expired: Vec<PlanRun> = schedule::plans()
-        .into_iter()
-        .filter(|plan| plan.resolution == "timeout_skip_merge" && !plan.archived)
-        .collect();
-    if !expired.is_empty() {
-        let section = gtk::Label::new(Some("Expired"));
-        section.set_xalign(0.0);
-        class(&section, "eb-catalog-section");
-        container.pack_start(&section, false, false, 0);
-        for plan in expired {
-            let card = vbox(3);
-            class(&card, "eb-skill-card");
-            let head = gtk::Label::new(Some(&format!(
-                "{} · {} · expired",
-                plan.title,
-                schedule::format_local(plan.created_at)
-            )));
-            head.set_xalign(0.0);
-            class(&head, "eb-skill-title");
-            card.pack_start(&head, false, false, 0);
-            let note = gtk::Label::new(Some(
-                "Timed out without approval. Its remaining items merged into the next plan.",
-            ));
-            note.set_xalign(0.0);
-            note.set_line_wrap(true);
-            class(&note, "eb-skill-meta");
-            card.pack_start(&note, false, false, 0);
-            container.pack_start(&card, false, false, 0);
-        }
-    }
 }
 
 fn fill_records(
@@ -808,14 +779,18 @@ const MODE_TILES: [(Mode, &str); 4] = [
     (Mode::Plan, "Plan · approve · dispatch"),
 ];
 
-fn labeled_entry(container: &gtk::Box, label: &str) -> gtk::Entry {
+/// A labelled entry packed into its own row box, so the pair can be shown or
+/// hidden together when the mode changes.
+fn labeled_entry(container: &gtk::Box, label: &str) -> (gtk::Box, gtk::Entry) {
+    let row = vbox(2);
     let label = gtk::Label::new(Some(label));
     class(&label, "eb-skill-meta");
     label.set_xalign(0.0);
-    container.pack_start(&label, false, false, 0);
+    row.pack_start(&label, false, false, 0);
     let entry = gtk::Entry::new();
-    container.pack_start(&entry, false, false, 0);
-    entry
+    row.pack_start(&entry, false, false, 0);
+    container.pack_start(&row, false, false, 0);
+    (row, entry)
 }
 
 fn text_of(view: &gtk::TextView) -> String {
@@ -839,7 +814,7 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     root.set_margin_start(16);
     root.set_margin_end(16);
 
-    let name = labeled_entry(&root, "Name");
+    let (name_row, name) = labeled_entry(&root, "Name");
 
     // --- the four-tile mode selector -------------------------------------
     let tiles = gtk::Grid::new();
@@ -883,7 +858,7 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     }
 
     // --- shared time field (once / periodic / plan) ----------------------
-    let time = labeled_entry(&root, "Time of day (HH:mm)");
+    let (time_row, time) = labeled_entry(&root, "Time of day (HH:mm)");
     time.set_text("08:30");
 
     // --- periodic-only fields --------------------------------------------
@@ -916,16 +891,16 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     weekdays_hint.set_line_wrap(true);
     class(&weekdays_hint, "eb-skill-meta");
     period_box.pack_start(&weekdays_hint, false, false, 0);
-    let month_days = labeled_entry(&period_box, "Day of month (1-31)");
-    let month_num = labeled_entry(&period_box, "Month (1-12, yearly only)");
+    let (month_days_row, month_days) = labeled_entry(&period_box, "Day of month (1-31)");
+    let (month_num_row, month_num) = labeled_entry(&period_box, "Month (1-12, yearly only)");
     root.pack_start(&period_box, false, false, 0);
 
     // --- interval-only field ---------------------------------------------
-    let hours = labeled_entry(&root, "Hours between runs (1-24)");
+    let (hours_row, hours) = labeled_entry(&root, "Hours between runs (1-24)");
     hours.set_text("2");
 
     // --- plan-only fields -------------------------------------------------
-    let deadline = labeled_entry(&root, "Approval deadline in minutes");
+    let (deadline_row, deadline) = labeled_entry(&root, "Approval deadline in minutes");
     deadline.set_text("45");
 
     // --- content: prompt for the three prompt modes, standing tasks for plan
@@ -966,13 +941,13 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     let sync = {
         let mode = mode.clone();
         let freq = freq.clone();
-        let time = time.clone();
+        let time_row = time_row.clone();
         let period_box = period_box.clone();
         let weekday_box = weekday_box.clone();
-        let month_days = month_days.clone();
-        let month_num = month_num.clone();
-        let hours = hours.clone();
-        let deadline = deadline.clone();
+        let month_days_row = month_days_row.clone();
+        let month_num_row = month_num_row.clone();
+        let hours_row = hours_row.clone();
+        let deadline_row = deadline_row.clone();
         let content_label = content_label.clone();
         let template_label = template_label.clone();
         let template_scroll = template_scroll.clone();
@@ -983,17 +958,17 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
                 widget.set_visible(visible);
             }
             show(&period_box, mode == Mode::Periodic);
-            show(&hours, mode == Mode::Interval);
-            show(&deadline, mode == Mode::Plan);
+            show(&hours_row, mode == Mode::Interval);
+            show(&deadline_row, mode == Mode::Plan);
             show(&template_label, mode == Mode::Plan);
             show(&template_scroll, mode == Mode::Plan);
-            time.set_visible(matches!(mode, Mode::Once | Mode::Periodic | Mode::Plan));
+            time_row.set_visible(matches!(mode, Mode::Once | Mode::Periodic | Mode::Plan));
             // Inside periodic: weekdays for week/biweek, month fields for
             // month/year.
             let weekdays_visible = mode == Mode::Periodic && matches!(freq_index, 1 | 2);
             show(&weekday_box, weekdays_visible);
-            show(&month_days, mode == Mode::Periodic && matches!(freq_index, 3 | 4));
-            show(&month_num, mode == Mode::Periodic && freq_index == 4);
+            show(&month_days_row, mode == Mode::Periodic && matches!(freq_index, 3 | 4));
+            show(&month_num_row, mode == Mode::Periodic && freq_index == 4);
             content_label.set_text(if mode == Mode::Plan {
                 "Standing tasks, one per line"
             } else {
@@ -1125,7 +1100,10 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
         refresh();
         window_for_create.close();
     });
+    // `show_all` undoes the initial visibility sync, so sync again after it —
+    // otherwise every mode shows the periodic and plan fields.
     window.show_all();
+    sync();
 }
 
 fn open_prompt_dialog(
@@ -1164,7 +1142,7 @@ fn open_prompt_dialog(
 
     // Target: agent route and workspace, both optional (empty keeps the
     // default; "(new workspace)" lets dispatch create a fresh one).
-    let agent = labeled_entry(&root, "Agent route (empty = default)");
+    let (_agent_row, agent) = labeled_entry(&root, "Agent route (empty = default)");
     if let Some(route) = &agent_route {
         agent.set_text(route);
     }
