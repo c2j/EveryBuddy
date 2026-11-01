@@ -137,6 +137,30 @@ fn main() {
     bridge::stop();
 }
 
+/// Resume the last live session, retrying while the bridge finishes its cold
+/// start. `start()` only waits 300ms so the GTK main thread never freezes,
+/// and a first launch can exceed that; without the retry the whole launch
+/// would run without the previous transcript attached.
+fn retry_resume(views: &Rc<crate::shell::Views>, store: &model::Store, session_id: &str, attempts: u32) {
+    bridge::ensure();
+    match bridge::resume_session(session_id) {
+        Ok(()) => {
+            eprintln!("phase1: resumed {session_id}");
+            views.refresh(store);
+        }
+        Err(error) if attempts > 1 => {
+            let views = views.clone();
+            let store = store.clone();
+            let session_id = std::rc::Rc::new(session_id.to_string());
+            gtk::glib::timeout_add_seconds_local(1, move || {
+                retry_resume(&views, &store, &session_id.clone(), attempts - 1);
+                gtk::glib::ControlFlow::Break
+            });
+        }
+        Err(error) => eprintln!("phase1: resume failed: {error}"),
+    }
+}
+
 /// `evobuddy schedule --run-due` generates due plans and expires unanswered
 /// ones, then exits. One-shot jobs stay for the window. Approved items stay
 /// queued until the window's dispatcher starts them. Returns `None` when the
@@ -557,14 +581,7 @@ fn build_ui(application: &gtk::Application) {
             .find_map(|task| task.session_id.clone())
     };
     if let Some(session_id) = restored_session {
-        bridge::ensure();
-        match bridge::resume_session(&session_id) {
-            Ok(()) => {
-                eprintln!("phase1: resumed {session_id}");
-                views.refresh(&store);
-            }
-            Err(error) => eprintln!("phase1: resume failed: {error}"),
-        }
+        retry_resume(&views, &store, &session_id, 8);
     }
 
     if std::env::var_os("EB_ARTIFACT").is_some() {
