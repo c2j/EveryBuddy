@@ -420,6 +420,9 @@ struct Job {
     interval_hours: u32,
     /// For `periodic` prompt jobs: the recurrence.
     periodic: Option<Periodic>,
+    /// `task`: run inside the source workspace. `cross`: aggregate every
+    /// agent's and custom model's conversations, binding to no workspace.
+    scope: String,
     next_run_at: u64,
     /// Set by Run now. Consumed by the next tick so a missing timestamp cannot
     /// look like a request to run immediately.
@@ -433,6 +436,58 @@ struct Job {
 
 fn default_risk() -> String {
     "low".to_string()
+}
+
+fn default_scope() -> String {
+    "task".to_string()
+}
+
+/// A per-workspace/agent tally of every conversation snapshot, used as the
+/// context for cross-workspace plan items.
+fn cross_digest(snaps: &[TaskSnap]) -> String {
+    let mut groups: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
+    for snap in snaps {
+        let key = format!(
+            "{} / {}",
+            if snap.workspace_name.is_empty() {
+                "no workspace"
+            } else {
+                &snap.workspace_name
+            },
+            snap.agent_route.as_deref().unwrap_or("default agent")
+        );
+        let open = snap.streaming || snap.failed || snap.queued;
+        if let Some(group) = groups.iter_mut().find(|(name, _, _, _)| *name == key) {
+            group.1 += 1;
+            if open {
+                group.2 += 1;
+                if group.3.len() < 3 {
+                    group.3.push(snap.title.clone());
+                }
+            }
+        } else {
+            groups.push((
+                key,
+                1,
+                usize::from(open),
+                if open { vec![snap.title.clone()] } else { vec![] },
+            ));
+        }
+    }
+    if groups.is_empty() {
+        return "No conversations found in any workspace.".into();
+    }
+    let mut lines = vec![format!(
+        "Cross-workspace search: {} groups of conversations.",
+        groups.len()
+    )];
+    for (name, total, open, titles) in &groups {
+        lines.push(format!("- {name}: {total} session(s), {open} open"));
+        for title in titles {
+            lines.push(format!("  · open: {title}"));
+        }
+    }
+    lines.join("\n")
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -450,6 +505,10 @@ pub struct PlanItem {
     pub agent_route: Option<String>,
     pub workspace_id: Option<String>,
     pub workspace_name: String,
+    /// `task` runs inside the source task's workspace; `cross` searches every
+    /// agent's and custom model's conversations and binds to no workspace.
+    #[serde(default = "default_scope")]
+    pub workspace_scope: String,
     pub selected: bool,
     pub approved: bool,
     pub skipped: bool,
@@ -646,6 +705,7 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
         daily_minutes: 0,
         interval_hours: 0,
         periodic: None,
+        scope: "task".into(),
         paused: false,
         next_run_at: 0,
         force: false,
@@ -672,6 +732,7 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
         daily_minutes,
         interval_hours: 0,
         periodic: None,
+        scope: "task".into(),
         paused: false,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
@@ -787,6 +848,7 @@ pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
         daily_minutes: minutes,
         interval_hours: 0,
         periodic: None,
+        scope: "task".into(),
         paused: false,
         next_run_at: next_daily_run(now, minutes, offset),
         force: false,
@@ -813,6 +875,7 @@ pub fn add_interval(title: &str, prompt: &str, hours: u32) {
         daily_minutes: 0,
         interval_hours: hours.clamp(1, 24),
         periodic: None,
+        scope: "task".into(),
         paused: false,
         next_run_at: now + u64::from(hours.clamp(1, 24)) * 3600,
         force: false,
@@ -838,6 +901,7 @@ pub fn add_plan_full(
     suggest: &[String],
     template: &str,
     deadline_minutes: u32,
+    scope: &str,
 ) {
     let Some(_lock) = try_lock() else {
         return;
@@ -854,6 +918,7 @@ pub fn add_plan_full(
         daily_minutes,
         interval_hours: 0,
         periodic: None,
+        scope: scope.to_string(),
         paused: false,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
@@ -887,6 +952,7 @@ pub fn add_periodic(title: &str, prompt: &str, periodic: &Periodic) {
         due_at: 0,
         daily_minutes: 0,
         interval_hours: 0,
+        scope: "task".into(),
         periodic: Some(periodic.clone()),
         paused: false,
         next_run_at: next,
@@ -1075,6 +1141,19 @@ pub fn set_item_target(
         }
     }
     save_plans(&plans);
+}
+
+/// The workspace scope recorded on a plan item: `Some("cross")` dispatches
+/// without a workspace so the session can search across all of them.
+pub fn item_workspace_scope(item_id: &str) -> Option<String> {
+    load_plans()
+        .into_iter()
+        .find_map(|plan| {
+            plan.items
+                .iter()
+                .find(|item| item.id == item_id)
+                .map(|item| item.workspace_scope.clone())
+        })
 }
 
 /// Remember an edited prompt as the job's item template for future plans.
@@ -1393,7 +1472,7 @@ fn build_plan(job: &Job, now: u64, offset: i32, snaps: &[TaskSnap], manual: bool
         if items.iter().any(|item| item.title == title) {
             continue;
         }
-        items.push(template_item(job, title));
+        items.push(template_item(job, title, snaps));
     }
     let in_window: Vec<&TaskSnap> = snaps
         .iter()
@@ -1468,6 +1547,7 @@ fn item_from_snap(job: &Job, snap: &TaskSnap, previous: &Option<PlanRun>) -> Pla
         snap.agent_route.clone(),
         snap.workspace_id.clone(),
         &snap.workspace_name,
+        "task",
     )
 }
 
@@ -1508,20 +1588,31 @@ fn carried_item(job: &Job, old: &PlanItem) -> PlanItem {
         old.agent_route.clone(),
         old.workspace_id.clone(),
         &old.workspace_name,
+        &old.workspace_scope,
     )
 }
 
-fn template_item(job: &Job, title: &str) -> PlanItem {
+fn template_item(job: &Job, title: &str, snaps: &[TaskSnap]) -> PlanItem {
+    let cross = job.scope == "cross";
+    let context = if cross {
+        format!(
+            "Standing task from the daily plan. {}",
+            cross_digest(snaps)
+        )
+    } else {
+        "Standing task from the daily plan.".to_string()
+    };
     draft_item(
         job,
         title,
-        "Standing task from the daily plan.",
+        &context,
         "The standing task is done.",
         "template",
         "low",
         None,
         None,
         "",
+        if cross { "cross" } else { "task" },
     )
 }
 
@@ -1535,6 +1626,7 @@ fn draft_item(
     agent_route: Option<String>,
     workspace_id: Option<String>,
     workspace_name: &str,
+    scope: &str,
 ) -> PlanItem {
     let template = if job.template.trim().is_empty() {
         DEFAULT_TEMPLATE
@@ -1548,6 +1640,7 @@ fn draft_item(
     PlanItem {
         id: String::new(),
         risk: risk.to_string(),
+        workspace_scope: scope.to_string(),
         title: title.to_string(),
         context: context.to_string(),
         done_when: done_when.to_string(),
@@ -1637,6 +1730,7 @@ fn parse_job(value: serde_json::Value) -> Job {
         daily_minutes: value["daily_minutes"].as_u64().unwrap_or(8 * 60 + 30) as u32,
         interval_hours: value["interval_hours"].as_u64().unwrap_or(1) as u32,
         periodic: serde_json::from_value(value["periodic"].clone()).ok(),
+        scope: value["scope"].as_str().unwrap_or("task").to_string(),
         next_run_at: value["next_run_at"].as_u64().unwrap_or(0),
         force: value["force"].as_bool().unwrap_or(false),
         paused: value["paused"].as_bool().unwrap_or(false),
@@ -1667,6 +1761,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "deadline_minutes": job.deadline_minutes,
             "template": job.template,
             "suggest": job.suggest,
+            "scope": job.scope,
         })
     } else if job.kind == "periodic" {
         serde_json::json!({
@@ -2009,6 +2104,7 @@ mod tests {
             &["Changelog".to_string()],
             "Do \"{task.title}\" carefully.",
             90,
+            "task",
         );
         let jobs: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
@@ -2205,6 +2301,39 @@ mod tests {
         let changelog = plan.items.iter().find(|item| item.title == "Changelog").unwrap();
         assert_eq!(fix.risk, "high", "a failed session is high risk");
         assert_eq!(changelog.risk, "low", "a fresh template line is low risk");
+    }
+
+    #[test]
+    fn a_cross_scope_plan_item_searches_all_conversations() {
+        let dir = temp_dir("cross");
+        let day = 10_000 * 86_400;
+        let slot = day + 9 * 3600;
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([{
+                "id": "job-x1",
+                "kind": "plan",
+                "title": "Daily",
+                "daily_minutes": 540,
+                "next_run_at": slot,
+                "scope": "cross",
+                "suggest": ["Review everything"],
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let mut a = snap("Repo A fix", slot - 60, false);
+        a.workspace_name = "repo-a".into();
+        let mut b = snap("Repo B fix", slot - 60, false);
+        b.workspace_name = "repo-b".into();
+        tick_at(&dir, slot, 0, &[a, b]);
+        let _guard = DirGuard::push(dir.clone());
+        let plan = plans().pop().unwrap();
+        let item = plan.items.iter().find(|i| i.title == "Review everything").unwrap();
+        assert_eq!(item.workspace_scope, "cross");
+        assert!(item.context.contains("repo-a"), "digest must cover repo-a");
+        assert!(item.context.contains("repo-b"), "digest must cover repo-b");
+        assert!(item.workspace_id.is_none(), "cross binds to no workspace");
     }
 
     #[test]

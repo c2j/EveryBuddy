@@ -902,6 +902,18 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     // --- plan-only fields -------------------------------------------------
     let (deadline_row, deadline) = labeled_entry(&root, "Approval deadline in minutes");
     deadline.set_text("45");
+    let scope_box = hbox(4);
+    let scope_label = gtk::Label::new(Some("Runs in"));
+    class(&scope_label, "eb-skill-meta");
+    scope_box.pack_start(&scope_label, false, false, 0);
+    let scope = gtk::ComboBoxText::new();
+    scope.append_text("the source task's workspace");
+    scope.append_text("cross-workspace: search every agent and custom model");
+    scope.set_active(Some(0));
+    scope_box.pack_start(&scope, true, true, 0);
+    root.pack_start(&scope_box, false, false, 0);
+    // Only meaningful for the plan tile.
+    scope_box.set_visible(false);
 
     // --- content: prompt for the three prompt modes, standing tasks for plan
     let content_label = gtk::Label::new(Some("Prompt"));
@@ -948,6 +960,7 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
         let month_num_row = month_num_row.clone();
         let hours_row = hours_row.clone();
         let deadline_row = deadline_row.clone();
+        let scope_box = scope_box.clone();
         let content_label = content_label.clone();
         let template_label = template_label.clone();
         let template_scroll = template_scroll.clone();
@@ -960,6 +973,7 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
             show(&period_box, mode == Mode::Periodic);
             show(&hours_row, mode == Mode::Interval);
             show(&deadline_row, mode == Mode::Plan);
+            show(&scope_box, mode == Mode::Plan);
             show(&template_label, mode == Mode::Plan);
             show(&template_scroll, mode == Mode::Plan);
             time_row.set_visible(matches!(mode, Mode::Once | Mode::Periodic | Mode::Plan));
@@ -1122,7 +1136,15 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
                     .collect();
                 let template_text = text_of(&template);
                 let deadline_value = deadline.text().trim().parse::<u32>().unwrap_or(45);
-                schedule::add_plan_full(name.trim(), minutes, &suggest, &template_text, deadline_value);
+                let scope = if scope.active() == Some(1) { "cross" } else { "task" };
+                schedule::add_plan_full(
+                    name.trim(),
+                    minutes,
+                    &suggest,
+                    &template_text,
+                    deadline_value,
+                    scope,
+                );
             }
         }
         TAB.with(|slot| slot.set(0));

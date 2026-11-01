@@ -590,8 +590,23 @@ impl Runner {
                 .find(|workspace| workspace.id == id)
                 .map(|workspace| workspace.root.clone())
         });
+        // A cross-workspace plan item searches every agent's and custom
+        // model's conversations, so it deliberately binds to no workspace.
+        let cross_workspace = dispatched && {
+            let item_id = self
+                .store
+                .borrow()
+                .tasks
+                .get(task)
+                .and_then(|task| task.plan_item_id.clone());
+            item_id
+                .and_then(|id| crate::schedule::item_workspace_scope(&id))
+                .as_deref()
+                == Some("cross")
+        };
         let workspace = match existing_root {
-            Some(root) => Some(std::path::PathBuf::from(root)),
+            Some(root) if !cross_workspace => Some(std::path::PathBuf::from(root)),
+            Some(_) => None,
             // The welcome picker's "unassigned" choice applies to a prompt the
             // user is typing, not to a plan item that simply has no workspace yet.
             None if !dispatched && self.store.borrow().workspace == 1 => None,
