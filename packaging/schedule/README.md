@@ -27,3 +27,9 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.evobuddy.plan.plist
 ```text
 schtasks /create /tn EvoBuddyPlan /sc daily /st 08:30 /tr "\"C:\Path\evobuddy.exe\" schedule --run-due"
 ```
+
+## Exit codes
+
+`0` nothing due or a plan was written; `1` state files unreadable (corrupt
+`tasks.json`); `2` usage error; `3` the schedule files stayed busy after a
+short retry — the run was skipped and the next timer run will retry.

@@ -60,6 +60,13 @@ struct LockGuard {
 
 impl LockGuard {
     fn acquire() -> io::Result<Self> {
+        Self::acquire_with(false)
+    }
+
+    /// `nonblock = true` fails with `WouldBlock` instead of waiting when the
+    /// files are locked elsewhere. The window poll and the headless command
+    /// both prefer a short, bounded wait over an indefinite one.
+    fn acquire_with(nonblock: bool) -> io::Result<Self> {
         let depth = LOCK_DEPTH.with(Cell::get);
         if depth > 0 {
             LOCK_DEPTH.with(|slot| slot.set(depth + 1));
@@ -74,7 +81,7 @@ impl LockGuard {
             .write(true)
             .create(true)
             .open(path)?;
-        lock_exclusive(&file)?;
+        lock_exclusive(&file, nonblock)?;
         LOCK_DEPTH.with(|slot| slot.set(1));
         Ok(Self { file: Some(file) })
     }
@@ -94,9 +101,15 @@ impl Drop for LockGuard {
     }
 }
 
+/// Take the state lock without waiting. `None` means another process holds
+/// it; callers skip the pass (the next GUI poll or OS timer run retries).
 fn try_lock() -> Option<LockGuard> {
-    match LockGuard::acquire() {
+    match LockGuard::acquire_with(true) {
         Ok(guard) => Some(guard),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            eprintln!("scheduler: schedule files are busy; skipping this pass");
+            None
+        }
         Err(error) => {
             eprintln!("scheduler: could not lock schedule files: {error}");
             None
@@ -104,10 +117,19 @@ fn try_lock() -> Option<LockGuard> {
     }
 }
 
+/// Run `f` while holding the state lock, without waiting for it. `None`
+/// means another process holds the files. The headless command retries this
+/// a few times and reports a distinct exit code when they stay busy.
+pub fn with_state_lock<T>(f: impl FnOnce() -> T) -> Option<T> {
+    let _guard = try_lock()?;
+    Some(f())
+}
+
 #[cfg(unix)]
-fn lock_exclusive(file: &std::fs::File) -> io::Result<()> {
+fn lock_exclusive(file: &std::fs::File, nonblock: bool) -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    let flags = if nonblock { libc::LOCK_EX | libc::LOCK_NB } else { libc::LOCK_EX };
+    let result = unsafe { libc::flock(file.as_raw_fd(), flags) };
     if result == 0 {
         Ok(())
     } else {
@@ -130,10 +152,11 @@ fn unlock_exclusive(file: &std::fs::File) -> io::Result<()> {
 fn lock_exclusive(file: &std::fs::File) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
     let mut overlapped = WindowsOverlapped::default();
+    let flags = if nonblock { 2 | 1 } else { 2 };
     let ok = unsafe {
         LockFileEx(
             file.as_raw_handle() as *mut core::ffi::c_void,
-            2,
+            flags,
             0,
             1,
             0,
@@ -1417,6 +1440,38 @@ mod tests {
         done.plan_item_id = Some(item_id);
         let events = tick_at(&dir, next, 0, &[done]);
         assert!(matches!(&events[0], Tick::PlanReady { items: 0, .. }));
+    }
+
+    #[test]
+    fn the_state_lock_nests_on_a_thread_and_reads_busy_from_another() {
+        let dir = temp_dir("lock");
+        let _guard = DirGuard::push(dir.clone());
+        let outer = try_lock().expect("first acquire on a quiet directory");
+        assert!(
+            try_lock().is_some(),
+            "a second acquire on the same thread nests instead of failing"
+        );
+        let held = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                let _guard = DirGuard::push(dir);
+                try_lock().is_none()
+            })
+            .join()
+            .unwrap()
+        };
+        assert!(held, "another thread must see the lock as busy");
+        drop(outer);
+        let free = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                let _guard = DirGuard::push(dir);
+                try_lock().is_some()
+            })
+            .join()
+            .unwrap()
+        };
+        assert!(free, "the lock must be takeable after release");
     }
 
     #[test]

@@ -154,6 +154,21 @@ fn headless_schedule() -> Option<i32> {
 }
 
 fn run_schedule_due() -> i32 {
+    // A GUI write in flight must not cost the day's plan: retry briefly, then
+    // fail loudly so the OS timer's failure handling can take over.
+    for _ in 0..15 {
+        if let Some(code) = schedule::with_state_lock(run_schedule_due_locked) {
+            return code;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    eprintln!("schedule: schedule files stayed busy; try again later");
+    3
+}
+
+/// Precondition: the state lock is held. The tick below nests on it instead
+/// of re-acquiring.
+fn run_schedule_due_locked() -> i32 {
     let loaded = match state::load_readable() {
         Ok(loaded) => loaded,
         Err(error) => {
