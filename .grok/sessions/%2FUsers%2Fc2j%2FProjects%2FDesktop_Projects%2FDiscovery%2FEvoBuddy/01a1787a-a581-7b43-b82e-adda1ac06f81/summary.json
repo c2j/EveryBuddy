@@ -1,0 +1,24 @@
+{
+  "info": {
+    "id": "01a1787a-a581-7b43-b82e-adda1ac06f81",
+    "cwd": "/Users/c2j/Projects/Desktop_Projects/Discovery/EvoBuddy"
+  },
+  "agent_id": "ag1.1f7a42a9189949c29a3a8d30cf5c6481",
+  "attempt_id": "at1.3a241e9a30504755837a917acb03b8d4",
+  "session_summary": "",
+  "created_at": "2026-10-26T13:51:06.128843Z",
+  "updated_at": "2026-10-26T13:51:06.141658Z",
+  "num_messages": 0,
+  "num_chat_messages": 0,
+  "current_model_id": "grok-4.6",
+  "next_trace_turn": 0,
+  "chat_format_version": 1,
+  "git_root_dir": "/Users/c2j/Projects/Desktop_Projects/Discovery/EvoBuddy/",
+  "git_remotes": [
+    "https://github.com/c2j/EveryBuddy.git"
+  ],
+  "head_commit": "78a25ed8453784cfee2062db1390901efce9f39d",
+  "head_branch": "release/0.7.20",
+  "grok_home": "/Users/c2j/Projects/Desktop_Projects/Discovery/EvoBuddy/.grok",
+  "sandbox_profile": "off"
+}

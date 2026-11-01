@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EvoBuddy · 计划-审批-派发 UI 设计稿</title>
+<style>
+  :root{
+    --bg:#111318; --panel:#181b22; --panel2:#1e222b; --line:#2a2f3a;
+    --txt:#e6e9ef; --sub:#9aa3b2; --accent:#4f8cff; --accent2:#22c55e;
+    --warn:#f59e0b; --danger:#ef4444; --chip:#262b36;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.55 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:28px}
+  h1{font-size:20px;margin-bottom:4px}
+  .lead{color:var(--sub);margin-bottom:24px;max-width:880px}
+  .flow{display:flex;align-items:center;gap:8px;margin:0 0 28px;color:var(--sub);font-size:13px;flex-wrap:wrap}
+  .flow b{color:var(--txt);font-weight:600}
+  .flow .arr{color:var(--accent)}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:22px;align-items:start}
+  .screen{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .screen>.cap{padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--sub)}
+  .screen>.cap b{color:var(--txt);font-weight:600;margin-right:8px}
+  .winbar{display:flex;align-items:center;gap:6px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .winbar .t{margin-left:8px;font-size:12px;color:var(--sub)}
+  .pad{padding:14px}
+  /* sidebar + tabs */
+  .side{display:flex}
+  .rail{width:150px;border-right:1px solid var(--line);padding:12px 8px;background:var(--panel2)}
+  .rail .item{padding:8px 12px;border-radius:8px;color:var(--sub);font-size:13px;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+  .rail .item.on{background:var(--chip);color:var(--txt)}
+  .rail .badge{background:var(--warn);color:#111;font-size:10.5px;font-weight:700;border-radius:9px;padding:1px 7px}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);padding:0 14px}
+  .tab{padding:9px 12px;font-size:13px;color:var(--sub);border-bottom:2px solid transparent}
+  .tab.on{color:var(--txt);border-color:var(--accent)}
+  .tab .n{background:var(--warn);color:#111;border-radius:9px;font-size:10.5px;font-weight:700;padding:0 6px;margin-left:5px}
+  .toolbar{display:flex;gap:8px;padding:12px 14px;align-items:center}
+  .search{flex:1;background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--sub);font-size:12.5px}
+  .btn{border:1px solid var(--line);background:var(--chip);color:var(--txt);border-radius:8px;padding:6px 12px;font-size:12.5px}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn.ok{background:var(--accent2);border-color:var(--accent2);color:#06220f;font-weight:700}
+  .btn.sm{padding:4px 9px;font-size:12px}
+  .btn.ghost{background:transparent}
+  /* cards */
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin:0 14px 12px}
+  .card h4{font-size:13.5px;display:flex;align-items:center;gap:8px}
+  .tag{font-size:10.5px;border-radius:6px;padding:1px 7px;font-weight:600}
+  .tag.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+  .tag.ok{background:rgba(34,197,94,.15);color:var(--accent2)}
+  .tag.blue{background:rgba(79,140,255,.15);color:var(--accent)}
+  .tag.gray{background:var(--chip);color:var(--sub)}
+  .tag.red{background:rgba(239,68,68,.15);color:var(--danger)}
+  .meta{color:var(--sub);font-size:12px;margin-top:6px;display:flex;gap:14px;flex-wrap:wrap}
+  .row{display:flex;align-items:center;gap:8px;margin-top:9px}
+  .taskrow{display:flex;align-items:center;gap:10px;background:var(--chip);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin-top:8px;font-size:12.5px}
+  .taskrow .nm{flex:1}
+  .taskrow .nm small{display:block;color:var(--sub);font-size:11px;margin-top:1px}
+  .chk{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--sub);flex:none}
+  .chk.on{background:var(--accent2);border-color:var(--accent2);position:relative}
+  .chk.on:after{content:"✓";position:absolute;inset:0;color:#06220f;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:800}
+  .diff{font-size:12px;margin-top:8px;background:var(--chip);border-radius:8px;padding:8px 10px;color:var(--sub)}
+  .diff b{color:var(--txt)}
+  .diff .del{color:var(--danger);text-decoration:line-through}
+  .diff .add{color:var(--accent2)}
+  .foot{display:flex;justify-content:flex-end;gap:8px;padding:0 14px 14px}
+  .countdown{color:var(--warn);font-size:11.5px}
+  /* modal */
+  .modalwrap{background:var(--panel)}
+  .modalhead{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .modalhead h3{font-size:14px}
+  .sect{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .sect h5{font-size:12px;color:var(--sub);text-transform:letter-spacing:.4px;margin-bottom:9px}
+  .modes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .mode{border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center;font-size:12px;color:var(--sub)}
+  .mode.on{border-color:var(--accent);color:var(--txt);background:rgba(79,140,255,.08)}
+  .mode .ic{font-size:16px;display:block;margin-bottom:3px}
+  .field{margin-top:11px}
+  .field label{font-size:12px;color:var(--sub);display:block;margin-bottom:5px}
+  .inp{background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--txt);width:100%}
+  .inp.sub{color:var(--sub)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .planrow{display:flex;gap:8px;align-items:center;background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;margin-top:8px}
+  .planrow .grow{flex:1}
+  .pipe{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--sub);margin-top:4px}
+  .pipe .st{background:var(--chip);border-radius:6px;padding:2px 8px}
+  .pipe .st.on{background:rgba(79,140,255,.15);color:var(--accent)}
+  .arw{color:var(--sub)}
+  .switch{width:34px;height:19px;border-radius:10px;background:var(--chip);border:1px solid var(--line);position:relative;flex:none}
+  .switch.on{background:var(--accent);border-color:var(--accent)}
+  .switch i{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+  .switch.on i{left:auto;right:2px}
+  .frow{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;margin-top:9px}
+  .frow .lb small{display:block;color:var(--sub);font-size:11px}
+  /* notification */
+  .notif{display:flex;gap:10px;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;padding:12px}
+  .notif .ic{font-size:20px}
+  .notif .grow{flex:1}
+  .notif h6{font-size:13px}
+  .notif p{font-size:12px;color:var(--sub);margin-top:2px}
+  .notif .acts{display:flex;gap:8px;margin-top:9px}
+  .risk{width:7px;height:7px;border-radius:50%;flex:none;margin-top:5px}
+  .note{font-size:12px;color:var(--sub);margin-top:8px;padding:0 2px}
+  .legend{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;max-width:960px}
+  .legend h3{font-size:14px;margin-bottom:8px}
+  .legend li{color:var(--sub);font-size:12.5px;margin:5px 0 5px 18px}
+  .legend li b{color:var(--txt)}
+</style>
+</head>
+<body>
+
+<h1>EvoBuddy · 「计划-审批-派发」界面设计稿</h1>
+<p class="lead">每日 8:30 汇总昨日 Agent 完成情况 → 对照计划生成今日任务 → 桌面审批 → 批准后自动派发。以下 4 屏展示该功能在界面上如何被「定义」与「使用」。</p>
+
+<div class="flow">
+  <b>① 配置一次</b><span class="arr">→</span>定时任务新增「计划-审批-派发」模式
+  <span class="arr">→</span><b>② 每天 8:30</b> 自动生成计划
+  <span class="arr">→</span><b>③ 通知审批</b>（桌面 / 推送）
+  <span class="arr">→</span><b>④ 批准</b> → 逐条派发为后台会话
+  <span class="arr">→</span><b>⑤ 结果回流</b>，成为明天的"昨日总结"
+</div>
+
+<div class="cols">
+
+  <!-- Screen 1 -->
+  <section class="screen">
+    <div class="cap"><b>屏 1 · Scheduled 页</b>侧边栏与页签新增「待审批」队列；审批卡片为每日计划运行的产出</div>
+    <div class="winbar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="t">EvoBuddy</span></div>
+    <div class="side">
+      <div class="rail">
+        <div class="item">💬 会话</div>
+        <div class="item">🧩 任务</div>
+        <div class="item on">⏰ Scheduled</div>
+        <div class="item">🔧 设置</div>
+      </div>
+      <div style="flex:1">
+        <div class="tabs">
+          <div class="tab">定时任务</div>
+          <div class="tab on">待审批<span class="n">2</span></div>
+          <div class="tab">运行记录</div>
+        </div>
+        <div class="toolbar">
+          <div class="search">搜索待审批计划…</div>
+          <button class="btn sm">全部批准</button>
+        </div>
+
+        <div class="card">
+          <h4>📋 每日计划 · 10 月 31 日 <span class="tag blue">计划-审批-派发</span></h4>
+          <div class="meta"><span>来源：8:30 自动运行 ✓ 已完成</span><span class="countdown">⏳ 09:15 后按「跳过」处理</span></div>
+          <div class="taskrow"><span class="chk on"></span><span class="nm">修复 login-flow 回归测试 <small>Agent: 代码执行 · 工作区 evo-core · 来源：昨日未完成</small></span><span class="tag red">高风险</span></div>
+          <div class="taskrow"><span class="chk"></span><span class="nm">整理本周 changelog <small>Agent: 文档 · 工作区 docs · 来源：计划新增</small></span><span class="tag ok">低风险</span></div>
+          <div class="diff">
+            对照计划：<b>昨日 5 项</b> 完成 4 · <span class="del">超时 1（已顺延）</span> · <span class="add">今日新增 2</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>📋 每日计划 · 10 月 30 日 <span class="tag gray">已过期</span></h4>
+          <div class="meta"><span>超时未审批 · 已按策略跳过并合并至今日</span></div>
+        </div>
+        <div class="foot">
+          <button class="btn ghost sm">查看完整计划 →</button>
+          <button class="btn primary sm">批准所选（1）</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 2 -->
+  <section class="screen">
+    <div class="cap"><b>屏 2 · 创建/编辑弹窗</b>调度模式新增第 4 种「计划-审批-派发」，并展开专属配置区</div>
+    <div class="modalwrap">
+      <div class="modalhead"><h3>新建定时任务</h3><span style="color:var(--sub)">✕</span></div>
+
+      <div class="sect">
+        <h5>名称 / 提示词</h5>
+        <div class="field"><input class="inp" value="每日任务计划与派发"></div>
+        <div class="field"><textarea class="inp sub" rows="2">总结昨天所有 Agent 会话的完成情况，对照本周计划，生成今天的任务清单…</textarea></div>
+      </div>
+
+      <div class="sect">
+        <h5>调度</h5>
+        <div class="modes">
+          <div class="mode"><span class="ic">1️⃣</span>一次</div>
+          <div class="mode"><span class="ic">🔁</span>周期</div>
+          <div class="mode"><span class="ic">⏱</span>间隔</div>
+          <div class="mode on"><span class="ic">🗂</span>计划-审批-派发</div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>执行时间</label><input class="inp" value="每天 08:30"></div>
+          <div class="field"><label>完成判定依据</label><input class="inp" value="会话终态 + 用户标记（可多选）"></div>
+        </div>
+
+        <div class="field" style="border:1px dashed var(--line);border-radius:10px;padding:11px 12px;margin-top:12px">
+          <label style="font-size:12px;color:var(--txt);font-weight:600">📦 汇总范围 <span style="color:var(--sub);font-weight:400">—— 定义"昨日总结"看什么</span></label>
+
+          <div class="grid3" style="margin-top:9px">
+            <div>
+              <label>① 时间窗口</label>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+                <span class="st on" style="font-size:11px">昨日全天</span>
+                <span class="st" style="font-size:11px">最近 24h</span>
+                <span class="st" style="font-size:11px">自定义…</span>
+              </div>
+              <input class="inp sub" style="margin-top:5px;font-size:11px" value="昨日 00:00 – 今日 08:00">
+            </div>
+            <div>
+              <label>② 会话来源</label>
+              <div style="font-size:12px;margin-top:4px;line-height:2">
+                <div><span class="chk on" style="display:inline-block;vertical-align:-2px"></span> 所有后台会话</div>
+                <div><span class="chk on" style="display:inline-block;vertical-align:-2px"></span> 仅 Scheduled 运行</div>
+                <div><span class="chk" style="display:inline-block;vertical-align:-2px"></span> 指定工作区 / Agent…</div>
+              </div>
+            </div>
+            <div>
+              <label>③ 外部数据源（连接器）</label>
+              <div class="frow" style="margin-top:2px"><span style="font-size:12px">Git 提交</span><div class="switch on"><i></i></div></div>
+              <div class="frow"><span style="font-size:12px">飞书任务</span><div class="switch"><i></i></div></div>
+              <div class="note" style="margin-top:2px">未开启时仅用本地会话记录</div>
+            </div>
+          </div>
+        </div>
+        <div class="pipe"><span class="st on">汇总</span><span class="arw">→</span><span class="st on">生成计划</span><span class="arw">→</span><span class="st on">等待审批</span><span class="arw">→</span><span class="st">批准后派发</span></div>
+      </div>
+
+      <div class="sect">
+        <h5>计划任务模板（每条计划任务将按此派发）</h5>
+        <div class="grid3">
+          <div class="field"><label>执行 Agent</label><input class="inp" value="代码执行"></div>
+          <div class="field"><label>工作区</label><input class="inp" value="跟随来源任务"></div>
+          <div class="field"><label>并发上限</label><input class="inp" value="3"></div>
+        </div>
+        <div class="field"><label>提示词模板</label><textarea class="inp sub" rows="2">请完成任务「{task.title}」；上下文：{task.context}；完成标准：{task.done_when}</textarea></div>
+      </div>
+
+      <div class="sect">
+        <h5>审批与超时策略</h5>
+        <div class="frow"><div class="lb">桌面通知<small>计划生成后立即提醒</small></div><div class="switch on"><i></i></div></div>
+        <div class="frow"><div class="lb">同时推送微信 / 企微机器人<small>不在电脑前也能看到计划</small></div><div class="switch on"><i></i></div></div>
+        <div class="frow"><div class="lb">低风险任务免审批<small>按规则（如仅新增文档）自动派发</small></div><div class="switch"><i></i></div></div>
+        <div class="grid2">
+          <div class="field"><label>审批截止</label><input class="inp" value="生成后 45 分钟"></div>
+          <div class="field"><label>超时后</label><input class="inp" value="跳过并合并到明日计划"></div>
+        </div>
+      </div>
+
+      <div class="foot" style="padding:14px 16px">
+        <button class="btn sm">取消</button>
+        <button class="btn primary sm">保存任务</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 3 -->
+  <section class="screen">
+    <div class="cap"><b>屏 3 · 审批交互</b>系统通知的极简操作路径，以及点开后的计划详情（逐条勾选 + 风险标注 + 计划 diff）</div>
+    <div class="pad">
+      <div class="notif">
+        <div class="ic">🗂</div>
+        <div class="grow">
+          <h6>今日计划已生成 · 3 项任务待审批</h6>
+          <p>昨日完成 4/5 · 新增 2 · 审批截止 09:15</p>
+          <div class="acts">
+            <button class="btn ok sm">全部批准</button>
+            <button class="btn sm">查看并挑选…</button>
+            <button class="btn ghost sm">跳过</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">↑ 通知三个动作直接闭环；点「查看并挑选」展开下方详情。</div>
+
+      <div class="card" style="margin:14px 0 0">
+        <h4>计划详情 · 10 月 31 日 <span class="tag blue">3 / 3 已选</span></h4>
+        <div class="taskrow"><span class="chk on"></span><div class="nm">修复 login-flow 回归测试<small>基于昨日 #142 会话：测试失败 2 例，改动已定位</small></div><span class="risk" style="background:var(--danger)"></span><button class="btn ghost sm">改</button></div>
+        <div class="taskrow"><span class="chk on"></span><div class="nm">为 export 模块补充单测<small>计划内既定任务，昨日未开始</small></div><span class="risk" style="background:var(--accent2)"></span><button class="btn ghost sm">改</button></div>
+        <div class="taskrow"><span class="chk on"></span><div class="nm">整理本周 changelog<small>本周五例会前置任务（低风险：仅文档）</small></div><span class="risk" style="background:var(--accent2)"></span><button class="btn ghost sm">改</button></div>
+        <div class="diff">
+          <b>与本周计划对照</b>：落后 2 项 → 今日已加塞；<span class="add">新增「changelog」</span>（模板建议）；<span class="del">移除「重构 settings 面板」</span>（前置依赖未就绪）
+        </div>
+        <div class="meta"><span>派发方式：批准后立即按并发 3 执行 · 记入今日 runs</span></div>
+      </div>
+      <div class="foot">
+        <button class="btn ghost sm">保存为模板偏好</button>
+        <button class="btn ok sm">批准 3 项并派发</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screen 4 -->
+  <section class="screen">
+    <div class="cap"><b>屏 4 · 派发后与回流</b>批准的任务成为可见的后台会话；完成状态回流，构成明天 8:30 的「昨日总结」数据源</div>
+    <div class="pad">
+      <div class="taskrow" style="margin-top:0"><span class="tag ok">运行中</span><div class="nm">修复 login-flow 回归测试<small>09:02 派发 · 会话 task-881 · 已跑 4 分钟</small></div><button class="btn ghost sm">打开</button></div>
+      <div class="taskrow"><span class="tag ok">运行中</span><div class="nm">为 export 模块补充单测<small>09:02 派发 · 会话 task-882</small></div><button class="btn ghost sm">打开</button></div>
+      <div class="taskrow"><span class="tag blue">排队</span><div class="nm">整理本周 changelog<small>等待并发空位（上限 3）</small></div></div>
+      <div class="diff" style="margin-top:12px">
+        <b>明日 8:30 自动汇总将包含：</b>今日 3 项审批任务的执行结果 + 其余自由会话 → 完成率、超时原因、建议顺延项
+      </div>
+      <div class="meta" style="margin-top:10px">
+        <span class="tag gray">数据闭环</span><span>审批记录与派发来源（昨日哪条未完成 / 计划哪条）一并落库，供次日对照</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="legend">
+  <h3>界面定义要点（供讨论，非最终稿）</h3>
+  <ul>
+    <li><b>一个新调度模式</b>：不新开页面，在既有「新建定时任务」弹窗里加第 4 种模式，配置分四块——汇总范围、计划模板、审批策略、派发约束。</li>
+    <li><b>待审批是一等队列</b>：Scheduled 页签新增「待审批」入口并带角标；过期卡片保留可见（显示按什么策略处理了），不静默消失。</li>
+    <li><b>审批粒度 = 计划里的每条任务</b>：可单选、可改（改 Agent/工作区/提示词）、带风险标注；支持「低风险免审批」把确认成本降到接近零。</li>
+    <li><b>通知是极简闭环</b>：全部批准 / 挑选 / 跳过三个动作在通知上完成，不强制打开主窗口。</li>
+    <li><b>回流是数据闭环的关键</b>：审批产生的任务与其他会话同库记录，明天 8:30 的"昨日总结"才有的可查。</li>
+    <li><b>待商榷</b>：风险分级规则谁来定（模板内置 vs 用户标注）？超时默认跳过还是合并？审批后的派发是否也要允许"定时不审批"直跑变体？</li>
+  </ul>
+</div>
+
+</body>
+</html>

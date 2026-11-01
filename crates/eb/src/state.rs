@@ -47,6 +47,10 @@ pub fn save(store: &Store) {
                 "archived": task.archived,
                 "failure_unseen": task.failure_unseen,
                 "unread": task.unread,
+                "origin": task.origin,
+                "plan_item_id": task.plan_item_id,
+                "dispatch_queued": task.dispatch_queued,
+                "cross_workspace": task.cross_workspace,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -66,6 +70,27 @@ pub fn save(store: &Store) {
         workspaces_path(),
         serde_json::to_string_pretty(&workspaces).unwrap_or_default(),
     );
+}
+
+/// Load history for a second process. A missing file is empty history. A
+/// file that exists but is not a JSON array is an error, so a reader does
+/// not treat a half-written `tasks.json` as "no sessions" and generate a
+/// plan from that.
+pub fn load_readable() -> Result<Loaded, String> {
+    let task_path = path();
+    match std::fs::read_to_string(&task_path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(load()),
+        Err(error) => Err(format!("{}: {error}", task_path.display())),
+        Ok(text) => {
+            if serde_json::from_str::<Vec<serde_json::Value>>(&text).is_err() {
+                return Err(format!(
+                    "{} is not valid JSON; the plan files were left unchanged",
+                    task_path.display()
+                ));
+            }
+            Ok(load())
+        }
+    }
 }
 
 pub fn load() -> Loaded {
@@ -155,6 +180,10 @@ pub fn load() -> Loaded {
             archived: value["archived"].as_bool().unwrap_or(false),
             failure_unseen: value["failure_unseen"].as_bool().unwrap_or(false),
             unread: value["unread"].as_bool().unwrap_or(false),
+            origin: value["origin"].as_str().map(str::to_string),
+            plan_item_id: value["plan_item_id"].as_str().map(str::to_string),
+            dispatch_queued: value["dispatch_queued"].as_bool().unwrap_or(false),
+            cross_workspace: value["cross_workspace"].as_bool().unwrap_or(false),
         });
     }
 

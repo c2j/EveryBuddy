@@ -1,0 +1,6 @@
+[Unit]
+Description=EvoBuddy daily plan tick
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/evobuddy schedule --run-due

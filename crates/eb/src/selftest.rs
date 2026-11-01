@@ -61,6 +61,9 @@ pub fn requested() -> bool {
         "EB_DEMO",
         "EB_DEMO_BLOCKS",
         "EB_ACP_DEMO",
+        "EB_SCHEDULE_SMOKE",
+        "EB_SCHEDULE_SHOTS",
+        "EB_SCHEDULE_FLOW",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -122,6 +125,18 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
                         );
                         application.quit();
                     });
+                    return;
+                }
+                if std::env::var_os("EB_SCHEDULE_SMOKE").is_some() {
+                    start_schedule_smoke(&views, &application);
+                    return;
+                }
+                if let Some(dir) = std::env::var_os("EB_SCHEDULE_SHOTS") {
+                    start_schedule_shots(&views, &application, std::path::PathBuf::from(dir.to_string_lossy().into_owned()));
+                    return;
+                }
+                if let Some(dir) = std::env::var_os("EB_SCHEDULE_FLOW") {
+                    start_schedule_flow(&views, &application, std::path::PathBuf::from(dir.to_string_lossy().into_owned()));
                     return;
                 }
                 if click_requested() {
@@ -353,6 +368,710 @@ fn assert_click_observation(label: &str, observed: &str) {
     }
     eprintln!("click: ASSERT FAILED: {label}: missing {missing:?} in {observed:?}");
     CLICK_FAILURES.fetch_add(1, Ordering::SeqCst);
+}
+
+/// `EB_SCHEDULE_SHOTS=<dir>` walks the Scheduled page and its two dialogs,
+/// writing a PNG of each surface for visual comparison against the design
+/// mockup. State comes from the seeded `EB_STATE` directory.
+/// Draw the toplevel window whose title equals `title` into a PNG. Modal
+/// dialogs are their own toplevels, so `snapshot` (which draws the main
+/// window) cannot see them.
+fn snapshot_titled(title: &str, path: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        if window.title().as_deref() != Some(title) || !window.is_visible() {
+            continue;
+        }
+        window.size_allocate(&window.allocation());
+        let allocation = window.allocation();
+        let (width, height) = (allocation.width(), allocation.height());
+        if width <= 0 || height <= 0 {
+            return false;
+        }
+        let Some(surface) =
+            gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, width, height).ok()
+        else {
+            return false;
+        };
+        let Some(context) = gtk::cairo::Context::new(&surface).ok() else {
+            return false;
+        };
+        window.draw(&context);
+        let Ok(mut file) = std::fs::File::create(path) else {
+            return false;
+        };
+        if surface.write_to_png(&mut file).is_err() {
+            return false;
+        }
+        println!("schedule-shots: wrote {path} ({width}x{height})");
+        return true;
+    }
+    false
+}
+
+/// Click the first button whose label starts with `prefix` (tab labels embed
+/// a live count, e.g. `Approvals (2)`).
+fn click_labeled_prefix(prefix: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        let mut button = None;
+        walk_widgets(window.upcast_ref(), &mut |widget| {
+            if button.is_some() {
+                return;
+            }
+            if let Ok(found) = widget.clone().downcast::<gtk::Button>() {
+                if found
+                    .label()
+                    .as_deref()
+                    .is_some_and(|text| text.starts_with(prefix))
+                {
+                    button = Some(found);
+                }
+            }
+        });
+        if let Some(button) = button {
+            button.emit_clicked();
+            return true;
+        }
+    }
+    false
+}
+
+fn start_schedule_shots(
+    views: &Rc<Views>,
+    application: &gtk::Application,
+    dir: std::path::PathBuf,
+) {
+    let _ = std::fs::create_dir_all(&dir);
+    views.window.present();
+    let shot_main = {
+        let views = views.clone();
+        let dir = dir.clone();
+        move |name: &str| {
+            snapshot(&views, &dir.join(name).to_string_lossy());
+            true
+        }
+    };
+    let shot_dialog = {
+        let dir = dir.clone();
+        move |title: &str, name: &str| snapshot_titled(title, &dir.join(name).to_string_lossy())
+    };
+    let steps: Vec<FlowStep> = vec![
+        FlowStep::Act("open-scheduled", {
+            let views = views.clone();
+            Box::new(move || smoke_open(&views).map(|_| true))
+        }),
+        FlowStep::Act("tasks", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("1-tasks.png"); Ok(true) })
+        }),
+        FlowStep::Act("to-approvals", Box::new(|| Ok(click_labeled_prefix("Approvals (")))),
+        FlowStep::Act("approvals", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("2-approvals.png"); Ok(true) })
+        }),
+        FlowStep::Act("to-records", Box::new(|| Ok(click_labeled("Records")))),
+        FlowStep::Act("records", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("3-records.png"); Ok(true) })
+        }),
+        FlowStep::Act("back-to-tasks", Box::new(|| Ok(click_labeled("Tasks")))),
+        FlowStep::Act("open-daily-plan", Box::new(|| Ok(click_labeled("Daily plan")))),
+        FlowStep::Act("plan-dialog", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("Daily plan", "4-plan-dialog.png"); Ok(true) })
+        }),
+        FlowStep::Act("close-plan", Box::new(|| Ok(click_labeled("Cancel")))),
+        FlowStep::Act("open-new", Box::new(|| Ok(click_labeled("+ New")))),
+        FlowStep::Act("new-dialog", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "5-new-dialog.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-periodic-click", Box::new(|| Ok(click_labeled("Periodic")))),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-periodic", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "6-tile-periodic.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-interval-click", Box::new(|| Ok(click_labeled("Interval")))),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-interval", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "7-tile-interval.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-plan-click", {
+            Box::new(|| Ok(click_labeled("Plan · approve · dispatch")))
+        }),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-plan", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "8-tile-plan.png"); Ok(true) })
+        }),
+        FlowStep::Act("close-new", Box::new(|| Ok(click_labeled("Cancel")))),
+    ];
+    let done = Rc::new(Cell::new(false));
+    {
+        let done = done.clone();
+        gtk::glib::timeout_add_seconds_local(120, move || {
+            if !done.get() {
+                eprintln!("schedule-shots: FAIL timed out");
+                std::process::exit(1);
+            }
+            gtk::glib::ControlFlow::Break
+        });
+    }
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_shots(views, application, dir, Rc::new(steps), Rc::new(Cell::new(0)), done);
+    });
+}
+
+fn drive_shots(
+    views: Rc<Views>,
+    application: gtk::Application,
+    dir: std::path::PathBuf,
+    steps: Rc<Vec<FlowStep>>,
+    index: Rc<Cell<usize>>,
+    done: Rc<Cell<bool>>,
+) {
+    let position = index.get();
+    if position >= steps.len() {
+        done.set(true);
+        println!("schedule-shots: OK -> {}", dir.display());
+        application.quit();
+        return;
+    }
+    match &steps[position] {
+        FlowStep::WaitMs(ms) => {
+            let views = views.clone();
+            let application = application.clone();
+            let steps = steps.clone();
+            let index = index.clone();
+            let dir = dir.clone();
+            let done = done.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(*ms),
+                move || {
+                    index.set(position + 1);
+                    drive_shots(views, application, dir, steps, index, done);
+                },
+            );
+            return;
+        }
+        FlowStep::Act(label, run) => match run() {
+            Ok(true) => println!("schedule-shots: step {position} {label} ok"),
+            Ok(false) => {
+                eprintln!("schedule-shots: FAIL step {position} ({label})");
+                std::process::exit(1);
+            }
+            Err(reason) => {
+                eprintln!("schedule-shots: FAIL step {position} ({label}): {reason}");
+                std::process::exit(1);
+            }
+        },
+    }
+    index.set(position + 1);
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_shots(views, application, dir, steps, index, done);
+    });
+}
+
+fn click_sidebar_task(title: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        let mut target = None;
+        walk_widgets(window.upcast_ref(), &mut |widget| {
+            if target.is_some() {
+                return;
+            }
+            if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+                if label.text() == title {
+                    target = Some(label);
+                }
+            }
+        });
+        if let Some(label) = target {
+            let Some(button) = label.ancestor(gtk::Button::static_type()) else {
+                return false;
+            };
+            let Ok(button) = button.downcast::<gtk::Button>() else {
+                return false;
+            };
+            button.emit_clicked();
+            return true;
+        }
+    }
+    false
+}
+
+enum FlowStep {
+    /// Run the action. `Ok(true)` done, `Ok(false)` retry (up to 10), `Err` fail.
+    Act(&'static str, Box<dyn Fn() -> Result<bool, String>>),
+    WaitMs(u64),
+}
+
+/// `EB_SCHEDULE_FLOW=<dir>` walks create → edit → scheduled run → approval →
+/// dispatch → conversation, capturing a PNG at each stage.
+fn start_schedule_flow(views: &Rc<Views>, application: &gtk::Application, dir: std::path::PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    views.window.present();
+    let steps: Vec<FlowStep> = vec![
+        FlowStep::Act("open-scheduled", {
+            let views = views.clone();
+            Box::new(move || smoke_open(&views).map(|_| true))
+        }),
+        FlowStep::Act("open-create", {
+            let views = views.clone();
+            Box::new(move || smoke_open_dialog(&views).map(|_| true))
+        }),
+        FlowStep::Act("fill-create", {
+            let dir = dir.clone();
+            Box::new(move || {
+                fill_daily_plan_dialog(Some(&dir.join("01-create-filled.png").to_string_lossy()))
+                    .map(|_| true)
+            })
+        }),
+        FlowStep::Act("task-created", {
+            let dir = dir.clone();
+            let views = views.clone();
+            Box::new(move || {
+                let page = widget_text_all();
+                if !page.contains("Morning plan") {
+                    return Err("saved plan is not on the Tasks tab".into());
+                }
+                snapshot(&views, &dir.join("02-task-created.png").to_string_lossy());
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("run-now", {
+            let views = views.clone();
+            Box::new(|| smoke_run().map(|_| true))
+        }),
+        FlowStep::Act("to-approval-queue", {
+            let views = views.clone();
+            Box::new(|| smoke_approvals_tab().map(|_| true))
+        }),
+        FlowStep::Act("approval-queue", {
+            let dir = dir.clone();
+            let views = views.clone();
+            Box::new(move || {
+                snapshot(&views, &dir.join("03-approval-queue.png").to_string_lossy());
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("open-edit", {
+            let dir = dir.clone();
+            Box::new(move || {
+                if !click_labeled("Edit") {
+                    return Err("Edit button is missing".into());
+                }
+                snapshot_titled(
+                    "Edit this item",
+                    &dir.join("04-edit-item.png").to_string_lossy(),
+                );
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("close-edit", {
+            Box::new(|| {
+                if !click_labeled("Cancel") {
+                    return Err("Cancel button is missing".into());
+                }
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("approve", {
+            let views = views.clone();
+            Box::new(|| smoke_approve().map(|_| true))
+        }),
+        FlowStep::WaitMs(1500),
+        FlowStep::Act("dispatched", {
+            let views = views.clone();
+            Box::new(move || {
+                smoke_dispatched(&views)?;
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("records", {
+            let dir = dir.clone();
+            let views = views.clone();
+            Box::new(move || {
+                if !click_labeled("Records") {
+                    return Err("Records tab is missing".into());
+                }
+                snapshot(&views, &dir.join("05-run-records.png").to_string_lossy());
+                Ok(true)
+            })
+        }),
+        FlowStep::Act("open-conversation", {
+            Box::new(move || {
+                if !click_sidebar_task("Write the changelog") {
+                    return Ok(false); // the sidebar row can lag one refresh
+                }
+                Ok(true)
+            })
+        }),
+        FlowStep::WaitMs(1500),
+        FlowStep::Act("conversation", {
+            let dir = dir.clone();
+            let views = views.clone();
+            Box::new(move || {
+                snapshot(&views, &dir.join("06-conversation.png").to_string_lossy());
+                Ok(true)
+            })
+        }),
+    ];
+    let done = Rc::new(Cell::new(false));
+    {
+        let done = done.clone();
+        gtk::glib::timeout_add_seconds_local(120, move || {
+            if !done.get() {
+                eprintln!("schedule-flow: FAIL timed out");
+                std::process::exit(1);
+            }
+            gtk::glib::ControlFlow::Break
+        });
+    }
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_flow(
+            views,
+            application,
+            dir,
+            Rc::new(steps),
+            Rc::new(Cell::new(0)),
+            Rc::new(Cell::new(0)),
+            done,
+        );
+    });
+}
+
+fn drive_flow(
+    views: Rc<Views>,
+    application: gtk::Application,
+    dir: std::path::PathBuf,
+    steps: Rc<Vec<FlowStep>>,
+    index: Rc<Cell<usize>>,
+    retries: Rc<Cell<usize>>,
+    done: Rc<Cell<bool>>,
+) {
+    let position = index.get();
+    if position >= steps.len() {
+        done.set(true);
+        println!("schedule-flow: OK -> {}", dir.display());
+        application.quit();
+        return;
+    }
+    match &steps[position] {
+        FlowStep::WaitMs(ms) => {
+            let views = views.clone();
+            let application = application.clone();
+            let steps = steps.clone();
+            let index = index.clone();
+            let retries = retries.clone();
+            let dir = dir.clone();
+            let done = done.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(*ms),
+                move || {
+                    index.set(position + 1);
+                    retries.set(0);
+                    drive_flow(views, application, dir, steps, index, retries, done);
+                },
+            );
+            return;
+        }
+        FlowStep::Act(label, run) => match run() {
+            Ok(true) => {
+                println!("schedule-flow: step {position} {label} ok");
+                index.set(position + 1);
+                retries.set(0);
+            }
+            Ok(false) => {
+                let retry = retries.get() + 1;
+                if retry > 10 {
+                    eprintln!("schedule-flow: FAIL step {position} ({label}): gave up retrying");
+                    std::process::exit(1);
+                }
+                retries.set(retry);
+                println!("schedule-flow: step {position} {label} retry {retry}");
+            }
+            Err(reason) => {
+                eprintln!("schedule-flow: FAIL step {position} ({label}): {reason}");
+                std::process::exit(1);
+            }
+        },
+    }
+    // A deferred repaint must land before the next click or the next shot.
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_flow(views, application, dir, steps, index, retries, done);
+    });
+}
+
+/// `EB_SCHEDULE_SMOKE=1` opens Scheduled, saves a daily plan, runs it, approves
+/// the standing task, and checks the open page stays put.
+fn start_schedule_smoke(views: &Rc<Views>, application: &gtk::Application) {
+    views.window.present();
+    if let Some(window) = views.window.window() {
+        window.focus(gtk::gdk::ffi::GDK_CURRENT_TIME as u32);
+    }
+    let done = Rc::new(Cell::new(false));
+    let done_flag = done.clone();
+    gtk::glib::timeout_add_seconds_local(12, move || {
+        if !done_flag.get() {
+            eprintln!("schedule-smoke: FAIL timed out");
+            std::process::exit(1);
+        }
+        gtk::glib::ControlFlow::Break
+    });
+    let views = views.clone();
+    let application = application.clone();
+    gtk::glib::idle_add_local_once(move || {
+        drive_schedule_smoke(views, application, Rc::new(Cell::new(0)), done);
+    });
+}
+
+fn drive_schedule_smoke(
+    views: Rc<Views>,
+    application: gtk::Application,
+    step: Rc<Cell<u8>>,
+    done: Rc<Cell<bool>>,
+) {
+    let index = step.get();
+    let result = match index {
+        0 => smoke_open(&views),
+        1 => smoke_open_dialog(&views),
+        2 => smoke_dialog(),
+        3 => smoke_run(),
+        4 => smoke_approvals_tab(),
+        5 => smoke_approve(),
+        6 => smoke_dispatched(&views),
+        _ => {
+            done.set(true);
+            println!("schedule-smoke: OK");
+            application.quit();
+            return;
+        }
+    };
+    if let Err(reason) = result {
+        eprintln!("schedule-smoke: FAIL step {index}: {reason}");
+        eprintln!(
+            "schedule-smoke: page:\n{}",
+            widget_text(views.window.upcast_ref())
+        );
+        done.set(true);
+        application.quit();
+        std::process::exit(1);
+    }
+    step.set(index + 1);
+    gtk::glib::idle_add_local_once(move || {
+        drive_schedule_smoke(views, application, step, done);
+    });
+}
+
+fn smoke_open(views: &Views) -> Result<(), String> {
+    let Some(button) = views.sidebar.nav.get(3) else {
+        return Err(format!("nav has {} rows", views.sidebar.nav.len()));
+    };
+    // Emit `clicked` directly. The repaint is queued on the next idle, so the
+    // following step is what observes the Scheduled page.
+    button.clicked();
+    Ok(())
+}
+
+fn smoke_open_dialog(views: &Views) -> Result<(), String> {
+    let page = widget_text(views.window.upcast_ref());
+    if !page.contains("Scheduled Tasks") || !page.contains("Daily plan") {
+        let route = views
+            .stack
+            .visible_child_name()
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| "<none>".into());
+        return Err(format!("Scheduled page did not paint (route={route})"));
+    }
+    if !click_labeled("Daily plan") {
+        return Err("Daily plan button is missing".into());
+    }
+    Ok(())
+}
+
+fn smoke_dialog() -> Result<(), String> {
+    fill_daily_plan_dialog(None)
+}
+
+/// Fill the open Daily plan dialog; when `shot` is given, capture the filled
+/// dialog before saving.
+fn fill_daily_plan_dialog(shot: Option<&str>) -> Result<(), String> {
+    let Some(dialog) = gtk::Window::list_toplevels().into_iter().find_map(|widget| {
+        let window = widget.downcast::<gtk::Window>().ok()?;
+        if window.title().as_deref() == Some("Daily plan") && window.is_visible() {
+            Some(window)
+        } else {
+            None
+        }
+    }) else {
+        return Err("daily plan dialog did not open".into());
+    };
+    let mut entries = Vec::new();
+    let mut editor = None;
+    walk_widgets(dialog.upcast_ref(), &mut |widget| {
+        if let Ok(entry) = widget.clone().downcast::<gtk::Entry>() {
+            entries.push(entry);
+        }
+        if editor.is_none() {
+            if let Ok(view) = widget.clone().downcast::<gtk::TextView>() {
+                editor = Some(view);
+            }
+        }
+    });
+    if entries.len() < 2 {
+        return Err(format!("dialog has {} entries", entries.len()));
+    }
+    entries[0].set_text("Morning plan");
+    entries[1].set_text("08:30");
+    let Some(editor) = editor else {
+        return Err("dialog has no text view".into());
+    };
+    let Some(buffer) = editor.buffer() else {
+        return Err("dialog text view has no buffer".into());
+    };
+    buffer.set_text("Write the changelog");
+    if let Some(path) = shot {
+        snapshot_titled("Daily plan", path);
+    }
+    if !click_labeled("Schedule") {
+        return Err("Schedule button is missing".into());
+    }
+    Ok(())
+}
+
+fn smoke_run() -> Result<(), String> {
+    let page = widget_text_all();
+    if !page.contains("Morning plan") {
+        return Err("saved plan is not on the Tasks tab".into());
+    }
+    if !click_labeled("Run now") {
+        return Err("Run now button is missing".into());
+    }
+    Ok(())
+}
+
+fn smoke_approvals_tab() -> Result<(), String> {
+    let page = widget_text_all();
+    if !page.contains("Approvals (1)") {
+        return Err("run now did not leave one plan waiting".into());
+    }
+    if !click_labeled("Approvals (1)") {
+        return Err("Approvals tab is missing".into());
+    }
+    Ok(())
+}
+
+fn smoke_approve() -> Result<(), String> {
+    let page = widget_text_all();
+    if !page.contains("pre-approve tool calls") {
+        return Err("approval card does not say tool calls are pre-approved".into());
+    }
+    if !page.contains("Write the changelog") {
+        return Err("standing task is not on the approval card".into());
+    }
+    if !click_labeled("Approve all") {
+        return Err("Approve all button is missing".into());
+    }
+    Ok(())
+}
+
+fn smoke_dispatched(views: &Views) -> Result<(), String> {
+    let route = views
+        .stack
+        .visible_child_name()
+        .map(|name| name.to_string())
+        .unwrap_or_default();
+    if route != "unbuilt" {
+        return Err(format!("approving switched the open page to {route}"));
+    }
+    let page = widget_text_all();
+    if !page.contains("No plans waiting for approval.") {
+        return Err("approved plan is still in the queue".into());
+    }
+    if !page.contains("Write the changelog") {
+        return Err("approved item did not become a sidebar task".into());
+    }
+    Ok(())
+}
+
+fn click_labeled(label: &str) -> bool {
+    let windows = gtk::Window::list_toplevels();
+    for widget in &windows {
+        let Ok(window) = widget.clone().downcast::<gtk::Window>() else {
+            continue;
+        };
+        let mut button = None;
+        walk_widgets(window.upcast_ref(), &mut |widget| {
+            if button.is_some() {
+                return;
+            }
+            if let Ok(found) = widget.clone().downcast::<gtk::Button>() {
+                if found.label().as_deref() == Some(label) {
+                    button = Some(found);
+                }
+            }
+        });
+        if let Some(button) = button {
+            button.clicked();
+            return true;
+        }
+    }
+    false
+}
+
+fn widget_text_all() -> String {
+    let mut text = String::new();
+    for window in gtk::Window::list_toplevels() {
+        text.push_str(&widget_text(&window));
+    }
+    text
+}
+
+fn widget_text(widget: &gtk::Widget) -> String {
+    let mut text = String::new();
+    walk_widgets(widget, &mut |widget| {
+        if let Ok(label) = widget.clone().downcast::<gtk::Label>() {
+            text.push_str(&label.text());
+            text.push('\n');
+        }
+        if let Ok(button) = widget.clone().downcast::<gtk::Button>() {
+            if let Some(label) = button.label() {
+                text.push_str(&label);
+                text.push('\n');
+            }
+        }
+    });
+    text
+}
+
+fn walk_widgets(widget: &gtk::Widget, visit: &mut dyn FnMut(&gtk::Widget)) {
+    visit(widget);
+    if let Ok(container) = widget.clone().downcast::<gtk::Container>() {
+        for child in container.children() {
+            walk_widgets(&child, visit);
+        }
+    }
 }
 
 fn start_click_audit(views: &Rc<Views>, application: &gtk::Application) {

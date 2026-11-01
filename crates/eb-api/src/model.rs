@@ -118,6 +118,16 @@ pub struct Task {
     /// `unread` column on the conversation and renders it as
     /// `showUnreadDot: conv.unread && !working`.
     pub unread: bool,
+    /// `Some("dispatched")` when an approved plan item started this conversation.
+    /// Absent for a conversation the user started.
+    pub origin: Option<String>,
+    /// Plan item id, when `origin` is dispatched.
+    pub plan_item_id: Option<String>,
+    /// The agent has not been started; the row is waiting for a free slot.
+    pub dispatch_queued: bool,
+    /// A cross-workspace run binds to no workspace and searches every
+    /// agent's and custom model's conversations.
+    pub cross_workspace: bool,
     /// Set while a tool call waits for the user's decision; the transcript
     /// renders an inline card for it. Cleared on answer.
     pub pending_permission: Option<PendingPermission>,
@@ -378,11 +388,62 @@ impl App {
             archived: false,
             failure_unseen: false,
             unread: false,
+            origin: None,
+            plan_item_id: None,
+            dispatch_queued: false,
+            cross_workspace: false,
         });
 
         self.nav = None;
         self.route = Route::Task(index);
         self.detail_visible = false;
+        Some(index)
+    }
+
+    /// Start a task without switching the open route. Used when an approved
+    /// plan item is dispatched while the user is looking at something else.
+    pub fn begin_background_task(&mut self, title: &str, text: &str) -> Option<usize> {
+        let text = text.trim();
+        let title = title.trim();
+        if text.is_empty() || title.is_empty() {
+            return None;
+        }
+        let index = self.tasks.len();
+        self.tasks.push(Task {
+            title: title.to_string(),
+            meta: "Queued".to_string(),
+            turns: vec![
+                Turn::User {
+                    text: text.to_string(),
+                    time: "now".to_string(),
+                },
+                Turn::Agent {
+                    name: "EvoBuddy".to_string(),
+                    status: Some("Queued".to_string()),
+                    blocks: Vec::new(),
+                    streaming: false,
+                    time: Some(unix_now()),
+                },
+            ],
+            artifact: None,
+            artifacts: Vec::new(),
+            session_id: None,
+            workspace_id: None,
+            agent_route: None,
+            last_route: None,
+            pending_permission: None,
+            usage: None,
+            started_at: None,
+            updated_at: Some(unix_now()),
+            pinned: false,
+            archived: false,
+            failure_unseen: false,
+            unread: true,
+            origin: Some("dispatched".into()),
+            plan_item_id: None,
+            dispatch_queued: true,
+            cross_workspace: false,
+        });
         Some(index)
     }
 
@@ -890,6 +951,17 @@ mod tests {
         assert!(app.tasks.is_empty());
     }
 
+    #[test]
+    fn a_background_task_stays_behind_the_open_one() {
+        let mut app = App::new();
+        let open = app.begin_task("hello").unwrap();
+        let queued = app.begin_background_task("Fix login", "repair the test").unwrap();
+        assert!(matches!(app.route, Route::Task(index) if index == open));
+        assert!(app.tasks[queued].dispatch_queued);
+        assert!(app.tasks[queued].unread);
+        assert_eq!(task_status(&app.tasks[queued]), TaskStatus::Pending);
+    }
+
     fn settled_agent(status: Option<&str>, blocks: Vec<Block>) -> Task {
         Task {
             title: "t".into(),
@@ -915,6 +987,9 @@ mod tests {
             archived: false,
             failure_unseen: false,
             unread: false,
+            origin: None,
+            plan_item_id: None,
+            dispatch_queued: false,
         }
     }
 
@@ -1099,6 +1174,9 @@ pub fn task_status(task: &Task) -> TaskStatus {
     };
     if planning {
         return TaskStatus::Planning;
+    }
+    if !streaming && status.as_deref() == Some("Queued") {
+        return TaskStatus::Pending;
     }
     if streaming {
         if blocks.is_empty() && status.is_none() {

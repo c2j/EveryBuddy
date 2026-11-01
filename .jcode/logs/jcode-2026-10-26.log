@@ -1,0 +1,145 @@
+[2026-10-26 21:51:06.223] [INFO] jcode starting
+[2026-10-26 21:51:06.246] [INFO] perf: tier=full terminal=unknown ssh=false wsl=false glyph_safe=false load=3.2 cpus=10 mem_avail=?MB mem_total=16384MB
+[2026-10-26 21:51:07.460] [INFO] CONFIG_RELOAD forced=true env=[JCODE_TOOL_PROFILE:added(len:3 hash:4207366804bf122d)]
+[2026-10-26 21:51:07.460] [INFO] CACHE_INVALIDATION_DOCUMENTED source=config reload detail=forced=true env=[JCODE_TOOL_PROFILE:added(len:3 hash:4207366804bf122d)]
+[2026-10-26 21:51:07.461] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:07.462] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:07.485] [INFO] jcode starting
+[2026-10-26 21:51:07.486] [INFO] perf: tier=full terminal=unknown ssh=false wsl=false glyph_safe=false load=3.2 cpus=10 mem_avail=?MB mem_total=16384MB
+[2026-10-26 21:51:07.555] [WARN] telemetry payload send failed: error sending request for url (https://telemetry.jcode.sh/v1/event)
+[2026-10-26 21:51:08.698] [AUTH] AUTH event=runtime_activation_clear_initial_provider provider=runtime selection=auto
+[2026-10-26 21:51:08.710] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:08.714] [INFO] [TIMING] auto_provider_bootstrap: detect=12ms, external_import=false, supplemental=3ms, final_has_any=false
+[2026-10-26 21:51:08.714] [INFO] No credentials configured; booting deferred-auth MultiProvider for in-TUI onboarding login
+[2026-10-26 21:51:08.717] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:08.717] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:08.717] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:08.722] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:08.722] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:08.722] [INFO] [TIMING] provider_init: claude=false, anthropic=false, openai=false, copilot=false, antigravity=false, gemini=false, cursor=false, bedrock=false, openrouter=false, total=7ms
+[2026-10-26 21:51:08.795] [WARN] telemetry payload send failed: error sending request for url (https://telemetry.jcode.sh/v1/event)
+[2026-10-26 21:51:08.820] [INFO] [TIMING] serve bootstrap: provider_init=24ms, server_new=97ms, before_run=122ms
+[2026-10-26 21:51:08.822] [INFO] [srv:peak] Server 🗻 peak starting (v0.86.0-dev (f745ee7dd, dirty))
+[2026-10-26 21:51:08.822] [INFO] [srv:peak] Server listening on "/var/folders/xh/8xyzggmj4jg02gnjyxwwbnb00000gn/T/jcode.sock"
+[2026-10-26 21:51:08.822] [INFO] [srv:peak] Debug socket on "/var/folders/xh/8xyzggmj4jg02gnjyxwwbnb00000gn/T/jcode-debug.sock"
+[2026-10-26 21:51:08.826] [INFO] [srv:peak] power_inhibit: monitoring active sessions to prevent sleep while streaming
+[2026-10-26 21:51:08.826] [INFO] [srv:peak] Starting ambient/schedule background loop
+[2026-10-26 21:51:08.828] [INFO] Runtime memory logging enabled: process=60s attribution=900s -> /Users/c2j/Projects/Desktop_Projects/Discovery/EvoBuddy/.jcode/logs/memory/server-runtime-memory-2026-10-26.jsonl
+[2026-10-26 21:51:08.828] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:08.829] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:08.829] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:08.829] [INFO] Ambient runner: starting background loop
+[2026-10-26 21:51:08.830] [INFO] [srv:peak] Accept loop tasks spawned
+[2026-10-26 21:51:08.830] [WARN] [srv:peak] Server reached socket-ready publish point, but no reload marker was present
+[2026-10-26 21:51:08.830] [INFO] power_inhibit: releasing (streaming sessions absent)
+[2026-10-26 21:51:08.830] [INFO] Server signalled ready via pipe
+[2026-10-26 21:51:08.831] [INFO] No clients connected. Server will exit after 5 minutes of idle.
+[2026-10-26 21:51:08.831] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:51:08.833] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:08.833] [INFO] Session search index warmup completed for 0 jcode + 0 external session(s) in 7ms
+[2026-10-26 21:51:08.833] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:08.833] [INFO] Registered as 🗻 peak in server registry
+[2026-10-26 21:51:08.835] [INFO] [TIMING] registry_base_tools_init: total=1ms, nonzero=[]
+[2026-10-26 21:51:08.836] [INFO] [TIMING] registry_new: skills=0ms, compaction=0ms, registry_struct=0ms, base_tools=1ms, session_tools=0ms, write=0ms, total=2ms
+[2026-10-26 21:51:08.837] [INFO] Registry prewarm completed in 8ms
+[2026-10-26 21:51:08.840] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:08.840] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:08.840] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:08.842] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:08.842] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:08.842] [INFO] [TIMING] provider_init: claude=false, anthropic=false, openai=false, copilot=false, antigravity=false, gemini=false, cursor=false, bedrock=false, openrouter=false, total=3ms
+[2026-10-26 21:51:08.842] [INFO] [TIMING] registry_new: skills=0ms, compaction=0ms, registry_struct=0ms, base_tools=0ms, session_tools=0ms, write=0ms, total=0ms
+[2026-10-26 21:51:09.050] [INFO] seed_compaction_from_session: session has 1 messages
+[2026-10-26 21:51:09.050] [INFO] seed_compaction_from_session: seeded compaction with 1 messages
+[2026-10-26 21:51:09.050] [INFO] ENV_SNAPSHOT {"captured_at":"2026-10-26T13:51:09.050337Z","reason":"create","session_id":"session_maple_1793022668842_a75fcafa04a5a149","working_dir":"/Users/c2j/Projects/Desktop_Projects/Discovery/EvoBuddy","provider":"Claude","model":"claude-opus-5","jcode_version":"v0.86.0-dev (f745ee7dd, dirty)","jcode_git_hash":null,"jcode_git_dirty":null,"os":"macos","arch":"aarch64","pid":13894,"is_selfdev":false,"is_debug":false,"is_canary":false,"testing_build":null,"working_git":null}
+[2026-10-26 21:51:09.050] [INFO] begin telemetry session provider=Claude model=claude-opus-5 resumed=false parent=false
+[2026-10-26 21:51:09.050] [INFO] [TIMING] agent_new: setup=207ms, telemetry=0ms, total=207ms
+[2026-10-26 21:51:09.053] [INFO] [TIMING] handle_client setup: provider_fork=3ms, registry=0ms, agent_new=207ms, prewarm=3ms, total=215ms
+[2026-10-26 21:51:09.054] [INFO] EVENT event=SERVER_REQUEST_LIFECYCLE client_connection_id=conn_1793022669053_2413152094401567560 client_instance_id=none client_processing=false line_bytes=240 message_id=none phase=received processing_session_id=none request_client_instance_id=acp request_id=1 request_kind=subscribe session_id=session_maple_1793022668842_a75fcafa04a5a149
+[2026-10-26 21:51:09.054] [INFO] EVENT event=SERVER_REQUEST_LIFECYCLE ack_write_ms=0 client_connection_id=conn_1793022669053_2413152094401567560 client_instance_id=none client_processing=false line_bytes=240 message_id=none phase=acked processing_session_id=none request_id=1 request_kind=subscribe session_id=session_maple_1793022668842_a75fcafa04a5a149 since_decode_ms=0
+[2026-10-26 21:51:09.055] [INFO] EVENT event=SESSION_LIFECYCLE client_connection_id=conn_1793022669053_2413152094401567560 phase=subscribe_start register_mcp_tools=true request_id=1 session_id=session_maple_1793022668842_a75fcafa04a5a149 swarm_enabled=true working_dir_set=true
+[2026-10-26 21:51:09.055] [INFO] EVENT event=SESSION_LIFECYCLE client_connection_id=conn_1793022669053_2413152094401567560 inserted=true phase=swarm_member_registered session_id=session_maple_1793022668842_a75fcafa04a5a149 swarm_enabled=true swarm_id=session:session_maple_1793022668842_a75fcafa04a5a149
+[2026-10-26 21:51:09.056] [INFO] [TIMING] handle_subscribe: session=session_maple_1793022668842_a75fcafa04a5a149, working_dir_set=true, selfdev=false, mcp_register=0ms, total=0ms
+[2026-10-26 21:51:09.056] [INFO] EVENT event=SESSION_LIFECYCLE client_connection_id=conn_1793022669053_2413152094401567560 elapsed_ms=0 mcp_register_ms=0 phase=subscribe_done request_id=1 session_id=session_maple_1793022668842_a75fcafa04a5a149
+[2026-10-26 21:51:09.058] [INFO] EVENT event=model_routes_summary anthropic_api=false anthropic_oauth=false build_ms=1 by_provider=anthropic:13,openai:29 direct_openai_compatible=false openai_api=false openai_oauth=false openrouter_configured=false openrouter_provider_features=false phase=build routes_available=1 routes_before_filter=43 routes_dropped=1 routes_total=42
+[2026-10-26 21:51:09.060] [INFO] EVENT event=SERVER_REQUEST_LIFECYCLE client_connection_id=conn_1793022669053_2413152094401567560 client_instance_id=acp client_processing=false handler_total_ms=6 line_bytes=240 message_id=none phase=handled processing_session_id=none request_id=1 request_kind=subscribe session_id=session_maple_1793022668842_a75fcafa04a5a149 since_decode_ms=6
+[2026-10-26 21:51:09.061] [INFO] [TIMING] send_history prep: session=session_maple_1793022668842_a75fcafa04a5a149, mode=Full, messages=0, images=0, mcp_servers=0, history=0ms, images=0ms, tool_names=0ms, models=0ms, routes=0ms, skills=0ms, provider_meta=0ms, compaction=0ms, side_panel=0ms, sessions=0ms, total=0ms
+[2026-10-26 21:51:09.062] [WARN] history_reload_recovery_snapshot: could not inspect persisted session session_maple_1793022668842_a75fcafa04a5a149 for reload interruption fallback: No such file or directory (os error 2)
+[2026-10-26 21:51:09.062] [INFO] history_reload_recovery_snapshot: session=session_maple_1793022668842_a75fcafa04a5a149 explicit_was_interrupted=None inferred_was_interrupted=false has_reload_ctx=false directive=false
+[2026-10-26 21:51:09.062] [INFO] [TIMING] send_history write: session=session_maple_1793022668842_a75fcafa04a5a149, bytes=1119, encode=0ms, writer_lock=0ms, write=0ms, total=1ms
+[2026-10-26 21:51:09.062] [INFO] [TIMING] handle_get_history: session=session_maple_1793022668842_a75fcafa04a5a149, send_history=1ms, prefetch_spawn=0ms, total=1ms
+[2026-10-26 21:51:09.065] [INFO] Retaining idle unsaved session session_maple_1793022668842_a75fcafa04a5a149 for reconnect grace
+[2026-10-26 21:51:14.218] [INFO] models.dev pricing refreshed: 223 providers, 8541 priced models
+[2026-10-26 21:51:18.829] [INFO] Client connected. Idle timer cancelled.
+[2026-10-26 21:51:38.833] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:51:39.872] [WARN] telemetry payload send failed: error sending request for url (https://telemetry.jcode.sh/v1/event)
+[2026-10-26 21:51:39.875] [INFO] EVENT event=SWARM_LIFECYCLE completion_report_present=false detail_present=true new_status=stopped old_status=ready phase=member_status_updated report_back_to_session_id=none session_id=session_maple_1793022668842_a75fcafa04a5a149 status_changed=true swarm_id=session:session_maple_1793022668842_a75fcafa04a5a149
+[2026-10-26 21:51:39.876] [INFO] EVENT event=SWARM_LIFECYCLE phase=member_remove_start session_id=session_maple_1793022668842_a75fcafa04a5a149 swarm_id=session:session_maple_1793022668842_a75fcafa04a5a149
+[2026-10-26 21:51:39.877] [INFO] EVENT event=SWARM_LIFECYCLE elapsed_ms=1 new_coordinator_session_id=none phase=member_remove_done remaining_member_count=0 session_id=session_maple_1793022668842_a75fcafa04a5a149 swarm_id=session:session_maple_1793022668842_a75fcafa04a5a149 was_coordinator=false
+[2026-10-26 21:51:39.877] [INFO] Ambient runner: nudged awake
+[2026-10-26 21:51:39.877] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:51:39.877] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.877] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.877] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.884] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.884] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.884] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.884] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.884] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.890] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.890] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.890] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.890] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.890] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.895] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.895] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.895] [INFO] Provider Anthropic missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.895] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.895] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.899] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.899] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.899] [WARN] Failover: skipping active provider Anthropic (not configured)
+[2026-10-26 21:51:39.899] [INFO] Provider OpenAI missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.899] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.899] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.903] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.903] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.903] [INFO] Provider GitHub Copilot missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.903] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.903] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.907] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.907] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.907] [INFO] Provider Gemini missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.907] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.907] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.911] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.911] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.911] [INFO] Provider Cursor missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.911] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.911] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.914] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.914] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.914] [INFO] Provider AWS Bedrock missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.914] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.914] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.918] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.918] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.918] [INFO] Provider OpenRouter missing at use site; reconciling auth from disk
+[2026-10-26 21:51:39.918] [AUTH] AUTH event=auth_changed_received provider=multi-provider
+[2026-10-26 21:51:39.918] [AUTH] AUTH event=auth_status_cache_invalidated provider=all
+[2026-10-26 21:51:39.921] [AUTH] AUTH event=auth_status_check_fast provider=all jcode=not_configured claude=not_configured openai=not_configured openrouter=not_configured azure=not_configured azure_api_auth=false azure_entra=false bedrock=not_configured copilot=not_configured antigravity=not_configured gemini=not_configured cursor=not_configured google=not_configured
+[2026-10-26 21:51:39.921] [AUTH] AUTH event=auth_changed_completed provider=multi-provider
+[2026-10-26 21:51:39.921] [INFO] Optional memory extraction failed
+[2026-10-26 21:51:48.830] [INFO] No clients connected. Server will exit after 5 minutes of idle.
+[2026-10-26 21:52:09.880] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:52:39.884] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:53:09.888] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:53:39.889] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:54:09.892] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:54:39.895] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:55:09.898] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:55:39.903] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:56:07.874] [INFO] EVENT event=watchdog.alive beats=1 busy=false detail="" open_fds=0 phase=startup rss_mb=0 threads=0 uptime_secs=300
+[2026-10-26 21:56:09.906] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:56:39.909] [INFO] Ambient runner: not time to run, sleeping 30s
+[2026-10-26 21:56:58.831] [INFO] Server idle for 5 minutes with no clients. Shutting down.

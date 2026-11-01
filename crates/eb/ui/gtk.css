@@ -1846,3 +1846,13 @@ textview.eb-md-view text {
   font-size: 14px;
 }
 
+
+/* Scheduled tag: marks sidebar rows dispatched from a Scheduled job. */
+.eb-scheduled-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: @eb_text_secondary;
+  background: @bg_tertiary;
+  border-radius: 4px;
+  padding: 1px 6px;
+}

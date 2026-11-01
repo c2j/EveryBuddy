@@ -31,6 +31,8 @@
 mod agent;
 mod bridge;
 mod catalog;
+mod schedule;
+mod schedule_ui;
 mod plugin_panel;
 mod preview_server;
 mod composer;
@@ -91,6 +93,23 @@ fn main() {
     if let Ok(requested) = std::env::var("EB_ACP_PROBE") {
         std::process::exit(acp_probe(&requested));
     }
+    // `evobuddy schedule --run-due` advances plan files and exits. It must
+    // run before GTK is initialized: the OS timer calls it with no display
+    // session to spare, and it does not start an agent session.
+    if let Some(code) = headless_schedule() {
+        std::process::exit(code);
+    }
+    // The schedule smoke writes scheduled.json and plans.json beside EB_STATE.
+    // Point that at a temp directory before the first poll so a harness run
+    // cannot append a plan to the user's real queue.
+    if std::env::var_os("EB_SCHEDULE_SMOKE").is_some() {
+        let dir = std::env::temp_dir().join(format!(
+            "evobuddy-schedule-smoke-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("EB_STATE", dir.join("tasks.json"));
+    }
 
     ensure_gtk_im_modules();
 
@@ -116,6 +135,97 @@ fn main() {
     preview_server::ensure();
     application.run();
     bridge::stop();
+}
+
+/// Resume the last live session, retrying while the bridge finishes its cold
+/// start. `start()` only waits 300ms so the GTK main thread never freezes,
+/// and a first launch can exceed that; without the retry the whole launch
+/// would run without the previous transcript attached.
+fn retry_resume(views: &Rc<crate::shell::Views>, store: &model::Store, session_id: &str, attempts: u32) {
+    bridge::ensure();
+    match bridge::resume_session(session_id) {
+        Ok(()) => {
+            eprintln!("phase1: resumed {session_id}");
+            views.refresh(store);
+        }
+        Err(error) if attempts > 1 => {
+            let views = views.clone();
+            let store = store.clone();
+            let session_id = std::rc::Rc::new(session_id.to_string());
+            gtk::glib::timeout_add_seconds_local(1, move || {
+                retry_resume(&views, &store, &session_id.clone(), attempts - 1);
+                gtk::glib::ControlFlow::Break
+            });
+        }
+        Err(error) => eprintln!("phase1: resume failed: {error}"),
+    }
+}
+
+/// `evobuddy schedule --run-due` generates due plans and expires unanswered
+/// ones, then exits. One-shot jobs stay for the window. Approved items stay
+/// queued until the window's dispatcher starts them. Returns `None` when the
+/// process was not invoked as that command.
+fn headless_schedule() -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("schedule") {
+        return None;
+    }
+    if args.next().as_deref() != Some("--run-due") || args.next().is_some() {
+        eprintln!("usage: evobuddy schedule --run-due");
+        return Some(2);
+    }
+    Some(run_schedule_due())
+}
+
+fn run_schedule_due() -> i32 {
+    // A GUI write in flight must not cost the day's plan: retry briefly, then
+    // fail loudly so the OS timer's failure handling can take over.
+    for _ in 0..15 {
+        if let Some(code) = schedule::with_state_lock(run_schedule_due_locked) {
+            return code;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    eprintln!("schedule: schedule files stayed busy; try again later");
+    3
+}
+
+/// Precondition: the state lock is held. The tick below nests on it instead
+/// of re-acquiring.
+fn run_schedule_due_locked() -> i32 {
+    let loaded = match state::load_readable() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("schedule: {error}");
+            return 1;
+        }
+    };
+    let snaps = schedule::snapshots(&loaded.tasks, &loaded.workspaces);
+    let events = schedule::tick_plans(schedule::unix_now(), &snaps);
+    if events.is_empty() {
+        println!("schedule: nothing due");
+        return 0;
+    }
+    let mut notices = Vec::new();
+    for event in &events {
+        match event {
+            schedule::Tick::PlanReady { title, items } => {
+                let text = format!("Daily plan \"{title}\" is ready ({items} items).");
+                println!("schedule: {text}");
+                notices.push(text);
+            }
+            schedule::Tick::PlanExpired { title } => {
+                let text = format!("Plan \"{title}\" timed out and will merge into the next one.");
+                println!("schedule: {text}");
+                notices.push(text);
+            }
+            schedule::Tick::RunPrompt { .. } => {}
+        }
+    }
+    if !notices.is_empty() {
+        schedule_ui::notify_desktop(&notices.join(" "));
+    }
+    0
 }
 
 /// `EB_ACP_PROBE=1` probes the selected ACP slot; `EB_ACP_PROBE=jcode` probes a
@@ -471,14 +581,7 @@ fn build_ui(application: &gtk::Application) {
             .find_map(|task| task.session_id.clone())
     };
     if let Some(session_id) = restored_session {
-        bridge::ensure();
-        match bridge::resume_session(&session_id) {
-            Ok(()) => {
-                eprintln!("phase1: resumed {session_id}");
-                views.refresh(&store);
-            }
-            Err(error) => eprintln!("phase1: resume failed: {error}"),
-        }
+        retry_resume(&views, &store, &session_id, 8);
     }
 
     if std::env::var_os("EB_ARTIFACT").is_some() {
@@ -511,6 +614,10 @@ fn build_ui(application: &gtk::Application) {
                 archived: false,
                 failure_unseen: false,
                 unread: false,
+                origin: None,
+                plan_item_id: None,
+                dispatch_queued: false,
+                cross_workspace: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

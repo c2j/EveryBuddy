@@ -1139,20 +1139,30 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
         });
     }
 
-    // Poll the persisted schedule queue. A due job becomes a normal task, so
-    // it uses the same workspace/session/agent path as a typed prompt.
+    // Poll the schedule. One-shot jobs submit as before. A daily plan is
+    // written to the approval queue and is not dispatched until the user
+    // approves it. The first poll is soon so a missed morning run is caught
+    // on launch rather than five seconds later only.
     let weak = Rc::downgrade(views);
-    gtk::glib::timeout_add_seconds_local(5, move || {
-        if let Some(views) = weak.upgrade() {
-            for (title, prompt) in crate::catalog::take_due() {
-                if !prompt.is_empty() {
-                    eprintln!("scheduler: running '{title}'");
-                    views.agent.submit(prompt);
-                }
-            }
+    let poll: Rc<dyn Fn()> = Rc::new(move || {
+        let Some(views) = weak.upgrade() else {
+            return;
+        };
+        let notices = views.agent.poll_schedule();
+        if notices.is_empty() {
+            return;
         }
+        let text = notices.join(" ");
+        crate::schedule_ui::set_notice(&text);
+        crate::schedule_ui::notify_desktop(&text);
+        views.refresher.request();
+    });
+    let poll_timer = poll.clone();
+    gtk::glib::timeout_add_seconds_local(5, move || {
+        poll_timer();
         gtk::glib::ControlFlow::Continue
     });
+    gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || poll());
 
     // `show_all` first, then repaint: `refresh` is what sets the pane
     // visibilities, and running it afterwards means no frame is drawn in
@@ -1303,6 +1313,7 @@ impl Views {
                 workspace_id: task.workspace_id.clone(),
                 pinned: task.pinned,
                 archived: task.archived,
+                scheduled: task.origin.as_deref() == Some("dispatched"),
             })
             .collect();
         // Pinned tasks float to the top of their section and archived ones
@@ -1380,7 +1391,35 @@ impl Views {
                 if *name == "Experts · Skills · Connectors" {
                     fill_catalog(&self.unbuilt_info, &self.refresher, store);
                 } else if *name == "Scheduled" {
-                    fill_scheduled(&self.unbuilt_info, &self.refresher);
+                    let refresh: Rc<dyn Fn()> = {
+                        let refresher = self.refresher.clone();
+                        Rc::new(move || refresher.request())
+                    };
+                    let pump: Rc<dyn Fn()> = {
+                        let agent = self.agent.clone();
+                        let refresher = self.refresher.clone();
+                        Rc::new(move || {
+                            agent.pump_dispatches();
+                            refresher.request();
+                        })
+                    };
+                    let on_run: Rc<dyn Fn()> = {
+                        let agent = self.agent.clone();
+                        Rc::new(move || {
+                            let notices = agent.poll_schedule();
+                            if !notices.is_empty() {
+                                crate::schedule_ui::set_notice(notices.join(" "));
+                            }
+                        })
+                    };
+                    crate::schedule_ui::fill(
+                        &self.unbuilt_info,
+                        store,
+                        &refresh,
+                        &pump,
+                        &on_run,
+                        &self.open_task,
+                    );
                 } else if *name == "Library" {
                     fill_library(&self.unbuilt_info, &self.refresher, store);
                 }
@@ -2610,163 +2649,6 @@ fn open_add_skill(store: &Store, refresher: &Refresher) {
         }
     });
     window.show_all();
-}
-
-fn fill_scheduled(container: &gtk::Box, refresher: &Refresher) {
-    let header = hbox(8);
-    let title = gtk::Label::new(Some("Scheduled Tasks"));
-    title.set_xalign(0.0);
-    class(&title, "eb-page-title");
-    header.pack_start(&title, false, false, 0);
-    let spacer = gtk::Label::new(None);
-    spacer.set_hexpand(true);
-    header.pack_start(&spacer, true, true, 0);
-    let new = gtk::Button::with_label("+ New");
-    class(&new, "eb-add-skill");
-    let refresher_for_new = refresher.clone();
-    new.connect_clicked(move |_| open_add_scheduled(&refresher_for_new));
-    header.pack_end(&new, false, false, 0);
-    container.pack_start(&header, false, false, 0);
-
-    let jobs = crate::catalog::scheduled();
-    if jobs.is_empty() {
-        let empty = vbox(4);
-        empty.set_valign(gtk::Align::Center);
-        let icon = gtk::Label::new(Some("⏱"));
-        class(&icon, "eb-empty-icon");
-        empty.pack_start(&icon, false, false, 0);
-        let text = gtk::Label::new(Some("No scheduled tasks found."));
-        class(&text, "eb-skill-meta");
-        empty.pack_start(&text, false, false, 0);
-        container.pack_start(&empty, false, false, 0);
-    } else {
-        for (index, (title, prompt, due)) in jobs.into_iter().enumerate() {
-            let card = vbox(3);
-            class(&card, "eb-skill-card");
-            let head = hbox(8);
-            let name = gtk::Label::new(Some(&title));
-            name.set_xalign(0.0);
-            class(&name, "eb-skill-title");
-            head.pack_start(&name, false, false, 0);
-            let when = gtk::Label::new(Some(&due_label(&due)));
-            class(&when, "eb-skill-source");
-            head.pack_start(&when, false, false, 0);
-            let run = gtk::Button::with_label("Run now");
-            let refresher_run = refresher.clone();
-            run.connect_clicked(move |_| {
-                crate::catalog::run_scheduled(index);
-                refresher_run.request();
-            });
-            head.pack_end(&run, false, false, 0);
-            let delete = gtk::Button::with_label("Delete");
-            let refresher_delete = refresher.clone();
-            delete.connect_clicked(move |_| {
-                crate::catalog::remove_scheduled(index);
-                refresher_delete.request();
-            });
-            head.pack_end(&delete, false, false, 0);
-            card.pack_start(&head, false, false, 0);
-            let body = gtk::Label::new(Some(&prompt));
-            body.set_xalign(0.0);
-            body.set_line_wrap(true);
-            class(&body, "eb-skill-meta");
-            card.pack_start(&body, false, false, 0);
-            container.pack_start(&card, false, false, 0);
-        }
-    }
-
-    let popular = gtk::Label::new(Some("Try these popular tasks"));
-    popular.set_xalign(0.0);
-    class(&popular, "eb-catalog-section");
-    container.pack_start(&popular, false, false, 0);
-    let grid = gtk::Grid::new();
-    grid.set_column_spacing(12);
-    grid.set_row_spacing(12);
-    grid.set_column_homogeneous(true);
-    let templates = [
-        ("Daily AI News Briefing", "Track key AI updates with a short daily brief."),
-        ("Daily 5 English Words", "Recommend five practical words each day."),
-        ("Weekly Work Report", "Review weekly PR and issue activity."),
-        ("On This Day", "Pick one interesting historical event."),
-        ("Daily Why", "Ask one fun why-question, then explain."),
-        ("Pre-meeting Preparation", "Prepare a short agenda before a meeting."),
-        ("Health Checkup Reminder", "Remind me to take a break and stretch."),
-        ("Daily Bedtime Story", "Write a gentle 3-minute bedtime story."),
-        ("Classic Movie Pick", "Recommend one highly acclaimed classic movie."),
-    ];
-    for (index, (name, description)) in templates.iter().enumerate() {
-        let name = (*name).to_string();
-        let description = (*description).to_string();
-        let card = vbox(3);
-        class(&card, "eb-skill-card");
-        let title = gtk::Label::new(Some(&name));
-        title.set_xalign(0.0);
-        class(&title, "eb-skill-title");
-        card.pack_start(&title, false, false, 0);
-        let body = gtk::Label::new(Some(&description));
-        body.set_xalign(0.0);
-        body.set_line_wrap(true);
-        class(&body, "eb-skill-meta");
-        card.pack_start(&body, false, false, 0);
-        let add = gtk::Button::with_label("Schedule +1m");
-        add.set_halign(gtk::Align::Start);
-        let refresher = refresher.clone();
-        add.connect_clicked(move |_| {
-            crate::catalog::add_scheduled(&name, &description, 60);
-            refresher.request();
-        });
-        card.pack_start(&add, false, false, 0);
-        grid.attach(&card, (index % 3) as i32, (index / 3) as i32, 1, 1);
-    }
-
-    container.pack_start(&grid, false, false, 0);
-}
-
-fn open_add_scheduled(refresher: &Refresher) {
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("New Scheduled Task");
-    window.set_default_size(480, 220);
-    window.set_modal(true);
-    let root = vbox(8);
-    root.set_margin_top(16);
-    root.set_margin_bottom(16);
-    root.set_margin_start(16);
-    root.set_margin_end(16);
-    let prompt = gtk::Entry::new();
-    prompt.set_placeholder_text(Some("Prompt to run in one minute"));
-    root.pack_start(&prompt, false, false, 0);
-    let actions = hbox(8);
-    let cancel = gtk::Button::with_label("Cancel");
-    let create = gtk::Button::with_label("Schedule +1m");
-    actions.pack_end(&create, false, false, 0);
-    actions.pack_end(&cancel, false, false, 0);
-    root.pack_start(&actions, false, false, 0);
-    window.add(&root);
-    let window_for_cancel = window.clone();
-    cancel.connect_clicked(move |_| window_for_cancel.close());
-    let window_for_create = window.clone();
-    let refresher = refresher.clone();
-    create.connect_clicked(move |_| {
-        let text = prompt.text().to_string();
-        if !text.trim().is_empty() {
-            crate::catalog::add_scheduled(&text, &text, 60);
-            refresher.request();
-            window_for_create.close();
-        }
-    });
-    window.show_all();
-}
-
-fn due_label(due: &str) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|time| time.as_secs())
-        .unwrap_or(0);
-    match due.parse::<u64>() {
-        Ok(at) if at <= now => "due now".into(),
-        Ok(at) => format!("in {}s", at - now),
-        Err(_) => due.to_string(),
-    }
 }
 
 fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
