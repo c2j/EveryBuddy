@@ -443,100 +443,82 @@ fn click_labeled_prefix(prefix: &str) -> bool {
     false
 }
 
-fn start_schedule_shots(views: &Rc<Views>, application: &gtk::Application, dir: std::path::PathBuf) {
+fn start_schedule_shots(
+    views: &Rc<Views>,
+    application: &gtk::Application,
+    dir: std::path::PathBuf,
+) {
     let _ = std::fs::create_dir_all(&dir);
     views.window.present();
-    let steps: Vec<(&str, Box<dyn Fn() -> bool>)> = vec![
-        ("open", {
+    let shot_main = {
+        let views = views.clone();
+        let dir = dir.clone();
+        move |name: &str| {
+            snapshot(&views, &dir.join(name).to_string_lossy());
+            true
+        }
+    };
+    let shot_dialog = {
+        let dir = dir.clone();
+        move |title: &str, name: &str| snapshot_titled(title, &dir.join(name).to_string_lossy())
+    };
+    let steps: Vec<FlowStep> = vec![
+        FlowStep::Act("open-scheduled", {
             let views = views.clone();
-            Box::new(move || smoke_open(&views).is_ok())
+            Box::new(move || smoke_open(&views).map(|_| true))
         }),
-        (
-            "tasks",
-            Box::new({
-            let views = views.clone();
-            let dir = dir.clone();
-            move || {
-                snapshot(&views, &dir.join("1-tasks.png").to_string_lossy());
-                true
-            }
+        FlowStep::Act("tasks", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("1-tasks.png"); Ok(true) })
         }),
-        ),
-        (
-            "to-approvals",
-            Box::new(|| click_labeled_prefix("Approvals (")),
-        ),
-        (
-            "approvals",
-            Box::new({
-                let views = views.clone();
-                let dir = dir.clone();
-                move || {
-                    snapshot(&views, &dir.join("2-approvals.png").to_string_lossy());
-                    true
-                }
-            }),
-        ),
-        (
-            "to-records",
-            Box::new(|| click_labeled("Records")),
-        ),
-        (
-            "records",
-            Box::new({
-            let views = views.clone();
-            let dir = dir.clone();
-            move || {
-                snapshot(&views, &dir.join("3-records.png").to_string_lossy());
-                true
-            }
+        FlowStep::Act("to-approvals", Box::new(|| Ok(click_labeled_prefix("Approvals (")))),
+        FlowStep::Act("approvals", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("2-approvals.png"); Ok(true) })
         }),
-        ),
-        (
-            "back-to-tasks",
-            Box::new(|| click_labeled("Tasks")),
-        ),
-        (
-            "open-daily-plan",
-            Box::new(|| click_labeled("Daily plan")),
-        ),
-        (
-            "plan-dialog",
-            Box::new({
-                let dir = dir.clone();
-                let dialog_title = "Daily plan".to_string();
-                move || {
-                    snapshot_titled(
-                        &dialog_title,
-                        &dir.join("4-plan-dialog.png").to_string_lossy(),
-                    )
-                }
-            }),
-        ),
-        ("close-plan", Box::new(|| click_labeled("Cancel"))),
-        (
-            "open-new",
-            Box::new(|| click_labeled("+ New")),
-        ),
-        (
-            "new-dialog",
-            Box::new({
-                let dir = dir.clone();
-                let dialog_title = "New Scheduled Task".to_string();
-                move || {
-                    snapshot_titled(
-                        &dialog_title,
-                        &dir.join("5-new-dialog.png").to_string_lossy(),
-                    )
-                }
-            }),
-        ),
-        ("close-new", Box::new(|| click_labeled("Cancel"))),
+        FlowStep::Act("to-records", Box::new(|| Ok(click_labeled("Records")))),
+        FlowStep::Act("records", {
+            let shot_main = shot_main.clone();
+            Box::new(move || { shot_main("3-records.png"); Ok(true) })
+        }),
+        FlowStep::Act("back-to-tasks", Box::new(|| Ok(click_labeled("Tasks")))),
+        FlowStep::Act("open-daily-plan", Box::new(|| Ok(click_labeled("Daily plan")))),
+        FlowStep::Act("plan-dialog", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("Daily plan", "4-plan-dialog.png"); Ok(true) })
+        }),
+        FlowStep::Act("close-plan", Box::new(|| Ok(click_labeled("Cancel")))),
+        FlowStep::Act("open-new", Box::new(|| Ok(click_labeled("+ New")))),
+        FlowStep::Act("new-dialog", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "5-new-dialog.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-periodic-click", Box::new(|| Ok(click_labeled("Periodic")))),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-periodic", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "6-tile-periodic.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-interval-click", Box::new(|| Ok(click_labeled("Interval")))),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-interval", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "7-tile-interval.png"); Ok(true) })
+        }),
+        FlowStep::Act("tile-plan-click", {
+            Box::new(|| Ok(click_labeled("Plan · approve · dispatch")))
+        }),
+        FlowStep::WaitMs(300),
+        FlowStep::Act("tile-plan", {
+            let shot_dialog = shot_dialog.clone();
+            Box::new(move || { shot_dialog("New Scheduled Task", "8-tile-plan.png"); Ok(true) })
+        }),
+        FlowStep::Act("close-new", Box::new(|| Ok(click_labeled("Cancel")))),
     ];
     let done = Rc::new(Cell::new(false));
     {
         let done = done.clone();
-        gtk::glib::timeout_add_seconds_local(90, move || {
+        gtk::glib::timeout_add_seconds_local(120, move || {
             if !done.get() {
                 eprintln!("schedule-shots: FAIL timed out");
                 std::process::exit(1);
@@ -547,14 +529,7 @@ fn start_schedule_shots(views: &Rc<Views>, application: &gtk::Application, dir: 
     let views = views.clone();
     let application = application.clone();
     gtk::glib::idle_add_local_once(move || {
-        drive_shots(views, application, dir.clone(), Rc::new(
-                steps
-                    .into_iter()
-                    .map(|(label, run): (&str, Box<dyn Fn() -> bool>)| {
-                        (label.to_string(), run)
-                    })
-                    .collect::<Vec<_>>(),
-            ), Rc::new(Cell::new(0)), done);
+        drive_shots(views, application, dir, Rc::new(steps), Rc::new(Cell::new(0)), done);
     });
 }
 
@@ -562,7 +537,7 @@ fn drive_shots(
     views: Rc<Views>,
     application: gtk::Application,
     dir: std::path::PathBuf,
-    steps: Rc<Vec<(String, Box<dyn Fn() -> bool>)>>,
+    steps: Rc<Vec<FlowStep>>,
     index: Rc<Cell<usize>>,
     done: Rc<Cell<bool>>,
 ) {
@@ -573,14 +548,36 @@ fn drive_shots(
         application.quit();
         return;
     }
-    let (label, run) = &steps[position];
-    if !run() {
-        eprintln!("schedule-shots: FAIL step {position} ({label})");
-        std::process::exit(1);
+    match &steps[position] {
+        FlowStep::WaitMs(ms) => {
+            let views = views.clone();
+            let application = application.clone();
+            let steps = steps.clone();
+            let index = index.clone();
+            let dir = dir.clone();
+            let done = done.clone();
+            gtk::glib::timeout_add_local_once(
+                std::time::Duration::from_millis(*ms),
+                move || {
+                    index.set(position + 1);
+                    drive_shots(views, application, dir, steps, index, done);
+                },
+            );
+            return;
+        }
+        FlowStep::Act(label, run) => match run() {
+            Ok(true) => println!("schedule-shots: step {position} {label} ok"),
+            Ok(false) => {
+                eprintln!("schedule-shots: FAIL step {position} ({label})");
+                std::process::exit(1);
+            }
+            Err(reason) => {
+                eprintln!("schedule-shots: FAIL step {position} ({label}): {reason}");
+                std::process::exit(1);
+            }
+        },
     }
-    println!("schedule-shots: step {position} {label} ok");
     index.set(position + 1);
-    // A deferred repaint must land before the next click or the next shot.
     let views = views.clone();
     let application = application.clone();
     gtk::glib::idle_add_local_once(move || {
@@ -588,9 +585,6 @@ fn drive_shots(
     });
 }
 
-/// Click the sidebar task row whose title label reads `title`. Task rows are
-/// unlabeled flat buttons wrapping an ellipsized title label, so match the
-/// label and click its Button ancestor.
 fn click_sidebar_task(title: &str) -> bool {
     let windows = gtk::Window::list_toplevels();
     for widget in &windows {

@@ -981,6 +981,35 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
         let sync = sync.clone();
         freq.connect_changed(move |_| sync());
     }
+    // Tile handlers are registered after `sync` exists: switching mode must
+    // re-run the visibility sync, or every tile would show the same fields.
+    for (index, button) in tile_buttons.iter().enumerate() {
+        let mode = mode.clone();
+        let buttons = tile_buttons.clone();
+        let sync = sync.clone();
+        button.connect_toggled(move |toggled| {
+            if !toggled.is_active() {
+                return;
+            }
+            mode.set(MODE_TILES[index].0);
+            for (other, other_button) in buttons.iter().enumerate() {
+                let active = MODE_TILES[other].0 == mode.get();
+                if other_button.is_active() != active {
+                    other_button.set_active(active);
+                }
+                // Swap the underline style with the state; `class` only adds.
+                other_button
+                    .style_context()
+                    .remove_class("eb-catalog-tab-active");
+                if active {
+                    class(other_button, "eb-catalog-tab-active");
+                } else {
+                    class(other_button, "eb-catalog-tab");
+                }
+            }
+            sync();
+        });
+    }
 
     let actions = hbox(8);
     let cancel = gtk::Button::with_label("Cancel");
