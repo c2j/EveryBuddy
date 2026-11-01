@@ -1780,6 +1780,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "periodic": job.periodic,
             "next_run_at": job.next_run_at,
             "paused": job.paused,
+            "scope": job.scope,
         })
     } else if job.kind == "daily" || job.kind == "interval" {
         serde_json::json!({
@@ -1791,6 +1792,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "interval_hours": job.interval_hours,
             "next_run_at": job.next_run_at,
             "paused": job.paused,
+            "scope": job.scope,
         })
     } else {
         serde_json::json!({
@@ -1888,7 +1890,7 @@ mod tests {
         ]);
         std::fs::write(dir.join("scheduled.json"), jobs.to_string()).unwrap();
         let events = tick_at(&dir, 100, 0, &[]);
-        assert!(matches!(&events[0], Tick::RunPrompt { title, prompt } if title == "Hello" && prompt == "Say hi"));
+        assert!(matches!(&events[0], Tick::RunPrompt { title, prompt, .. } if title == "Hello" && prompt == "Say hi"));
         let again = tick_at(&dir, 100, 0, &[]);
         assert!(again.is_empty(), "the one-shot prompt must not repeat");
         let left: serde_json::Value =
@@ -2050,7 +2052,7 @@ mod tests {
         }]);
         std::fs::write(dir.join("scheduled.json"), jobs.to_string()).unwrap();
         let events = tick_at(&dir, slot + 30, 0, &[]);
-        assert!(matches!(&events[0], Tick::RunPrompt { title, prompt } if title == "Standup" && prompt == "Post the standup"));
+        assert!(matches!(&events[0], Tick::RunPrompt { title, prompt, .. } if title == "Standup" && prompt == "Post the standup"));
         let again = tick_at(&dir, slot + 60, 0, &[]);
         assert!(again.is_empty(), "a daily job must not fire twice a day");
         let left: serde_json::Value =
@@ -2093,7 +2095,7 @@ mod tests {
         let dir = temp_dir("once-at");
         let _guard = DirGuard::push(dir.clone());
         let now = unix_now();
-        add_once_at("Evening review", "Review the day", 21 * 60 + 30);
+        add_once_at("Evening review", "Review the day", 21 * 60 + 30, "task");
         let jobs: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
                 .unwrap();

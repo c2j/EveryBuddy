@@ -1576,6 +1576,7 @@ mod tests {
             origin: None,
             plan_item_id: None,
             dispatch_queued: false,
+            cross_workspace: false,
         }
     }
 
