@@ -313,6 +313,41 @@ pub fn parse_hhmm(text: &str) -> Option<u32> {
     Some(hour * 60 + minute)
 }
 
+const WEEKDAYS: [&str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+
+fn describe_periodic(periodic: Option<&Periodic>) -> String {
+    let Some(p) = periodic else {
+        return "periodic".into();
+    };
+    let time = format_hhmm(p.minutes);
+    match p.freq.as_str() {
+        "day" => format!("daily {time}"),
+        "week" | "biweek" => {
+            let days: Vec<&str> = if p.byday.is_empty() {
+                WEEKDAYS.to_vec()
+            } else {
+                p.byday.iter().map(|&d| WEEKDAYS[d as usize]).collect()
+            };
+            let prefix = if p.freq == "biweek" { "biweekly" } else { "weekly" };
+            format!("{prefix} {} · {time}", days.join(","))
+        }
+        "month" => format!("monthly day {} · {time}", join_nums(&p.bymonthday)),
+        "year" => format!(
+            "yearly {}/{} · {time}",
+            p.bymonth,
+            join_nums(&p.bymonthday)
+        ),
+        _ => "periodic".into(),
+    }
+}
+
+fn join_nums(nums: &[u32]) -> String {
+    nums.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 pub fn format_hhmm(minutes: u32) -> String {
     format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
@@ -354,6 +389,8 @@ struct Job {
     daily_minutes: u32,
     /// For `interval` prompt jobs: hours between runs.
     interval_hours: u32,
+    /// For `periodic` prompt jobs: the recurrence.
+    periodic: Option<Periodic>,
     next_run_at: u64,
     /// Set by Run now. Consumed by the next tick so a missing timestamp cannot
     /// look like a request to run immediately.
@@ -565,6 +602,7 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
         due_at: due,
         daily_minutes: 0,
         interval_hours: 0,
+        periodic: None,
         next_run_at: 0,
         force: false,
         deadline_minutes: 45,
@@ -589,6 +627,7 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
         due_at: 0,
         daily_minutes,
         interval_hours: 0,
+        periodic: None,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
         deadline_minutes: 45,
@@ -596,6 +635,89 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
         suggest: suggest.to_vec(),
     });
     save_jobs(&jobs);
+}
+
+/// A recurring prompt schedule beyond daily/interval: which days, weeks,
+/// months it lands on. `byday` is 0=Mon..6=Sun; empty means every day.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Periodic {
+    pub freq: String, // `day` | `week` | `biweek` | `month` | `year`
+    #[serde(default)]
+    pub minutes: u32,
+    #[serde(default)]
+    pub byday: Vec<u8>,
+    #[serde(default)]
+    pub bymonthday: Vec<u32>,
+    #[serde(default)]
+    pub bymonth: u32,
+    /// Local week index at creation; `biweek` keeps its parity.
+    #[serde(default)]
+    pub anchor_week: u64,
+}
+
+/// Weekday of `local_days` as 0=Mon..6=Sun (1970-01-01 was a Thursday).
+fn weekday_monday0(local_days: i64) -> u8 {
+    (local_days + 3).rem_euclid(7) as u8
+}
+
+/// (year, month 1-12, day 1-31) for days since 1970-01-01.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as i64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    // Jan/Feb belong to the previous solar year in this calendar.
+    (y + i64::from(m <= 2), m, d)
+}
+
+fn periodic_day_matches(periodic: &Periodic, local_days: i64) -> bool {
+    match periodic.freq.as_str() {
+        "day" => true,
+        "week" => {
+            periodic.byday.is_empty() || periodic.byday.contains(&weekday_monday0(local_days))
+        }
+        "biweek" => {
+            let in_week = periodic.byday.is_empty()
+                || periodic.byday.contains(&weekday_monday0(local_days));
+            let parity = (local_days.div_euclid(7) as u64)
+                .wrapping_sub(periodic.anchor_week)
+                % 2
+                == 0;
+            in_week && parity
+        }
+        "month" => {
+            let (_, _, dom) = civil_from_days(local_days);
+            !periodic.bymonthday.is_empty() && periodic.bymonthday.contains(&dom)
+        }
+        "year" => {
+            let (_, month, dom) = civil_from_days(local_days);
+            month == periodic.bymonth
+                && !periodic.bymonthday.is_empty()
+                && periodic.bymonthday.contains(&dom)
+        }
+        _ => false,
+    }
+}
+
+/// The next run of a periodic schedule strictly after `now`, in Unix seconds.
+pub fn next_periodic_run(now: u64, periodic: &Periodic, offset: i32) -> Option<u64> {
+    let local_now = now as i64 + offset as i64;
+    let today = local_now.div_euclid(86_400);
+    for day in today..today + 1_500 {
+        if !periodic_day_matches(periodic, day) {
+            continue;
+        }
+        let candidate = day * 86_400 + periodic.minutes as i64 * 60;
+        if candidate > local_now {
+            return Some((candidate - offset as i64).max(0) as u64);
+        }
+    }
+    None
 }
 
 /// The editable per-item prompt template shown in the plan dialog.
@@ -619,6 +741,7 @@ pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
         due_at: 0,
         daily_minutes: minutes,
         interval_hours: 0,
+        periodic: None,
         next_run_at: next_daily_run(now, minutes, offset),
         force: false,
         deadline_minutes: 45,
@@ -643,6 +766,7 @@ pub fn add_interval(title: &str, prompt: &str, hours: u32) {
         due_at: 0,
         daily_minutes: 0,
         interval_hours: hours.clamp(1, 24),
+        periodic: None,
         next_run_at: now + u64::from(hours.clamp(1, 24)) * 3600,
         force: false,
         deadline_minutes: 45,
@@ -682,6 +806,7 @@ pub fn add_plan_full(
         due_at: 0,
         daily_minutes,
         interval_hours: 0,
+        periodic: None,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
         deadline_minutes: deadline_minutes.clamp(1, 24 * 60),
@@ -691,6 +816,35 @@ pub fn add_plan_full(
             template.to_string()
         },
         suggest: suggest.to_vec(),
+    });
+    save_jobs(&jobs);
+}
+
+/// A recurring prompt on a weekly/biweekly/monthly/yearly grid.
+pub fn add_periodic(title: &str, prompt: &str, periodic: &Periodic) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let now = unix_now();
+    let offset = local_offset_secs(now);
+    let Some(next) = next_periodic_run(now, periodic, offset) else {
+        return;
+    };
+    let mut jobs = load_jobs();
+    jobs.push(Job {
+        id: fresh_id("job"),
+        kind: "periodic".into(),
+        title: title.to_string(),
+        prompt: prompt.to_string(),
+        due_at: 0,
+        daily_minutes: 0,
+        interval_hours: 0,
+        periodic: Some(periodic.clone()),
+        next_run_at: next,
+        force: false,
+        deadline_minutes: 45,
+        template: String::new(),
+        suggest: Vec::new(),
     });
     save_jobs(&jobs);
 }
@@ -721,7 +875,7 @@ pub fn run_now(index: usize) -> bool {
             return false;
         }
         job.force = true;
-    } else if job.kind == "daily" || job.kind == "interval" {
+    } else if job.kind == "daily" || job.kind == "interval" || job.kind == "periodic" {
         job.next_run_at = 0;
     } else {
         job.due_at = 0;
@@ -760,6 +914,17 @@ pub fn rows() -> Vec<JobRow> {
                         format!("in {}s", job.next_run_at - now)
                     };
                     format!("every {}h · {due}", job.interval_hours)
+                }
+                "periodic" => {
+                    let due = if job.next_run_at <= now {
+                        "due now".to_string()
+                    } else {
+                        format!("in {}s", job.next_run_at - now)
+                    };
+                    format!(
+                        "{} · {due}",
+                        describe_periodic(job.periodic.as_ref())
+                    )
                 }
                 _ if job.due_at <= now => "due now".to_string(),
                 _ => format!("in {}s", job.due_at - now),
@@ -945,12 +1110,28 @@ fn claim_once(now: u64) -> Vec<Tick> {
                 job.next_run_at =
                     now + u64::from(job.interval_hours.clamp(1, 24)) * 3600;
             }
+            "periodic" if job.next_run_at <= now => {
+                due.push(Tick::RunPrompt {
+                    title: job.title.clone(),
+                    prompt: job.prompt.clone(),
+                });
+                if let Some(periodic) = job.periodic.as_ref() {
+                    job.next_run_at = next_periodic_run(now, periodic, offset)
+                        .unwrap_or(u64::MAX);
+                }
+            }
             _ => {}
         }
     }
     let keep: Vec<Job> = jobs
         .into_iter()
-        .filter(|job| job.kind == "plan" || job.kind == "daily" || job.kind == "interval" || job.due_at != u64::MAX)
+        .filter(|job| {
+            job.kind == "plan"
+                || job.kind == "daily"
+                || job.kind == "interval"
+                || job.kind == "periodic"
+                || job.due_at != u64::MAX
+        })
         .collect();
     save_jobs(&keep);
     due
@@ -1314,6 +1495,7 @@ fn parse_job(value: serde_json::Value) -> Job {
         due_at,
         daily_minutes: value["daily_minutes"].as_u64().unwrap_or(8 * 60 + 30) as u32,
         interval_hours: value["interval_hours"].as_u64().unwrap_or(1) as u32,
+        periodic: serde_json::from_value(value["periodic"].clone()).ok(),
         next_run_at: value["next_run_at"].as_u64().unwrap_or(0),
         force: value["force"].as_bool().unwrap_or(false),
         deadline_minutes: value["deadline_minutes"].as_u64().unwrap_or(45) as u32,
@@ -1343,6 +1525,15 @@ fn job_json(job: &Job) -> serde_json::Value {
             "deadline_minutes": job.deadline_minutes,
             "template": job.template,
             "suggest": job.suggest,
+        })
+    } else if job.kind == "periodic" {
+        serde_json::json!({
+            "id": job.id,
+            "kind": "periodic",
+            "title": job.title,
+            "prompt": job.prompt,
+            "periodic": job.periodic,
+            "next_run_at": job.next_run_at,
         })
     } else if job.kind == "daily" || job.kind == "interval" {
         serde_json::json!({
@@ -1682,6 +1873,104 @@ mod tests {
         let job = parse_job(jobs[0].clone());
         assert_eq!(job.deadline_minutes, 90);
         assert_eq!(job.template, "Do \"{task.title}\" carefully.");
+    }
+
+    #[test]
+    fn civil_dates_and_weekdays_match_the_gregorian_calendar() {
+        // 1970-01-01 was a Thursday (Mon=0 → 3).
+        assert_eq!(weekday_monday0(0), 3);
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        // 2026-10-31 is a Saturday: 20757 days after the epoch.
+        // Day 10_000 is Monday 1997-05-19.
+        let (y, m, d) = civil_from_days(20_757);
+        assert_eq!((y, m, d), (2026, 10, 31));
+        assert_eq!(weekday_monday0(20_757), 5);
+        assert_eq!(civil_from_days(10_000), (1997, 5, 19));
+    }
+
+    #[test]
+    fn a_weekly_schedule_picks_the_next_matching_weekday_at_the_time() {
+        // Day 10_000 local is a Monday; 09:00 is day + 32_400.
+        let monday = 10_000 * 86_400;
+        let p = Periodic {
+            freq: "week".into(),
+            minutes: 540,
+            byday: vec![0, 2], // MO, WE
+            bymonthday: vec![],
+            bymonth: 0,
+            anchor_week: 0,
+        };
+        // 08:00 Monday: today matches → today 09:00.
+        assert_eq!(
+            next_periodic_run(monday + 8 * 3600, &p, 0),
+            Some(monday + 9 * 3600)
+        );
+        // 10:00 Monday: the next match is Wednesday 09:00.
+        assert_eq!(
+            next_periodic_run(monday + 10 * 3600, &p, 0),
+            Some(monday + 2 * 86_400 + 9 * 3600)
+        );
+        // Friday 10:00: wraps to Monday next week (+7 days).
+        assert_eq!(
+            next_periodic_run(monday + 4 * 86_400 + 10 * 3600, &p, 0),
+            Some(monday + 7 * 86_400 + 9 * 3600)
+        );
+    }
+
+    #[test]
+    fn a_biweekly_schedule_keeps_its_creation_parity() {
+        let monday = 10_000 * 86_400;
+        let anchor = (monday / 86_400 / 7) as u64;
+        let p = Periodic {
+            freq: "biweek".into(),
+            minutes: 540,
+            byday: vec![1], // TU
+            bymonthday: vec![],
+            bymonth: 0,
+            anchor_week: anchor,
+        };
+        // This week's Tuesday fires, then the Tuesday two weeks later.
+        assert_eq!(
+            next_periodic_run(monday + 10 * 3600, &p, 0),
+            Some(monday + 86_400 + 9 * 3600)
+        );
+        let after = monday + 86_400 + 10 * 3600;
+        assert_eq!(
+            next_periodic_run(after, &p, 0),
+            Some(monday + (1 + 14) * 86_400 + 9 * 3600)
+        );
+    }
+
+    #[test]
+    fn monthly_and_yearly_schedules_land_on_the_requested_days() {
+        // Day 20_757 is 2026-10-31 (Saturday).
+        let sat = 20_757 * 86_400;
+        let monthly = Periodic {
+            freq: "month".into(),
+            minutes: 600,
+            byday: vec![],
+            bymonthday: vec![15],
+            bymonth: 0,
+            anchor_week: 0,
+        };
+        // 2026-10-31 10:00 → 2026-11-15 10:00 (15 days later).
+        assert_eq!(
+            next_periodic_run(sat + 10 * 3600, &monthly, 0),
+            Some(sat + 15 * 86_400 + 10 * 3600)
+        );
+        let yearly = Periodic {
+            freq: "year".into(),
+            minutes: 600,
+            byday: vec![],
+            bymonthday: vec![1],
+            bymonth: 1,
+            anchor_week: 0,
+        };
+        // → 2027-01-01 10:00.
+        assert_eq!(
+            next_periodic_run(sat + 10 * 3600, &yearly, 0),
+            Some((20_757 + 62) * 86_400 + 10 * 3600)
+        );
     }
 
     #[test]

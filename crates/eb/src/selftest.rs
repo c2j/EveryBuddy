@@ -482,8 +482,8 @@ fn smoke_dialog() -> Result<(), String> {
         return Err("dialog text view has no buffer".into());
     };
     buffer.set_text("Write the changelog");
-    if !click_labeled("Save") {
-        return Err("Save button is missing".into());
+    if !click_labeled("Schedule") {
+        return Err("Schedule button is missing".into());
     }
     Ok(())
 }

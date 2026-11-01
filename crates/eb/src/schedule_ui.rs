@@ -7,6 +7,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use gtk::glib;
 use gtk::prelude::*;
 
 use crate::model::Store;
@@ -79,12 +80,12 @@ pub fn fill(
     let daily = gtk::Button::with_label("Daily plan");
     class(&daily, "eb-add-skill");
     let refresh_daily = refresh.clone();
-    daily.connect_clicked(move |_| open_plan_dialog(&refresh_daily));
+    daily.connect_clicked(move |_| open_task_dialog(&refresh_daily, Mode::Plan, "Daily plan"));
     header.pack_end(&daily, false, false, 0);
     let new = gtk::Button::with_label("+ New");
     class(&new, "eb-add-skill");
     let refresh_new = refresh.clone();
-    new.connect_clicked(move |_| open_task_dialog(&refresh_new));
+    new.connect_clicked(move |_| open_task_dialog(&refresh_new, Mode::Once, "New Scheduled Task"));
     header.pack_end(&new, false, false, 0);
     container.pack_start(&header, false, false, 0);
 
@@ -442,10 +443,35 @@ fn item_row(
     row
 }
 
-fn open_task_dialog(refresh: &Rc<dyn Fn()>) {
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Once,
+    Periodic,
+    Interval,
+    Plan,
+}
+
+/// Which recurrence the Periodic tile uses. Mirrors `schedule::Periodic`.
+#[derive(Clone, Copy, PartialEq)]
+enum Freq {
+    Day,
+    Week,
+    Biweek,
+    Month,
+    Year,
+}
+
+const MODE_TILES: [(Mode, &str); 4] = [
+    (Mode::Once, "One-shot"),
+    (Mode::Periodic, "Periodic"),
+    (Mode::Interval, "Interval"),
+    (Mode::Plan, "Plan · approve · dispatch"),
+];
+
+fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("New Scheduled Task");
-    window.set_default_size(520, 420);
+    window.set_title(title);
+    window.set_default_size(560, 560);
     window.set_modal(true);
     let root = vbox(8);
     root.set_margin_top(16);
@@ -454,50 +480,172 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>) {
     root.set_margin_end(16);
 
     let name = labeled_entry(&root, "Name");
-    let mode_box = hbox(4);
-    let mode_label = gtk::Label::new(Some("Trigger"));
-    class(&mode_label, "eb-skill-meta");
-    mode_box.pack_start(&mode_label, false, false, 0);
-    let mode = gtk::ComboBoxText::new();
-    mode.append_text("In 1 minute");
-    mode.append_text("At a time of day");
-    mode.append_text("Every day");
-    mode.append_text("Every N hours");
-    mode.set_active(Some(0));
-    mode_box.pack_start(&mode, true, true, 0);
-    root.pack_start(&mode_box, false, false, 0);
+
+    // --- the four-tile mode selector -------------------------------------
+    let tiles = gtk::Grid::new();
+    tiles.set_column_spacing(8);
+    tiles.set_row_spacing(8);
+    tiles.set_column_homogeneous(true);
+    let tile_buttons: Vec<gtk::ToggleButton> = MODE_TILES
+        .iter()
+        .enumerate()
+        .map(|(index, (_, label))| {
+            let button = gtk::ToggleButton::with_label(label);
+            class(&button, "eb-catalog-tab");
+            tiles.attach(&button, index as i32, 0, 1, 1);
+            button
+        })
+        .collect();
+    root.pack_start(&tiles, false, false, 0);
+    let mode: Rc<Cell<Mode>> = Rc::new(Cell::new(initial));
+    for (index, button) in tile_buttons.iter().enumerate() {
+        if MODE_TILES[index].0 == initial {
+            button.set_active(true);
+            class(button, "eb-catalog-tab-active");
+        }
+        let mode = mode.clone();
+        let buttons = tile_buttons.clone();
+        button.connect_toggled(move |toggled| {
+            if !toggled.is_active() {
+                return;
+            }
+            mode.set(MODE_TILES[index].0);
+            for (other, other_button) in buttons.iter().enumerate() {
+                let active = MODE_TILES[other].0 == mode.get();
+                if other_button.is_active() != active {
+                    other_button.set_active(active);
+                }
+                if active {
+                    class(other_button, "eb-catalog-tab-active");
+                }
+            }
+        });
+    }
+
+    // --- shared time field (once / periodic / plan) ----------------------
     let time = labeled_entry(&root, "Time of day (HH:mm)");
+    time.set_text("08:30");
+
+    // --- periodic-only fields --------------------------------------------
+    let period_box = vbox(4);
+    let freq_box = hbox(4);
+    let freq_label = gtk::Label::new(Some("Repeats"));
+    class(&freq_label, "eb-skill-meta");
+    freq_box.pack_start(&freq_label, false, false, 0);
+    let freq = gtk::ComboBoxText::new();
+    for label in ["Daily", "Weekly", "Every 2 weeks", "Monthly", "Yearly"] {
+        freq.append_text(label);
+    }
+    freq.set_active(Some(1));
+    freq_box.pack_start(&freq, true, true, 0);
+    period_box.pack_start(&freq_box, false, false, 0);
+    let weekday_box = hbox(4);
+    let weekday_checks: Vec<gtk::CheckButton> = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+        .iter()
+        .map(|label| {
+            let check = gtk::CheckButton::with_label(label);
+            weekday_box.pack_start(&check, false, false, 0);
+            check
+        })
+        .collect();
+    period_box.pack_start(&weekday_box, false, false, 0);
+    let weekdays_hint = gtk::Label::new(Some(
+        "Pick at least one weekday. Monthly needs day-of-month; yearly needs month and day.",
+    ));
+    weekdays_hint.set_xalign(0.0);
+    weekdays_hint.set_line_wrap(true);
+    class(&weekdays_hint, "eb-skill-meta");
+    period_box.pack_start(&weekdays_hint, false, false, 0);
+    let month_days = labeled_entry(&period_box, "Day of month (1-31)");
+    let month_num = labeled_entry(&period_box, "Month (1-12, yearly only)");
+    root.pack_start(&period_box, false, false, 0);
+
+    // --- interval-only field ---------------------------------------------
     let hours = labeled_entry(&root, "Hours between runs (1-24)");
     hours.set_text("2");
-    let prompt_label = gtk::Label::new(Some("Prompt"));
-    class(&prompt_label, "eb-skill-meta");
-    prompt_label.set_xalign(0.0);
-    root.pack_start(&prompt_label, false, false, 0);
-    let prompt_view = gtk::TextView::new();
-    prompt_view.set_wrap_mode(gtk::WrapMode::Word);
-    let prompt_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    prompt_scroll.set_size_request(-1, 110);
-    prompt_scroll.add(&prompt_view);
-    root.pack_start(&prompt_scroll, true, true, 0);
+
+    // --- plan-only fields -------------------------------------------------
+    let deadline = labeled_entry(&root, "Approval deadline in minutes");
+    deadline.set_text("45");
+
+    // --- content: prompt for the three prompt modes, standing tasks for plan
+    let content_label = gtk::Label::new(Some("Prompt"));
+    class(&content_label, "eb-skill-meta");
+    content_label.set_xalign(0.0);
+    root.pack_start(&content_label, false, false, 0);
+    let content = gtk::TextView::new();
+    content.set_wrap_mode(gtk::WrapMode::Word);
+    let content_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    content_scroll.set_size_request(-1, 110);
+    content_scroll.add(&content);
+    root.pack_start(&content_scroll, true, true, 0);
+
+    // --- template (plan only) --------------------------------------------
+    let template_label = gtk::Label::new(Some(
+        "Item prompt template ({task.title}, {task.context}, {task.done_when})",
+    ));
+    template_label.set_xalign(0.0);
+    class(&template_label, "eb-skill-meta");
+    root.pack_start(&template_label, false, false, 0);
+    let template = gtk::TextView::new();
+    template.set_wrap_mode(gtk::WrapMode::Word);
+    if let Some(buffer) = template.buffer() {
+        buffer.set_text(crate::schedule::default_template());
+    }
+    let template_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    template_scroll.set_size_request(-1, 70);
+    template_scroll.add(&template);
+    root.pack_start(&template_scroll, false, false, 0);
+
     let error = gtk::Label::new(None);
     error.set_xalign(0.0);
     class(&error, "eb-skill-error");
     root.pack_start(&error, false, false, 0);
 
-    // Mode visibility: 0 (+1m) needs nothing extra, 1 needs the time, 2 needs
-    // the time, 3 needs the hours.
+    // --- visibility sync --------------------------------------------------
     let sync = {
         let mode = mode.clone();
+        let freq = freq.clone();
         let time = time.clone();
+        let period_box = period_box.clone();
+        let weekday_box = weekday_box.clone();
+        let month_days = month_days.clone();
+        let month_num = month_num.clone();
         let hours = hours.clone();
+        let deadline = deadline.clone();
+        let content_label = content_label.clone();
+        let template_label = template_label.clone();
+        let template_scroll = template_scroll.clone();
         move || {
-            let index = mode.active().unwrap_or(0);
-            time.set_visible(index == 1 || index == 2);
-            hours.set_visible(index == 3);
+            let mode = mode.get();
+            let freq_index = freq.active().unwrap_or(1);
+            fn show<W: glib::object::IsA<gtk::Widget>>(widget: &W, visible: bool) {
+                widget.set_visible(visible);
+            }
+            show(&period_box, mode == Mode::Periodic);
+            show(&hours, mode == Mode::Interval);
+            show(&deadline, mode == Mode::Plan);
+            show(&template_label, mode == Mode::Plan);
+            show(&template_scroll, mode == Mode::Plan);
+            time.set_visible(matches!(mode, Mode::Once | Mode::Periodic | Mode::Plan));
+            // Inside periodic: weekdays for week/biweek, month fields for
+            // month/year.
+            let weekdays_visible = mode == Mode::Periodic && matches!(freq_index, 1 | 2);
+            show(&weekday_box, weekdays_visible);
+            show(&month_days, mode == Mode::Periodic && matches!(freq_index, 3 | 4));
+            show(&month_num, mode == Mode::Periodic && freq_index == 4);
+            content_label.set_text(if mode == Mode::Plan {
+                "Standing tasks, one per line"
+            } else {
+                "Prompt"
+            });
         }
     };
     sync();
-    mode.connect_changed(move |_| sync());
+    {
+        let sync = sync.clone();
+        freq.connect_changed(move |_| sync());
+    }
 
     let actions = hbox(8);
     let cancel = gtk::Button::with_label("Cancel");
@@ -512,29 +660,77 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>) {
     let refresh = refresh.clone();
     create.connect_clicked(move |_| {
         let name = name.text().to_string();
-        let prompt = text_of(&prompt_view);
         if name.trim().is_empty() {
             error.set_text("Name the task.");
             return;
         }
-        if prompt.trim().is_empty() {
-            error.set_text("Write a prompt.");
-            return;
-        }
-        match mode.active().unwrap_or(0) {
-            0 => schedule::add_once(name.trim(), prompt.trim(), 60),
-            1 | 2 => {
+        let mode = mode.get();
+        let content = text_of(&content);
+        match mode {
+            Mode::Once | Mode::Periodic => {
                 let Some(minutes) = schedule::parse_hhmm(&time.text()) else {
                     error.set_text("Use a time like 08:30.");
                     return;
                 };
-                if mode.active() == Some(1) {
-                    schedule::add_once_at(name.trim(), prompt.trim(), minutes);
+                if mode == Mode::Once {
+                    schedule::add_once_at(name.trim(), content.trim(), minutes);
                 } else {
-                    schedule::add_daily(name.trim(), prompt.trim(), minutes);
+                    let freq_index = freq.active().unwrap_or(1);
+                    let freq = ["day", "week", "biweek", "month", "year"][freq_index as usize];
+                    let byday: Vec<u8> = weekday_checks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, check)| check.is_active())
+                        .map(|(index, _)| index as u8)
+                        .collect();
+                    let bymonthday: Vec<u32> = month_days
+                        .text()
+                        .split(',')
+                        .filter_map(|part| part.trim().parse::<u32>().ok())
+                        .filter(|day| (1..=31).contains(day))
+                        .collect();
+                    if matches!(freq_index, 1 | 2) && byday.is_empty() {
+                        error.set_text("Pick at least one weekday.");
+                        return;
+                    }
+                    if freq_index == 3 && bymonthday.is_empty() {
+                        error.set_text("Give a day of month, like 15.");
+                        return;
+                    }
+                    if content.trim().is_empty() {
+                        error.set_text("Write a prompt.");
+                        return;
+                    }
+                    let bymonth = month_num.text().trim().parse::<u32>().unwrap_or(1);
+                    if freq_index == 4 && !(1..=12).contains(&bymonth) {
+                        error.set_text("Month must be 1-12.");
+                        return;
+                    }
+                    let offset = schedule::local_offset_secs(schedule::unix_now());
+                    let anchor_week = ((schedule::unix_now() as i64 + offset as i64)
+                        .div_euclid(86_400)
+                        / 7) as u64;
+                    let periodic = schedule::Periodic {
+                        freq: freq.into(),
+                        minutes,
+                        byday,
+                        bymonthday,
+                        bymonth,
+                        anchor_week,
+                    };
+                    if schedule::next_periodic_run(schedule::unix_now(), &periodic, offset).is_none()
+                    {
+                        error.set_text("That recurrence never fires; check the fields.");
+                        return;
+                    }
+                    schedule::add_periodic(name.trim(), content.trim(), &periodic);
                 }
             }
-            _ => {
+            Mode::Interval => {
+                if content.trim().is_empty() {
+                    error.set_text("Write a prompt.");
+                    return;
+                }
                 let Ok(raw) = hours.text().trim().parse::<u32>() else {
                     error.set_text("Hours must be a number.");
                     return;
@@ -543,9 +739,29 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>) {
                     error.set_text("Hours must be 1-24.");
                     return;
                 }
-                schedule::add_interval(name.trim(), prompt.trim(), raw);
+                schedule::add_interval(name.trim(), content.trim(), raw);
+            }
+            Mode::Plan => {
+                let Some(minutes) = schedule::parse_hhmm(&time.text()) else {
+                    error.set_text("Use a time like 08:30.");
+                    return;
+                };
+                if content.trim().is_empty() {
+                    error.set_text("Add at least one standing task line.");
+                    return;
+                }
+                let suggest: Vec<String> = content
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                let template_text = text_of(&template);
+                let deadline_value = deadline.text().trim().parse::<u32>().unwrap_or(45);
+                schedule::add_plan_full(name.trim(), minutes, &suggest, &template_text, deadline_value);
             }
         }
+        TAB.with(|slot| slot.set(0));
         refresh();
         window_for_create.close();
     });
@@ -570,107 +786,6 @@ fn text_of(view: &gtk::TextView) -> String {
                 .map(|text| text.to_string())
         })
         .unwrap_or_default()
-}
-
-fn open_plan_dialog(refresh: &Rc<dyn Fn()>) {
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Daily plan");
-    window.set_default_size(520, 360);
-    window.set_modal(true);
-    let root = vbox(8);
-    root.set_margin_top(16);
-    root.set_margin_bottom(16);
-    root.set_margin_start(16);
-    root.set_margin_end(16);
-    let title = gtk::Entry::new();
-    title.set_text("Daily plan");
-    root.pack_start(&title, false, false, 0);
-    let time = gtk::Entry::new();
-    time.set_text("08:30");
-    root.pack_start(&time, false, false, 0);
-    let hint = gtk::Label::new(Some(
-        "Standing tasks, one per line. Unfinished sessions from the window are added automatically.",
-    ));
-    hint.set_xalign(0.0);
-    hint.set_line_wrap(true);
-    class(&hint, "eb-skill-meta");
-    root.pack_start(&hint, false, false, 0);
-    let view = gtk::TextView::new();
-    view.set_wrap_mode(gtk::WrapMode::Word);
-    let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    scroll.set_size_request(-1, 90);
-    scroll.add(&view);
-    root.pack_start(&scroll, false, false, 0);
-    let template_label = gtk::Label::new(Some(
-        "Item prompt template ({task.title}, {task.context}, {task.done_when})",
-    ));
-    template_label.set_xalign(0.0);
-    class(&template_label, "eb-skill-meta");
-    root.pack_start(&template_label, false, false, 0);
-    let template_view = gtk::TextView::new();
-    template_view.set_wrap_mode(gtk::WrapMode::Word);
-    if let Some(buffer) = template_view.buffer() {
-        buffer.set_text(crate::schedule::default_template());
-    }
-    let template_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    template_scroll.set_size_request(-1, 70);
-    template_scroll.add(&template_view);
-    root.pack_start(&template_scroll, false, false, 0);
-    let deadline_label = gtk::Label::new(Some("Approval deadline in minutes"));
-    deadline_label.set_xalign(0.0);
-    class(&deadline_label, "eb-skill-meta");
-    root.pack_start(&deadline_label, false, false, 0);
-    let deadline = gtk::Entry::new();
-    deadline.set_text("45");
-    root.pack_start(&deadline, false, false, 0);
-    let error = gtk::Label::new(None);
-    error.set_xalign(0.0);
-    class(&error, "eb-skill-error");
-    root.pack_start(&error, false, false, 0);
-    let actions = hbox(8);
-    let cancel = gtk::Button::with_label("Cancel");
-    let create = gtk::Button::with_label("Save");
-    actions.pack_end(&create, false, false, 0);
-    actions.pack_end(&cancel, false, false, 0);
-    root.pack_start(&actions, false, false, 0);
-    window.add(&root);
-    let window_for_cancel = window.clone();
-    cancel.connect_clicked(move |_| window_for_cancel.close());
-    let window_for_create = window.clone();
-    let refresh = refresh.clone();
-    create.connect_clicked(move |_| {
-        let name = title.text().to_string();
-        let when = time.text().to_string();
-        let Some(minutes) = schedule::parse_hhmm(&when) else {
-            error.set_text("Use a time like 08:30.");
-            return;
-        };
-        if name.trim().is_empty() {
-            error.set_text("Name the plan.");
-            return;
-        }
-        let body = view
-            .buffer()
-            .and_then(|buffer| {
-                buffer
-                    .text(&buffer.start_iter(), &buffer.end_iter(), false)
-                    .map(|text| text.to_string())
-            })
-            .unwrap_or_default();
-        let suggest: Vec<String> = body
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect();
-        let template = text_of(&template_view);
-        let deadline = deadline.text().trim().parse::<u32>().unwrap_or(45);
-        schedule::add_plan_full(name.trim(), minutes, &suggest, &template, deadline);
-        TAB.with(|slot| slot.set(0));
-        refresh();
-        window_for_create.close();
-    });
-    window.show_all();
 }
 
 fn open_prompt_dialog(
