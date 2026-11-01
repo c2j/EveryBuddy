@@ -58,7 +58,10 @@
 > 跨工作区 ✅（调度迭代）：所有模式（一次性/每天/每 N 小时/周期/计划）均有 Runs in 选择——
 > "来源工作区 / 跨工作区"；cross 的计划条目与提示词任务派发时都不绑定任何工作区（不创建、
 > 不继承），且提示词注入按 Agent×工作区分组的全部会话摘要（cross_digest），用于搜索
-> 每个 Agent 与 Custom Model 的对话任务
+> 每个 Agent 与 Custom Model 的对话任务。注意：`launch_turn` 同时识别 计划条目 scope 与
+> 后台任务的 `cross_workspace` 标志（修复：提示词任务曾因无 plan_item_id 而丢失该语义，
+> 落回最近工作区）。scope 持久化于所有 job 分支；**升级前创建的旧任务需删除重建或手动
+> 在 scheduled.json 加 "scope":"cross"**
 
 调度模式新增第 4 项「计划-审批-派发」，选中后展开四块配置：
 
