@@ -444,7 +444,7 @@ fn default_scope() -> String {
 
 /// A per-workspace/agent tally of every conversation snapshot, used as the
 /// context for cross-workspace plan items.
-fn cross_digest(snaps: &[TaskSnap]) -> String {
+pub fn cross_digest(snaps: &[TaskSnap]) -> String {
     let mut groups: Vec<(String, usize, usize, Vec<String>)> = Vec::new();
     for snap in snaps {
         let key = format!(
@@ -561,7 +561,11 @@ pub struct JobRow {
 
 #[derive(Clone, Debug)]
 pub enum Tick {
-    RunPrompt { title: String, prompt: String },
+    RunPrompt {
+        title: String,
+        prompt: String,
+        scope: String,
+    },
     PlanReady { title: String, items: usize },
     PlanExpired { title: String },
 }
@@ -654,7 +658,7 @@ pub fn claim_once_prompts() -> Vec<(String, String)> {
     claim_once(unix_now())
         .into_iter()
         .filter_map(|event| match event {
-            Tick::RunPrompt { title, prompt } => Some((title, prompt)),
+            Tick::RunPrompt { .. } => None,
             _ => None,
         })
         .collect()
@@ -690,7 +694,7 @@ fn plans_due(now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
     events
 }
 
-pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
+pub fn add_once(title: &str, prompt: &str, delay_secs: u64, scope: &str) {
     let Some(_lock) = try_lock() else {
         return;
     };
@@ -702,10 +706,10 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
         title: title.to_string(),
         prompt: prompt.to_string(),
         due_at: due,
+        scope: scope.to_string(),
         daily_minutes: 0,
         interval_hours: 0,
         periodic: None,
-        scope: "task".into(),
         paused: false,
         next_run_at: 0,
         force: false,
@@ -832,7 +836,7 @@ pub fn default_template() -> &'static str {
 }
 
 /// A prompt that runs every day at `minutes` past local midnight.
-pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
+pub fn add_daily(title: &str, prompt: &str, minutes: u32, scope: &str) {
     let Some(_lock) = try_lock() else {
         return;
     };
@@ -860,7 +864,7 @@ pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
 }
 
 /// A prompt that runs every `hours` hours from now.
-pub fn add_interval(title: &str, prompt: &str, hours: u32) {
+pub fn add_interval(title: &str, prompt: &str, hours: u32, scope: &str) {
     let Some(_lock) = try_lock() else {
         return;
     };
@@ -887,11 +891,11 @@ pub fn add_interval(title: &str, prompt: &str, hours: u32) {
 }
 
 /// A one-shot prompt at the next occurrence of `minutes` past local midnight.
-pub fn add_once_at(title: &str, prompt: &str, minutes: u32) {
+pub fn add_once_at(title: &str, prompt: &str, minutes: u32, scope: &str) {
     let now = unix_now();
     let offset = local_offset_secs(now);
     let due = next_daily_run(now, minutes, offset);
-    add_once(title, prompt, due.saturating_sub(now));
+    add_once(title, prompt, due.saturating_sub(now), scope);
 }
 
 /// Full plan creation with the configurable template and approval deadline.
@@ -1301,6 +1305,7 @@ fn claim_once(now: u64) -> Vec<Tick> {
                 due.push(Tick::RunPrompt {
                     title: job.title.clone(),
                     prompt: job.prompt.clone(),
+                    scope: job.scope.clone(),
                 });
                 job.due_at = u64::MAX; // claimed; removed below
             }
@@ -1308,6 +1313,7 @@ fn claim_once(now: u64) -> Vec<Tick> {
                 due.push(Tick::RunPrompt {
                     title: job.title.clone(),
                     prompt: job.prompt.clone(),
+                    scope: job.scope.clone(),
                 });
                 job.next_run_at = next_daily_run(now, job.daily_minutes, offset);
             }
@@ -1315,6 +1321,7 @@ fn claim_once(now: u64) -> Vec<Tick> {
                 due.push(Tick::RunPrompt {
                     title: job.title.clone(),
                     prompt: job.prompt.clone(),
+                    scope: job.scope.clone(),
                 });
                 job.next_run_at =
                     now + u64::from(job.interval_hours.clamp(1, 24)) * 3600;
@@ -1323,6 +1330,7 @@ fn claim_once(now: u64) -> Vec<Tick> {
                 due.push(Tick::RunPrompt {
                     title: job.title.clone(),
                     prompt: job.prompt.clone(),
+                    scope: job.scope.clone(),
                 });
                 if let Some(periodic) = job.periodic.as_ref() {
                     job.next_run_at = next_periodic_run(now, periodic, offset)
@@ -1791,6 +1799,7 @@ fn job_json(job: &Job) -> serde_json::Value {
             "prompt": job.prompt,
             "due_at": job.due_at,
             "paused": job.paused,
+            "scope": job.scope,
         })
     }
 }
@@ -2301,6 +2310,38 @@ mod tests {
         let changelog = plan.items.iter().find(|item| item.title == "Changelog").unwrap();
         assert_eq!(fix.risk, "high", "a failed session is high risk");
         assert_eq!(changelog.risk, "low", "a fresh template line is low risk");
+    }
+
+    #[test]
+    fn a_cross_prompt_job_claims_with_its_scope() {
+        let dir = temp_dir("cross-prompt");
+        let now = unix_now();
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([{
+                "id": "job-cp",
+                "kind": "daily",
+                "title": "Weekly agent summary",
+                "prompt": "总结本周所有Agent的任务完成情况",
+                "daily_minutes": 510,
+                "next_run_at": now - 10,
+                "scope": "cross",
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let events = tick_at(&dir, now, 0, &[]);
+        match &events[0] {
+            Tick::RunPrompt { title, scope, .. } => {
+                assert_eq!(title, "Weekly agent summary");
+                assert_eq!(scope, "cross");
+            }
+            other => panic!("expected RunPrompt, got {other:?}"),
+        }
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        assert_eq!(left[0]["scope"], "cross", "scope must survive the save");
     }
 
     #[test]

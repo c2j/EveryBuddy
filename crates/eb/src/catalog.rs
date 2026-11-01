@@ -603,7 +603,7 @@ pub fn take_due() -> Vec<(String, String)> {
 }
 
 pub fn add_scheduled(title: &str, prompt: &str, delay_secs: u64) {
-    crate::schedule::add_once(title, prompt, delay_secs);
+    crate::schedule::add_once(title, prompt, delay_secs, "task");
 }
 
 #[cfg(test)]

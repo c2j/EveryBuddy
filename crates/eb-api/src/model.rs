@@ -125,6 +125,9 @@ pub struct Task {
     pub plan_item_id: Option<String>,
     /// The agent has not been started; the row is waiting for a free slot.
     pub dispatch_queued: bool,
+    /// A cross-workspace run binds to no workspace and searches every
+    /// agent's and custom model's conversations.
+    pub cross_workspace: bool,
     /// Set while a tool call waits for the user's decision; the transcript
     /// renders an inline card for it. Cleared on answer.
     pub pending_permission: Option<PendingPermission>,
@@ -388,6 +391,7 @@ impl App {
             origin: None,
             plan_item_id: None,
             dispatch_queued: false,
+            cross_workspace: false,
         });
 
         self.nav = None;
@@ -438,6 +442,7 @@ impl App {
             origin: Some("dispatched".into()),
             plan_item_id: None,
             dispatch_queued: true,
+            cross_workspace: false,
         });
         Some(index)
     }

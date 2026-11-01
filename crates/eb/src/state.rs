@@ -50,6 +50,7 @@ pub fn save(store: &Store) {
                 "origin": task.origin,
                 "plan_item_id": task.plan_item_id,
                 "dispatch_queued": task.dispatch_queued,
+                "cross_workspace": task.cross_workspace,
                 "turns": serde_json::to_value(&task.turns).unwrap_or_default(),
             })
         })
@@ -182,6 +183,7 @@ pub fn load() -> Loaded {
             origin: value["origin"].as_str().map(str::to_string),
             plan_item_id: value["plan_item_id"].as_str().map(str::to_string),
             dispatch_queued: value["dispatch_queued"].as_bool().unwrap_or(false),
+            cross_workspace: value["cross_workspace"].as_bool().unwrap_or(false),
         });
     }
 

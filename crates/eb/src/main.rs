@@ -617,6 +617,7 @@ fn build_ui(application: &gtk::Application) {
                 origin: None,
                 plan_item_id: None,
                 dispatch_queued: false,
+                cross_workspace: false,
                 artifact: Some(model::Artifact {
                     name: "demo.py".into(),
                     code: "print('hello')\n".into(),

@@ -786,9 +786,38 @@ impl Runner {
         let mut notices = Vec::new();
         for event in crate::schedule::tick(crate::schedule::unix_now(), &snaps) {
             match event {
-                crate::schedule::Tick::RunPrompt { title, prompt } => {
-                    eprintln!("scheduler: running '{title}'");
-                    if !prompt.is_empty() {
+                crate::schedule::Tick::RunPrompt { title, prompt, scope } => {
+                    eprintln!("scheduler: running '{title}' (scope={scope})");
+                    if prompt.is_empty() {
+                        continue;
+                    }
+                    if scope == "cross" {
+                        // A cross-workspace prompt job searches every agent's
+                        // and custom model's conversations: run it as a
+                        // background task bound to no workspace, with the
+                        // digest folded into the prompt.
+                        let prompt = {
+                            let app = self.store.borrow();
+                            let snaps =
+                                crate::schedule::snapshots(&app.tasks, &app.workspaces);
+                            format!(
+                                "{prompt}\n\n[cross-workspace context]\n{}",
+                                crate::schedule::cross_digest(&snaps)
+                            )
+                        };
+                        let index = self
+                            .store
+                            .borrow_mut()
+                            .begin_background_task(&title, &prompt);
+                        if let Some(index) = index {
+                            if let Some(task) = self.store.borrow_mut().tasks.get_mut(index) {
+                                task.cross_workspace = true;
+                            }
+                            crate::state::save(&self.store);
+                            self.refresher.request();
+                            self.pump_dispatches();
+                        }
+                    } else {
                         self.submit(prompt);
                     }
                 }
