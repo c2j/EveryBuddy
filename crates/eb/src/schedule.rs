@@ -352,6 +352,8 @@ struct Job {
     prompt: String,
     due_at: u64,
     daily_minutes: u32,
+    /// For `interval` prompt jobs: hours between runs.
+    interval_hours: u32,
     next_run_at: u64,
     /// Set by Run now. Consumed by the next tick so a missing timestamp cannot
     /// look like a request to run immediately.
@@ -562,6 +564,7 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
         prompt: prompt.to_string(),
         due_at: due,
         daily_minutes: 0,
+        interval_hours: 0,
         next_run_at: 0,
         force: false,
         deadline_minutes: 45,
@@ -585,10 +588,108 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
         prompt: String::new(),
         due_at: 0,
         daily_minutes,
+        interval_hours: 0,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
         deadline_minutes: 45,
         template: DEFAULT_TEMPLATE.to_string(),
+        suggest: suggest.to_vec(),
+    });
+    save_jobs(&jobs);
+}
+
+/// The editable per-item prompt template shown in the plan dialog.
+pub fn default_template() -> &'static str {
+    DEFAULT_TEMPLATE
+}
+
+/// A prompt that runs every day at `minutes` past local midnight.
+pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let now = unix_now();
+    let offset = local_offset_secs(now);
+    let mut jobs = load_jobs();
+    jobs.push(Job {
+        id: fresh_id("job"),
+        kind: "daily".into(),
+        title: title.to_string(),
+        prompt: prompt.to_string(),
+        due_at: 0,
+        daily_minutes: minutes,
+        interval_hours: 0,
+        next_run_at: next_daily_run(now, minutes, offset),
+        force: false,
+        deadline_minutes: 45,
+        template: String::new(),
+        suggest: Vec::new(),
+    });
+    save_jobs(&jobs);
+}
+
+/// A prompt that runs every `hours` hours from now.
+pub fn add_interval(title: &str, prompt: &str, hours: u32) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let now = unix_now();
+    let mut jobs = load_jobs();
+    jobs.push(Job {
+        id: fresh_id("job"),
+        kind: "interval".into(),
+        title: title.to_string(),
+        prompt: prompt.to_string(),
+        due_at: 0,
+        daily_minutes: 0,
+        interval_hours: hours.clamp(1, 24),
+        next_run_at: now + u64::from(hours.clamp(1, 24)) * 3600,
+        force: false,
+        deadline_minutes: 45,
+        template: String::new(),
+        suggest: Vec::new(),
+    });
+    save_jobs(&jobs);
+}
+
+/// A one-shot prompt at the next occurrence of `minutes` past local midnight.
+pub fn add_once_at(title: &str, prompt: &str, minutes: u32) {
+    let now = unix_now();
+    let offset = local_offset_secs(now);
+    let due = next_daily_run(now, minutes, offset);
+    add_once(title, prompt, due.saturating_sub(now));
+}
+
+/// Full plan creation with the configurable template and approval deadline.
+pub fn add_plan_full(
+    title: &str,
+    daily_minutes: u32,
+    suggest: &[String],
+    template: &str,
+    deadline_minutes: u32,
+) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let now = unix_now();
+    let offset = local_offset_secs(now);
+    let mut jobs = load_jobs();
+    jobs.push(Job {
+        id: fresh_id("job"),
+        kind: "plan".into(),
+        title: title.to_string(),
+        prompt: String::new(),
+        due_at: 0,
+        daily_minutes,
+        interval_hours: 0,
+        next_run_at: next_daily_run(now, daily_minutes, offset),
+        force: false,
+        deadline_minutes: deadline_minutes.clamp(1, 24 * 60),
+        template: if template.trim().is_empty() {
+            DEFAULT_TEMPLATE.to_string()
+        } else {
+            template.to_string()
+        },
         suggest: suggest.to_vec(),
     });
     save_jobs(&jobs);
@@ -620,6 +721,8 @@ pub fn run_now(index: usize) -> bool {
             return false;
         }
         job.force = true;
+    } else if job.kind == "daily" || job.kind == "interval" {
+        job.next_run_at = 0;
     } else {
         job.due_at = 0;
     }
@@ -633,29 +736,46 @@ pub fn rows() -> Vec<JobRow> {
         .into_iter()
         .enumerate()
         .map(|(index, job)| {
-            let when = if job.kind == "plan" {
-                let due = if job.force || job.next_run_at <= now {
-                    "due now".to_string()
-                } else {
-                    format!("in {}s", job.next_run_at - now)
-                };
-                format!("daily {} · {due}", format_hhmm(job.daily_minutes))
-            } else if job.due_at <= now {
-                "due now".to_string()
-            } else {
-                format!("in {}s", job.due_at - now)
+            let when = match job.kind.as_str() {
+                "plan" => {
+                    let due = if job.force || job.next_run_at <= now {
+                        "due now".to_string()
+                    } else {
+                        format!("in {}s", job.next_run_at - now)
+                    };
+                    format!("daily {} · {due}", format_hhmm(job.daily_minutes))
+                }
+                "daily" => {
+                    let due = if job.next_run_at <= now {
+                        "due now".to_string()
+                    } else {
+                        format!("in {}s", job.next_run_at - now)
+                    };
+                    format!("daily {} · {due}", format_hhmm(job.daily_minutes))
+                }
+                "interval" => {
+                    let due = if job.next_run_at <= now {
+                        "due now".to_string()
+                    } else {
+                        format!("in {}s", job.next_run_at - now)
+                    };
+                    format!("every {}h · {due}", job.interval_hours)
+                }
+                _ if job.due_at <= now => "due now".to_string(),
+                _ => format!("in {}s", job.due_at - now),
             };
             JobRow {
                 index,
                 title: job.title,
-                prompt: if job.kind == "plan" {
-                    "Plan, approve, then dispatch.".into()
-                } else {
-                    job.prompt
+                prompt: match job.kind.as_str() {
+                    "plan" => "Plan, approve, then dispatch.".into(),
+                    "daily" | "interval" => job.prompt.clone(),
+                    _ => job.prompt,
                 },
                 when,
                 plan: job.kind == "plan",
             }
+
         })
         .collect()
 }
@@ -797,22 +917,42 @@ pub fn mark_started(item_id: &str) {
 }
 
 fn claim_once(now: u64) -> Vec<Tick> {
-    let jobs = load_jobs();
-    let mut keep = Vec::new();
+    let offset = local_offset_secs(now);
+    let mut jobs = load_jobs();
     let mut due = Vec::new();
-    for job in jobs {
-        if job.kind != "plan" && job.due_at <= now {
-            due.push(Tick::RunPrompt {
-                title: job.title,
-                prompt: job.prompt,
-            });
-        } else {
-            keep.push(job);
+    for job in jobs.iter_mut() {
+        match job.kind.as_str() {
+            "plan" => {}
+            "once" if job.due_at <= now => {
+                due.push(Tick::RunPrompt {
+                    title: job.title.clone(),
+                    prompt: job.prompt.clone(),
+                });
+                job.due_at = u64::MAX; // claimed; removed below
+            }
+            "daily" if job.next_run_at <= now => {
+                due.push(Tick::RunPrompt {
+                    title: job.title.clone(),
+                    prompt: job.prompt.clone(),
+                });
+                job.next_run_at = next_daily_run(now, job.daily_minutes, offset);
+            }
+            "interval" if job.next_run_at <= now => {
+                due.push(Tick::RunPrompt {
+                    title: job.title.clone(),
+                    prompt: job.prompt.clone(),
+                });
+                job.next_run_at =
+                    now + u64::from(job.interval_hours.clamp(1, 24)) * 3600;
+            }
+            _ => {}
         }
     }
-    if !due.is_empty() {
-        save_jobs(&keep);
-    }
+    let keep: Vec<Job> = jobs
+        .into_iter()
+        .filter(|job| job.kind == "plan" || job.kind == "daily" || job.kind == "interval" || job.due_at != u64::MAX)
+        .collect();
+    save_jobs(&keep);
     due
 }
 
@@ -1173,6 +1313,7 @@ fn parse_job(value: serde_json::Value) -> Job {
         prompt: value["prompt"].as_str().unwrap_or("").to_string(),
         due_at,
         daily_minutes: value["daily_minutes"].as_u64().unwrap_or(8 * 60 + 30) as u32,
+        interval_hours: value["interval_hours"].as_u64().unwrap_or(1) as u32,
         next_run_at: value["next_run_at"].as_u64().unwrap_or(0),
         force: value["force"].as_bool().unwrap_or(false),
         deadline_minutes: value["deadline_minutes"].as_u64().unwrap_or(45) as u32,
@@ -1202,6 +1343,16 @@ fn job_json(job: &Job) -> serde_json::Value {
             "deadline_minutes": job.deadline_minutes,
             "template": job.template,
             "suggest": job.suggest,
+        })
+    } else if job.kind == "daily" || job.kind == "interval" {
+        serde_json::json!({
+            "id": job.id,
+            "kind": job.kind,
+            "title": job.title,
+            "prompt": job.prompt,
+            "daily_minutes": job.daily_minutes,
+            "interval_hours": job.interval_hours,
+            "next_run_at": job.next_run_at,
         })
     } else {
         serde_json::json!({
@@ -1440,6 +1591,97 @@ mod tests {
         done.plan_item_id = Some(item_id);
         let events = tick_at(&dir, next, 0, &[done]);
         assert!(matches!(&events[0], Tick::PlanReady { items: 0, .. }));
+    }
+
+
+    #[test]
+    fn a_daily_prompt_job_fires_once_and_waits_for_tomorrow() {
+        let dir = temp_dir("daily");
+        let day = 10_000 * 86_400;
+        let slot = day + 9 * 3600;
+        let jobs = serde_json::json!([{
+            "id": "job-d1",
+            "kind": "daily",
+            "title": "Standup",
+            "prompt": "Post the standup",
+            "daily_minutes": 540,
+            "next_run_at": slot,
+        }]);
+        std::fs::write(dir.join("scheduled.json"), jobs.to_string()).unwrap();
+        let events = tick_at(&dir, slot + 30, 0, &[]);
+        assert!(matches!(&events[0], Tick::RunPrompt { title, prompt } if title == "Standup" && prompt == "Post the standup"));
+        let again = tick_at(&dir, slot + 60, 0, &[]);
+        assert!(again.is_empty(), "a daily job must not fire twice a day");
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        assert_eq!(left[0]["kind"], "daily");
+        // The next 09:00 in the machine's local time (the tick offsets by it).
+        let offset = local_offset_secs(slot + 30);
+        assert_eq!(
+            left[0]["next_run_at"],
+            next_daily_run(slot + 30, 540, offset)
+        );
+    }
+
+    #[test]
+    fn an_interval_prompt_job_fires_repeatedly() {
+        let dir = temp_dir("interval");
+        let start = 10_000 * 86_400 + 3600;
+        let jobs = serde_json::json!([{
+            "id": "job-i1",
+            "kind": "interval",
+            "title": "Stretch",
+            "prompt": "Time to stretch",
+            "interval_hours": 2,
+            "next_run_at": start,
+        }]);
+        std::fs::write(dir.join("scheduled.json"), jobs.to_string()).unwrap();
+        let events = tick_at(&dir, start, 0, &[]);
+        assert!(matches!(&events[0], Tick::RunPrompt { title, .. } if title == "Stretch"));
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        assert_eq!(left[0]["next_run_at"], start + 7200);
+        let events = tick_at(&dir, start + 7200, 0, &[]);
+        assert!(matches!(&events[0], Tick::RunPrompt { .. }));
+    }
+
+    #[test]
+    fn once_at_schedules_the_next_occurrence_of_the_time() {
+        let dir = temp_dir("once-at");
+        let _guard = DirGuard::push(dir.clone());
+        let now = unix_now();
+        add_once_at("Evening review", "Review the day", 21 * 60 + 30);
+        let jobs: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        let due = jobs[0]["due_at"].as_u64().unwrap();
+        assert!(due > now, "the slot must be in the future");
+        let offset = local_offset_secs(now);
+        assert_eq!(due, next_daily_run(now, 21 * 60 + 30, offset));
+    }
+
+    #[test]
+    fn plan_full_persists_the_template_and_deadline() {
+        let dir = temp_dir("plan-full");
+        let _guard = DirGuard::push(dir.clone());
+        add_plan_full(
+            "Morning plan",
+            510,
+            &["Changelog".to_string()],
+            "Do \"{task.title}\" carefully.",
+            90,
+        );
+        let jobs: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        assert_eq!(jobs[0]["deadline_minutes"], 90);
+        assert_eq!(jobs[0]["template"], "Do \"{task.title}\" carefully.");
+        // A reparse keeps both fields.
+        let job = parse_job(jobs[0].clone());
+        assert_eq!(job.deadline_minutes, 90);
+        assert_eq!(job.template, "Do \"{task.title}\" carefully.");
     }
 
     #[test]

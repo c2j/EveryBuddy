@@ -84,7 +84,7 @@ pub fn fill(
     let new = gtk::Button::with_label("+ New");
     class(&new, "eb-add-skill");
     let refresh_new = refresh.clone();
-    new.connect_clicked(move |_| open_once_dialog(&refresh_new));
+    new.connect_clicked(move |_| open_task_dialog(&refresh_new));
     header.pack_end(&new, false, false, 0);
     container.pack_start(&header, false, false, 0);
 
@@ -442,22 +442,66 @@ fn item_row(
     row
 }
 
-fn open_once_dialog(refresh: &Rc<dyn Fn()>) {
+fn open_task_dialog(refresh: &Rc<dyn Fn()>) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("New Scheduled Task");
-    window.set_default_size(480, 220);
+    window.set_default_size(520, 420);
     window.set_modal(true);
     let root = vbox(8);
     root.set_margin_top(16);
     root.set_margin_bottom(16);
     root.set_margin_start(16);
     root.set_margin_end(16);
-    let prompt = gtk::Entry::new();
-    prompt.set_placeholder_text(Some("Prompt to run in one minute"));
-    root.pack_start(&prompt, false, false, 0);
+
+    let name = labeled_entry(&root, "Name");
+    let mode_box = hbox(4);
+    let mode_label = gtk::Label::new(Some("Trigger"));
+    class(&mode_label, "eb-skill-meta");
+    mode_box.pack_start(&mode_label, false, false, 0);
+    let mode = gtk::ComboBoxText::new();
+    mode.append_text("In 1 minute");
+    mode.append_text("At a time of day");
+    mode.append_text("Every day");
+    mode.append_text("Every N hours");
+    mode.set_active(Some(0));
+    mode_box.pack_start(&mode, true, true, 0);
+    root.pack_start(&mode_box, false, false, 0);
+    let time = labeled_entry(&root, "Time of day (HH:mm)");
+    let hours = labeled_entry(&root, "Hours between runs (1-24)");
+    hours.set_text("2");
+    let prompt_label = gtk::Label::new(Some("Prompt"));
+    class(&prompt_label, "eb-skill-meta");
+    prompt_label.set_xalign(0.0);
+    root.pack_start(&prompt_label, false, false, 0);
+    let prompt_view = gtk::TextView::new();
+    prompt_view.set_wrap_mode(gtk::WrapMode::Word);
+    let prompt_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    prompt_scroll.set_size_request(-1, 110);
+    prompt_scroll.add(&prompt_view);
+    root.pack_start(&prompt_scroll, true, true, 0);
+    let error = gtk::Label::new(None);
+    error.set_xalign(0.0);
+    class(&error, "eb-skill-error");
+    root.pack_start(&error, false, false, 0);
+
+    // Mode visibility: 0 (+1m) needs nothing extra, 1 needs the time, 2 needs
+    // the time, 3 needs the hours.
+    let sync = {
+        let mode = mode.clone();
+        let time = time.clone();
+        let hours = hours.clone();
+        move || {
+            let index = mode.active().unwrap_or(0);
+            time.set_visible(index == 1 || index == 2);
+            hours.set_visible(index == 3);
+        }
+    };
+    sync();
+    mode.connect_changed(move |_| sync());
+
     let actions = hbox(8);
     let cancel = gtk::Button::with_label("Cancel");
-    let create = gtk::Button::with_label("Schedule +1m");
+    let create = gtk::Button::with_label("Schedule");
     actions.pack_end(&create, false, false, 0);
     actions.pack_end(&cancel, false, false, 0);
     root.pack_start(&actions, false, false, 0);
@@ -467,14 +511,65 @@ fn open_once_dialog(refresh: &Rc<dyn Fn()>) {
     let window_for_create = window.clone();
     let refresh = refresh.clone();
     create.connect_clicked(move |_| {
-        let text = prompt.text().to_string();
-        if !text.trim().is_empty() {
-            schedule::add_once(&text, &text, 60);
-            refresh();
-            window_for_create.close();
+        let name = name.text().to_string();
+        let prompt = text_of(&prompt_view);
+        if name.trim().is_empty() {
+            error.set_text("Name the task.");
+            return;
         }
+        if prompt.trim().is_empty() {
+            error.set_text("Write a prompt.");
+            return;
+        }
+        match mode.active().unwrap_or(0) {
+            0 => schedule::add_once(name.trim(), prompt.trim(), 60),
+            1 | 2 => {
+                let Some(minutes) = schedule::parse_hhmm(&time.text()) else {
+                    error.set_text("Use a time like 08:30.");
+                    return;
+                };
+                if mode.active() == Some(1) {
+                    schedule::add_once_at(name.trim(), prompt.trim(), minutes);
+                } else {
+                    schedule::add_daily(name.trim(), prompt.trim(), minutes);
+                }
+            }
+            _ => {
+                let Ok(raw) = hours.text().trim().parse::<u32>() else {
+                    error.set_text("Hours must be a number.");
+                    return;
+                };
+                if !(1..=24).contains(&raw) {
+                    error.set_text("Hours must be 1-24.");
+                    return;
+                }
+                schedule::add_interval(name.trim(), prompt.trim(), raw);
+            }
+        }
+        refresh();
+        window_for_create.close();
     });
     window.show_all();
+}
+
+fn labeled_entry(container: &gtk::Box, label: &str) -> gtk::Entry {
+    let label = gtk::Label::new(Some(label));
+    class(&label, "eb-skill-meta");
+    label.set_xalign(0.0);
+    container.pack_start(&label, false, false, 0);
+    let entry = gtk::Entry::new();
+    container.pack_start(&entry, false, false, 0);
+    entry
+}
+
+fn text_of(view: &gtk::TextView) -> String {
+    view.buffer()
+        .and_then(|buffer| {
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .map(|text| text.to_string())
+        })
+        .unwrap_or_default()
 }
 
 fn open_plan_dialog(refresh: &Rc<dyn Fn()>) {
@@ -503,9 +598,31 @@ fn open_plan_dialog(refresh: &Rc<dyn Fn()>) {
     let view = gtk::TextView::new();
     view.set_wrap_mode(gtk::WrapMode::Word);
     let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    scroll.set_size_request(-1, 100);
+    scroll.set_size_request(-1, 90);
     scroll.add(&view);
-    root.pack_start(&scroll, true, true, 0);
+    root.pack_start(&scroll, false, false, 0);
+    let template_label = gtk::Label::new(Some(
+        "Item prompt template ({task.title}, {task.context}, {task.done_when})",
+    ));
+    template_label.set_xalign(0.0);
+    class(&template_label, "eb-skill-meta");
+    root.pack_start(&template_label, false, false, 0);
+    let template_view = gtk::TextView::new();
+    template_view.set_wrap_mode(gtk::WrapMode::Word);
+    if let Some(buffer) = template_view.buffer() {
+        buffer.set_text(crate::schedule::default_template());
+    }
+    let template_scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+    template_scroll.set_size_request(-1, 70);
+    template_scroll.add(&template_view);
+    root.pack_start(&template_scroll, false, false, 0);
+    let deadline_label = gtk::Label::new(Some("Approval deadline in minutes"));
+    deadline_label.set_xalign(0.0);
+    class(&deadline_label, "eb-skill-meta");
+    root.pack_start(&deadline_label, false, false, 0);
+    let deadline = gtk::Entry::new();
+    deadline.set_text("45");
+    root.pack_start(&deadline, false, false, 0);
     let error = gtk::Label::new(None);
     error.set_xalign(0.0);
     class(&error, "eb-skill-error");
@@ -546,7 +663,9 @@ fn open_plan_dialog(refresh: &Rc<dyn Fn()>) {
             .filter(|line| !line.is_empty())
             .map(str::to_string)
             .collect();
-        schedule::add_plan(name.trim(), minutes, &suggest);
+        let template = text_of(&template_view);
+        let deadline = deadline.text().trim().parse::<u32>().unwrap_or(45);
+        schedule::add_plan_full(name.trim(), minutes, &suggest, &template, deadline);
         TAB.with(|slot| slot.set(0));
         refresh();
         window_for_create.close();
