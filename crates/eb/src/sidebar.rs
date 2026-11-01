@@ -93,6 +93,8 @@ pub struct TaskRow {
     pub workspace_id: Option<String>,
     pub pinned: bool,
     pub archived: bool,
+    /// Dispatched from a Scheduled job: the row wears a `Scheduled` tag.
+    pub scheduled: bool,
 }
 
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Sidebar {
@@ -716,6 +718,10 @@ fn task_row(
         line.pack_start(&pin_button(row, task_action), false, false, 0);
     }
     line.pack_start(&ellipsized(&row.title, "eb-task-title"), true, true, 0);
+    if row.scheduled {
+        let tag = text("Scheduled", "eb-scheduled-tag");
+        line.pack_start(&tag, false, false, 0);
+    }
     // The trailing slot is 16x16 in the product and the row's timestamp is
     // hidden exactly while something stands in it (`:has([class*=trailingStatus])
     // [class*=timeContainer]{display:none}`). The priority is the bundle's:

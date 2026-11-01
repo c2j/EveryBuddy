@@ -1313,6 +1313,7 @@ impl Views {
                 workspace_id: task.workspace_id.clone(),
                 pinned: task.pinned,
                 archived: task.archived,
+                scheduled: task.origin.as_deref() == Some("dispatched"),
             })
             .collect();
         // Pinned tasks float to the top of their section and archived ones
