@@ -19,6 +19,7 @@ thread_local! {
     static NOTICE: RefCell<Option<String>> = const { RefCell::new(None) };
     static SEARCH: RefCell<String> = const { RefCell::new(String::new()) };
     static RECORD_FILTER: Cell<usize> = const { Cell::new(0) };
+    static JOB_FILTER: Cell<usize> = const { Cell::new(0) };
     static BATCH_SELECTED: RefCell<std::collections::HashSet<String>> = {
         RefCell::new(std::collections::HashSet::new())
     };
@@ -130,7 +131,8 @@ pub fn fill(
 
 fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>) {
     // Search box filters by title or prompt substring; the query survives
-    // page rebuilds in a thread-local.
+    // page rebuilds in a thread-local. The status combo narrows to active or
+    // paused jobs.
     let search_row = hbox(8);
     let search = gtk::Entry::new();
     search.set_placeholder_text(Some("Search tasks…"));
@@ -152,6 +154,19 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
         });
     }
     search_row.pack_start(&search, true, true, 0);
+    let status = gtk::ComboBoxText::new();
+    for label in ["All", "Active", "Paused"] {
+        status.append_text(label);
+    }
+    status.set_active(Some(JOB_FILTER.with(Cell::get) as u32));
+    {
+        let refresh = refresh.clone();
+        status.connect_changed(move |combo| {
+            JOB_FILTER.with(|slot| slot.set(combo.active().unwrap_or(0) as usize));
+            refresh();
+        });
+    }
+    search_row.pack_end(&status, false, false, 0);
     let selected_count = BATCH_SELECTED.with(|slot| slot.borrow().len());
     if selected_count > 0 {
         let delete_selected = gtk::Button::with_label(&format!("Delete selected ({selected_count})"));
@@ -175,13 +190,20 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
     container.pack_start(&search_row, false, false, 0);
 
     let query = SEARCH.with(|slot| slot.borrow().to_lowercase());
-    let jobs: Vec<schedule::JobRow> = schedule::rows()
-        .into_iter()
+    let status_filter = JOB_FILTER.with(Cell::get);
+    let all_jobs: Vec<schedule::JobRow> = schedule::rows();
+    let jobs: Vec<schedule::JobRow> = all_jobs
+        .iter()
         .filter(|row| {
-            query.is_empty()
+            (match status_filter {
+                1 => !row.paused,
+                2 => row.paused,
+                _ => true,
+            }) && (query.is_empty()
                 || row.title.to_lowercase().contains(&query)
-                || row.prompt.to_lowercase().contains(&query)
+                || row.prompt.to_lowercase().contains(&query))
         })
+        .cloned()
         .collect();
     if jobs.is_empty() {
         let text = gtk::Label::new(Some(if query.is_empty() {
@@ -192,6 +214,37 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
         text.set_xalign(0.0);
         class(&text, "eb-skill-meta");
         container.pack_start(&text, false, false, 0);
+    }
+    // Select-all operates on the filtered view, mirroring the batch toolbar.
+    if jobs.len() > 1 {
+        let select_all = gtk::CheckButton::with_label("Select all");
+        let all_selected = !jobs.is_empty()
+            && jobs
+                .iter()
+                .all(|job| BATCH_SELECTED.with(|slot| slot.borrow().contains(&job.id)));
+        select_all.set_active(all_selected);
+        {
+            let jobs = jobs.clone();
+            let refresh = refresh.clone();
+            select_all.connect_toggled(move |button| {
+                let ids: Vec<String> =
+                    jobs.iter().filter(|job| !job.id.is_empty()).map(|job| job.id.clone()).collect();
+                BATCH_SELECTED.with(|slot| {
+                    let mut slot = slot.borrow_mut();
+                    if button.is_active() {
+                        for id in &ids {
+                            slot.insert(id.clone());
+                        }
+                    } else {
+                        for id in &ids {
+                            slot.remove(id);
+                        }
+                    }
+                });
+                refresh();
+            });
+        }
+        container.pack_start(&select_all, false, false, 0);
     }
     for job in jobs {
         let card = vbox(3);
@@ -249,6 +302,15 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
             refresh_run();
         });
         head.pack_end(&run, false, false, 0);
+        if job.plan {
+            let records = gtk::Button::with_label("Records");
+            let refresh_records = refresh.clone();
+            records.connect_clicked(move |_| {
+                TAB.with(|slot| slot.set(2));
+                refresh_records();
+            });
+            head.pack_end(&records, false, false, 0);
+        }
         let delete = gtk::Button::with_label("Delete");
         let refresh_delete = refresh.clone();
         delete.connect_clicked(move |_| {
@@ -328,6 +390,23 @@ fn fill_approvals(
         .into_iter()
         .filter(|plan| plan.status == "pending")
         .collect();
+    // The toolbar-level approval covers every pending plan at once, for the
+    // morning "just approve everything" case across several plan jobs.
+    if pending.len() > 1 {
+        let approve_everything = gtk::Button::with_label("Approve all plans");
+        let refresh = refresh.clone();
+        let pump = pump.clone();
+        approve_everything.connect_clicked(move |_| {
+            for plan in schedule::plans() {
+                if plan.status == "pending" {
+                    schedule::decide(&plan.id, DecisionKind::All);
+                }
+            }
+            pump();
+            refresh();
+        });
+        container.pack_start(&approve_everything, false, false, 0);
+    }
     if pending.is_empty() {
         let empty = gtk::Label::new(Some("No plans waiting for approval."));
         empty.set_xalign(0.0);
@@ -362,6 +441,29 @@ fn fill_approvals(
         diff.set_line_wrap(true);
         class(&diff, "eb-skill-meta");
         card.pack_start(&diff, false, false, 0);
+
+        // Per-card select-all: the checkbox shows how many of the card's items
+        // are already picked.
+        let picked = plan.items.iter().filter(|item| item.selected).count();
+        let select_head = hbox(8);
+        let select_all = gtk::CheckButton::with_label(&format!(
+            "Select all ({picked}/{})",
+            plan.items.len()
+        ));
+        select_all.set_active(picked == plan.items.len());
+        {
+            let plan_items = plan.items.clone();
+            let plan_id = plan.id.clone();
+            let refresh = refresh.clone();
+            select_all.connect_toggled(move |button| {
+                for item in &plan_items {
+                    schedule::set_selected(&plan_id, &item.id, button.is_active());
+                }
+                refresh();
+            });
+        }
+        select_head.pack_start(&select_all, false, false, 0);
+        card.pack_start(&select_head, false, false, 0);
 
         for item in &plan.items {
             card.pack_start(
@@ -409,6 +511,38 @@ fn fill_approvals(
         container.pack_start(&card, false, false, 0);
     }
 
+    // Expired plans stay visible with what happened to them, but carry no
+    // actions: their remaining items already merged into the next plan.
+    let expired: Vec<PlanRun> = schedule::plans()
+        .into_iter()
+        .filter(|plan| plan.resolution == "timeout_skip_merge" && !plan.archived)
+        .collect();
+    if !expired.is_empty() {
+        let section = gtk::Label::new(Some("Expired"));
+        section.set_xalign(0.0);
+        class(&section, "eb-catalog-section");
+        container.pack_start(&section, false, false, 0);
+        for plan in expired {
+            let card = vbox(3);
+            class(&card, "eb-skill-card");
+            let head = gtk::Label::new(Some(&format!(
+                "{} · {} · expired",
+                plan.title,
+                schedule::format_local(plan.created_at)
+            )));
+            head.set_xalign(0.0);
+            class(&head, "eb-skill-title");
+            card.pack_start(&head, false, false, 0);
+            let note = gtk::Label::new(Some(
+                "Timed out without approval. Its remaining items merged into the next plan.",
+            ));
+            note.set_xalign(0.0);
+            note.set_line_wrap(true);
+            class(&note, "eb-skill-meta");
+            card.pack_start(&note, false, false, 0);
+            container.pack_start(&card, false, false, 0);
+        }
+    }
     // Expired plans stay visible with what happened to them, but carry no
     // actions: their remaining items already merged into the next plan.
     let expired: Vec<PlanRun> = schedule::plans()
