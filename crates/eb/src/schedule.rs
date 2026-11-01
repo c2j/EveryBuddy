@@ -348,6 +348,35 @@ fn join_nums(nums: &[u32]) -> String {
         .join(",")
 }
 
+/// Strip the dispatch preamble so an edited prompt can be stored as the
+/// item template without gaining a second preamble on the next plan.
+pub fn without_preamble(prompt: &str) -> &str {
+    prompt.strip_prefix(PREAMBLE).unwrap_or(prompt)
+}
+
+/// Local `YYYY-MM-DD` for a Unix timestamp.
+pub fn format_local_date(unix: u64) -> String {
+    #[cfg(unix)]
+    unsafe {
+        let t = unix as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return String::new();
+        }
+        return format!(
+            "{:04}-{:02}-{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = unix;
+        String::new()
+    }
+}
+
 pub fn format_hhmm(minutes: u32) -> String {
     format!("{:02}:{:02}", minutes / 60, minutes % 60)
 }
@@ -395,14 +424,24 @@ struct Job {
     /// Set by Run now. Consumed by the next tick so a missing timestamp cannot
     /// look like a request to run immediately.
     force: bool,
+    /// A paused job is skipped by every claim path until resumed.
+    paused: bool,
     deadline_minutes: u32,
     template: String,
     suggest: Vec<String>,
 }
 
+fn default_risk() -> String {
+    "low".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanItem {
     pub id: String,
+    /// `low` or `high`. High means the session already failed or the item is
+    /// carried over from an earlier plan; those deserve a look before approval.
+    #[serde(default = "default_risk")]
+    pub risk: String,
     pub title: String,
     pub context: String,
     pub done_when: String,
@@ -421,6 +460,8 @@ pub struct PlanItem {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanRun {
     pub id: String,
+    /// Archived runs leave the Records list until unarchived.
+    pub archived: bool,
     pub job_id: String,
     pub title: String,
     pub created_at: u64,
@@ -451,10 +492,12 @@ pub struct TaskSnap {
 #[derive(Clone, Debug)]
 pub struct JobRow {
     pub index: usize,
+    pub id: String,
     pub title: String,
     pub prompt: String,
     pub when: String,
     pub plan: bool,
+    pub paused: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -595,7 +638,7 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
     let mut jobs = load_jobs();
     let due = unix_now().saturating_add(delay_secs);
     jobs.push(Job {
-        id: String::new(),
+        id: fresh_id("job"),
         kind: "once".into(),
         title: title.to_string(),
         prompt: prompt.to_string(),
@@ -603,6 +646,7 @@ pub fn add_once(title: &str, prompt: &str, delay_secs: u64) {
         daily_minutes: 0,
         interval_hours: 0,
         periodic: None,
+        paused: false,
         next_run_at: 0,
         force: false,
         deadline_minutes: 45,
@@ -628,6 +672,7 @@ pub fn add_plan(title: &str, daily_minutes: u32, suggest: &[String]) {
         daily_minutes,
         interval_hours: 0,
         periodic: None,
+        paused: false,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
         deadline_minutes: 45,
@@ -742,6 +787,7 @@ pub fn add_daily(title: &str, prompt: &str, minutes: u32) {
         daily_minutes: minutes,
         interval_hours: 0,
         periodic: None,
+        paused: false,
         next_run_at: next_daily_run(now, minutes, offset),
         force: false,
         deadline_minutes: 45,
@@ -767,6 +813,7 @@ pub fn add_interval(title: &str, prompt: &str, hours: u32) {
         daily_minutes: 0,
         interval_hours: hours.clamp(1, 24),
         periodic: None,
+        paused: false,
         next_run_at: now + u64::from(hours.clamp(1, 24)) * 3600,
         force: false,
         deadline_minutes: 45,
@@ -807,6 +854,7 @@ pub fn add_plan_full(
         daily_minutes,
         interval_hours: 0,
         periodic: None,
+        paused: false,
         next_run_at: next_daily_run(now, daily_minutes, offset),
         force: false,
         deadline_minutes: deadline_minutes.clamp(1, 24 * 60),
@@ -840,6 +888,7 @@ pub fn add_periodic(title: &str, prompt: &str, periodic: &Periodic) {
         daily_minutes: 0,
         interval_hours: 0,
         periodic: Some(periodic.clone()),
+        paused: false,
         next_run_at: next,
         force: false,
         deadline_minutes: 45,
@@ -847,6 +896,21 @@ pub fn add_periodic(title: &str, prompt: &str, periodic: &Periodic) {
         suggest: Vec::new(),
     });
     save_jobs(&jobs);
+}
+
+/// Pause or resume a job. Paused jobs stay on the page but every claim
+/// path skips them.
+pub fn set_paused(index: usize, paused: bool) -> bool {
+    let Some(_lock) = try_lock() else {
+        return false;
+    };
+    let mut jobs = load_jobs();
+    let Some(job) = jobs.get_mut(index) else {
+        return false;
+    };
+    job.paused = paused;
+    save_jobs(&jobs);
+    true
 }
 
 pub fn remove_at(index: usize) {
@@ -937,8 +1001,14 @@ pub fn rows() -> Vec<JobRow> {
                     "daily" | "interval" => job.prompt.clone(),
                     _ => job.prompt,
                 },
-                when,
+                when: if job.paused {
+                    format!("{when} · paused")
+                } else {
+                    when
+                },
                 plan: job.kind == "plan",
+                paused: job.paused,
+                id: job.id.clone(),
             }
 
         })
@@ -983,6 +1053,63 @@ pub fn set_prompt(plan_id: &str, item_id: &str, prompt: &str) {
         }
     }
     save_plans(&plans);
+}
+
+/// Point a queued item at a different agent route or workspace before it is
+/// dispatched. Started items are left alone.
+pub fn set_item_target(
+    plan_id: &str,
+    item_id: &str,
+    agent_route: Option<String>,
+    workspace_id: Option<String>,
+) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let mut plans = load_plans();
+    if let Some(plan) = plans.iter_mut().find(|plan| plan.id == plan_id) {
+        if let Some(item) = plan.items.iter_mut().find(|item| item.id == item_id && !item.started)
+        {
+            item.agent_route = agent_route;
+            item.workspace_id = workspace_id;
+        }
+    }
+    save_plans(&plans);
+}
+
+/// Remember an edited prompt as the job's item template for future plans.
+pub fn update_job_template(job_id: &str, template: &str) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let mut jobs = load_jobs();
+    if let Some(job) = jobs
+        .iter_mut()
+        .find(|job| job.kind == "plan" && job.id == job_id)
+    {
+        job.template = template.to_string();
+        save_jobs(&jobs);
+    }
+}
+
+/// Archive a finished run so it leaves the Records list.
+pub fn set_archived(plan_id: &str, archived: bool) {
+    let Some(_lock) = try_lock() else {
+        return;
+    };
+    let mut plans = load_plans();
+    if let Some(plan) = plans.iter_mut().find(|plan| plan.id == plan_id) {
+        plan.archived = archived;
+    }
+    save_plans(&plans);
+}
+
+/// The job id behind a plan run, for saving template preferences.
+pub fn job_template_of(plan: &PlanRun) -> Option<String> {
+    load_jobs()
+        .into_iter()
+        .find(|job| job.id == plan.job_id)
+        .map(|job| job.template)
 }
 
 /// Approve or skip a pending plan. Already-decided plans are left unchanged.
@@ -1086,6 +1213,9 @@ fn claim_once(now: u64) -> Vec<Tick> {
     let mut jobs = load_jobs();
     let mut due = Vec::new();
     for job in jobs.iter_mut() {
+        if job.paused {
+            continue;
+        }
         match job.kind.as_str() {
             "plan" => {}
             "once" if job.due_at <= now => {
@@ -1167,7 +1297,7 @@ fn generate_due(now: u64, offset: i32, snaps: &[TaskSnap]) -> Vec<Tick> {
     let mut events = Vec::new();
     let mut changed = false;
     for job in &mut jobs {
-        if job.kind != "plan" {
+        if job.kind != "plan" || job.paused {
             continue;
         }
         let due = job.force || job.next_run_at <= now;
@@ -1299,6 +1429,7 @@ fn build_plan(job: &Job, now: u64, offset: i32, snaps: &[TaskSnap], manual: bool
     }
     PlanRun {
         id,
+        archived: false,
         job_id: job.id.clone(),
         title: job.title.clone(),
         created_at: now,
@@ -1322,12 +1453,18 @@ fn item_from_snap(job: &Job, snap: &TaskSnap, previous: &Option<PlanRun>) -> Pla
     } else {
         snap.excerpt.clone()
     };
+    let risk = if source == "carried" || snap.failed {
+        "high"
+    } else {
+        "low"
+    };
     draft_item(
         job,
         &snap.title,
         &context,
         "The session finishes without an error.",
         source,
+        risk,
         snap.agent_route.clone(),
         snap.workspace_id.clone(),
         &snap.workspace_name,
@@ -1367,6 +1504,7 @@ fn carried_item(job: &Job, old: &PlanItem) -> PlanItem {
         &context,
         &old.done_when,
         "carried",
+        "high",
         old.agent_route.clone(),
         old.workspace_id.clone(),
         &old.workspace_name,
@@ -1380,6 +1518,7 @@ fn template_item(job: &Job, title: &str) -> PlanItem {
         "Standing task from the daily plan.",
         "The standing task is done.",
         "template",
+        "low",
         None,
         None,
         "",
@@ -1392,6 +1531,7 @@ fn draft_item(
     context: &str,
     done_when: &str,
     source: &str,
+    risk: &str,
     agent_route: Option<String>,
     workspace_id: Option<String>,
     workspace_name: &str,
@@ -1407,6 +1547,7 @@ fn draft_item(
         .replace("{task.done_when}", done_when);
     PlanItem {
         id: String::new(),
+        risk: risk.to_string(),
         title: title.to_string(),
         context: context.to_string(),
         done_when: done_when.to_string(),
@@ -1498,6 +1639,7 @@ fn parse_job(value: serde_json::Value) -> Job {
         periodic: serde_json::from_value(value["periodic"].clone()).ok(),
         next_run_at: value["next_run_at"].as_u64().unwrap_or(0),
         force: value["force"].as_bool().unwrap_or(false),
+        paused: value["paused"].as_bool().unwrap_or(false),
         deadline_minutes: value["deadline_minutes"].as_u64().unwrap_or(45) as u32,
         template: value["template"]
             .as_str()
@@ -1547,9 +1689,11 @@ fn job_json(job: &Job) -> serde_json::Value {
         })
     } else {
         serde_json::json!({
+            "id": job.id,
             "title": job.title,
             "prompt": job.prompt,
             "due_at": job.due_at,
+            "paused": job.paused,
         })
     }
 }
@@ -1971,6 +2115,89 @@ mod tests {
             next_periodic_run(sat + 10 * 3600, &yearly, 0),
             Some((20_757 + 62) * 86_400 + 10 * 3600)
         );
+    }
+
+    #[test]
+    fn pause_freezes_a_job_and_resume_releases_it() {
+        let dir = temp_dir("pause");
+        let day = 10_000 * 86_400;
+        let slot = day + 9 * 3600;
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([{
+                "id": "job-p1",
+                "kind": "daily",
+                "title": "Standup",
+                "prompt": "Post",
+                "daily_minutes": 540,
+                "next_run_at": slot,
+                "paused": true,
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let events = tick_at(&dir, slot + 30, 0, &[]);
+        assert!(events.is_empty(), "a paused daily job must not fire");
+        let left: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("scheduled.json")).unwrap())
+                .unwrap();
+        assert_eq!(left[0]["next_run_at"], slot, "pause must not advance the clock");
+    }
+
+    #[test]
+    fn failed_and_carried_items_are_marked_high_risk() {
+        let dir = temp_dir("risk");
+        let day = 10_000 * 86_400;
+        let slot = day + 9 * 3600;
+        let mut failed = snap("Fix login", slot - 60, true);
+        failed.plan_item_id = Some("plan-x-0".to_string());
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([{
+                "id": "job-r1",
+                "kind": "plan",
+                "title": "Daily",
+                "daily_minutes": 540,
+                "next_run_at": slot,
+                "suggest": ["Changelog"],
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        tick_at(&dir, slot, 0, &[failed]);
+        let _guard = DirGuard::push(dir.clone());
+        let plan = plans().pop().unwrap();
+        let fix = plan.items.iter().find(|item| item.title == "Fix login").unwrap();
+        let changelog = plan.items.iter().find(|item| item.title == "Changelog").unwrap();
+        assert_eq!(fix.risk, "high", "a failed session is high risk");
+        assert_eq!(changelog.risk, "low", "a fresh template line is low risk");
+    }
+
+    #[test]
+    fn archiving_hides_a_run_from_records() {
+        let dir = temp_dir("archive");
+        let _guard = DirGuard::push(dir.clone());
+        let day = 10_000 * 86_400;
+        let slot = day + 9 * 3600;
+        std::fs::write(
+            dir.join("scheduled.json"),
+            serde_json::json!([{
+                "id": "job-a1",
+                "kind": "plan",
+                "title": "Daily",
+                "daily_minutes": 540,
+                "next_run_at": slot,
+                "suggest": [],
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        tick_at(&dir, slot, 0, &[]);
+        let plan = plans().pop().unwrap();
+        set_archived(&plan.id, true);
+        assert!(plans().last().unwrap().archived);
+        set_archived(&plan.id, false);
+        assert!(!plans().last().unwrap().archived);
     }
 
     #[test]

@@ -17,6 +17,11 @@ use crate::widgets::*;
 thread_local! {
     static TAB: Cell<usize> = const { Cell::new(0) };
     static NOTICE: RefCell<Option<String>> = const { RefCell::new(None) };
+    static SEARCH: RefCell<String> = const { RefCell::new(String::new()) };
+    static RECORD_FILTER: Cell<usize> = const { Cell::new(0) };
+    static BATCH_SELECTED: RefCell<std::collections::HashSet<String>> = {
+        RefCell::new(std::collections::HashSet::new())
+    };
 }
 
 pub fn set_notice(text: impl Into<String>) {
@@ -124,9 +129,66 @@ pub fn fill(
 }
 
 fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>) {
-    let jobs = schedule::rows();
+    // Search box filters by title or prompt substring; the query survives
+    // page rebuilds in a thread-local.
+    let search_row = hbox(8);
+    let search = gtk::Entry::new();
+    search.set_placeholder_text(Some("Search tasks…"));
+    search.set_hexpand(true);
+    search.set_text(&SEARCH.with(|slot| slot.borrow().clone()));
+    {
+        let refresh = refresh.clone();
+        search.connect_changed(move |entry| {
+            let query = entry.text().to_string();
+            let changed = SEARCH.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                let changed = *slot != query;
+                *slot = query;
+                changed
+            });
+            if changed {
+                refresh();
+            }
+        });
+    }
+    search_row.pack_start(&search, true, true, 0);
+    let selected_count = BATCH_SELECTED.with(|slot| slot.borrow().len());
+    if selected_count > 0 {
+        let delete_selected = gtk::Button::with_label(&format!("Delete selected ({selected_count})"));
+        let refresh = refresh.clone();
+        delete_selected.connect_clicked(move |_| {
+            let selected = BATCH_SELECTED.with(|slot| slot.borrow().clone());
+            let indices: Vec<usize> = schedule::rows()
+                .into_iter()
+                .filter(|row| selected.contains(&row.id))
+                .map(|row| row.index)
+                .collect();
+            // Remove from the back so the earlier indices stay valid.
+            for index in indices.into_iter().rev() {
+                schedule::remove_at(index);
+            }
+            BATCH_SELECTED.with(|slot| slot.borrow_mut().clear());
+            refresh();
+        });
+        search_row.pack_end(&delete_selected, false, false, 0);
+    }
+    container.pack_start(&search_row, false, false, 0);
+
+    let query = SEARCH.with(|slot| slot.borrow().to_lowercase());
+    let jobs: Vec<schedule::JobRow> = schedule::rows()
+        .into_iter()
+        .filter(|row| {
+            query.is_empty()
+                || row.title.to_lowercase().contains(&query)
+                || row.prompt.to_lowercase().contains(&query)
+        })
+        .collect();
     if jobs.is_empty() {
-        let text = gtk::Label::new(Some("No scheduled tasks found."));
+        let text = gtk::Label::new(Some(if query.is_empty() {
+            "No scheduled tasks found."
+        } else {
+            "No tasks match the search."
+        }));
         text.set_xalign(0.0);
         class(&text, "eb-skill-meta");
         container.pack_start(&text, false, false, 0);
@@ -135,6 +197,26 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
         let card = vbox(3);
         class(&card, "eb-skill-card");
         let head = hbox(8);
+        // Batch selection checkbox, keyed by the stable job id.
+        if !job.id.is_empty() {
+            let check = gtk::CheckButton::new();
+            check.set_active(BATCH_SELECTED.with(|slot| slot.borrow().contains(&job.id)));
+            {
+                let job_id = job.id.clone();
+                let refresh = refresh.clone();
+                check.connect_toggled(move |button| {
+                    BATCH_SELECTED.with(|slot| {
+                        if button.is_active() {
+                            slot.borrow_mut().insert(job_id.clone());
+                        } else {
+                            slot.borrow_mut().remove(&job_id);
+                        }
+                    });
+                    refresh();
+                });
+            }
+            head.pack_start(&check, false, false, 0);
+        }
         let name = gtk::Label::new(Some(&job.title));
         name.set_xalign(0.0);
         class(&name, "eb-skill-title");
@@ -142,6 +224,15 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
         let when = gtk::Label::new(Some(&job.when));
         class(&when, "eb-skill-source");
         head.pack_start(&when, false, false, 0);
+        let pause = gtk::Button::with_label(if job.paused { "Resume" } else { "Pause" });
+        let refresh_pause = refresh.clone();
+        let index = job.index;
+        let paused = job.paused;
+        pause.connect_clicked(move |_| {
+            schedule::set_paused(index, !paused);
+            refresh_pause();
+        });
+        head.pack_end(&pause, false, false, 0);
         let run = gtk::Button::with_label("Run now");
         let refresh_run = refresh.clone();
         let on_run = on_run.clone();
@@ -219,7 +310,6 @@ fn fill_jobs(container: &gtk::Box, refresh: &Rc<dyn Fn()>, on_run: &Rc<dyn Fn()>
     }
     container.pack_start(&grid, false, false, 0);
 }
-
 fn fill_approvals(
     container: &gtk::Box,
     store: &Store,
@@ -243,7 +333,6 @@ fn fill_approvals(
         empty.set_xalign(0.0);
         class(&empty, "eb-skill-meta");
         container.pack_start(&empty, false, false, 0);
-        return;
     }
     let now = schedule::unix_now();
     for plan in pending {
@@ -319,6 +408,39 @@ fn fill_approvals(
         card.pack_start(&actions, false, false, 0);
         container.pack_start(&card, false, false, 0);
     }
+
+    // Expired plans stay visible with what happened to them, but carry no
+    // actions: their remaining items already merged into the next plan.
+    let expired: Vec<PlanRun> = schedule::plans()
+        .into_iter()
+        .filter(|plan| plan.resolution == "timeout_skip_merge" && !plan.archived)
+        .collect();
+    if !expired.is_empty() {
+        let section = gtk::Label::new(Some("Expired"));
+        section.set_xalign(0.0);
+        class(&section, "eb-catalog-section");
+        container.pack_start(&section, false, false, 0);
+        for plan in expired {
+            let card = vbox(3);
+            class(&card, "eb-skill-card");
+            let head = gtk::Label::new(Some(&format!(
+                "{} · {} · expired",
+                plan.title,
+                schedule::format_local(plan.created_at)
+            )));
+            head.set_xalign(0.0);
+            class(&head, "eb-skill-title");
+            card.pack_start(&head, false, false, 0);
+            let note = gtk::Label::new(Some(
+                "Timed out without approval. Its remaining items merged into the next plan.",
+            ));
+            note.set_xalign(0.0);
+            note.set_line_wrap(true);
+            class(&note, "eb-skill-meta");
+            card.pack_start(&note, false, false, 0);
+            container.pack_start(&card, false, false, 0);
+        }
+    }
 }
 
 fn fill_records(
@@ -327,7 +449,38 @@ fn fill_records(
     refresh: &Rc<dyn Fn()>,
     open_task: &Rc<dyn Fn(usize)>,
 ) {
-    let mut plans = schedule::plans();
+    // Status filter survives rebuilds.
+    let filter_row = hbox(8);
+    let filter_label = gtk::Label::new(Some("Status"));
+    class(&filter_label, "eb-skill-meta");
+    filter_row.pack_start(&filter_label, false, false, 0);
+    let filter = gtk::ComboBoxText::new();
+    for label in ["All", "Approved", "Partially approved", "Skipped", "Waiting"] {
+        filter.append_text(label);
+    }
+    filter.set_active(Some(RECORD_FILTER.with(Cell::get) as u32));
+    {
+        let refresh = refresh.clone();
+        filter.connect_changed(move |combo| {
+            RECORD_FILTER.with(|slot| slot.set(combo.active().unwrap_or(0) as usize));
+            refresh();
+        });
+    }
+    filter_row.pack_start(&filter, false, false, 0);
+    container.pack_start(&filter_row, false, false, 0);
+
+    let active_filter = RECORD_FILTER.with(Cell::get);
+    let matches = |plan: &PlanRun| match active_filter {
+        1 => plan.status == "approved",
+        2 => plan.status == "partial",
+        3 => plan.status == "skipped",
+        4 => plan.status == "pending",
+        _ => true,
+    };
+    let mut plans: Vec<PlanRun> = schedule::plans()
+        .into_iter()
+        .filter(|plan| !plan.archived && matches(plan))
+        .collect();
     plans.reverse();
     if plans.is_empty() {
         let empty = gtk::Label::new(Some("No plan runs yet."));
@@ -336,18 +489,42 @@ fn fill_records(
         container.pack_start(&empty, false, false, 0);
         return;
     }
+
+    // Group by local day with a Today / Yesterday / date header.
+    let mut last_day = String::new();
     for plan in plans {
+        let day = schedule::format_local_date(plan.created_at);
+        if day != last_day {
+            last_day = day.clone();
+            let header = gtk::Label::new(Some(&day_header(&day)));
+            header.set_xalign(0.0);
+            class(&header, "eb-catalog-section");
+            container.pack_start(&header, false, false, 0);
+        }
         let card = vbox(3);
         class(&card, "eb-skill-card");
-        let head = gtk::Label::new(Some(&format!(
+        let head = hbox(8);
+        let title = gtk::Label::new(Some(&format!(
             "{} · {} · {}",
             plan.title,
             schedule::format_local(plan.created_at),
             status_label(&plan)
         )));
-        head.set_xalign(0.0);
-        head.set_line_wrap(true);
-        class(&head, "eb-skill-title");
+        title.set_xalign(0.0);
+        title.set_line_wrap(true);
+        class(&title, "eb-skill-title");
+        head.pack_start(&title, true, true, 0);
+        let archive = gtk::Button::with_label("Archive");
+        {
+            let refresh = refresh.clone();
+            let plan_id = plan.id.clone();
+            archive.connect_clicked(move |_| {
+                schedule::set_archived(&plan_id, true);
+                set_notice("Run archived.");
+                refresh();
+            });
+        }
+        head.pack_end(&archive, false, false, 0);
         card.pack_start(&head, false, false, 0);
         if !plan.resolution.is_empty() {
             let resolution = gtk::Label::new(Some(&resolution_label(&plan.resolution)));
@@ -397,7 +574,6 @@ fn fill_records(
         container.pack_start(&card, false, false, 0);
     }
 }
-
 fn item_row(
     store: &Store,
     refresh: &Rc<dyn Fn()>,
@@ -414,6 +590,13 @@ fn item_row(
         schedule::set_selected(&plan_id, &item_id, button.is_active());
     });
     row.pack_start(&check, true, true, 0);
+    // High risk: the source session already failed, or the item was carried
+    // over from an earlier plan.
+    if item.risk == "high" {
+        let risk = gtk::Label::new(Some("⚠ high risk"));
+        class(&risk, "eb-skill-error");
+        row.pack_start(&risk, false, false, 0);
+    }
     let meta = format!(
         "{} · {} · {}",
         source_label(&item.source),
@@ -433,16 +616,39 @@ fn item_row(
         let store = store.clone();
         let refresh = refresh.clone();
         let plan_id = plan.id.clone();
+        let job_id = plan.job_id.clone();
         let item_id = item.id.clone();
         let prompt = item.prompt.clone();
+        let agent_route = item.agent_route.clone();
+        let workspace_id = item.workspace_id.clone();
         edit.connect_clicked(move |_| {
-            open_prompt_dialog(&store, &refresh, &plan_id, &item_id, &prompt);
+            open_prompt_dialog(
+                &store,
+                &refresh,
+                &plan_id,
+                &job_id,
+                &item_id,
+                &prompt,
+                agent_route.clone(),
+                workspace_id.clone(),
+            );
         });
         row.pack_end(&edit, false, false, 0);
     }
     row
 }
 
+fn day_header(day: &str) -> String {
+    let today = schedule::format_local_date(schedule::unix_now());
+    let yesterday = schedule::format_local_date(schedule::unix_now().saturating_sub(86_400));
+    if day == today {
+        "Today".to_string()
+    } else if day == yesterday {
+        "Yesterday".to_string()
+    } else {
+        day.to_string()
+    }
+}
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
     Once,
@@ -467,6 +673,26 @@ const MODE_TILES: [(Mode, &str); 4] = [
     (Mode::Interval, "Interval"),
     (Mode::Plan, "Plan · approve · dispatch"),
 ];
+
+fn labeled_entry(container: &gtk::Box, label: &str) -> gtk::Entry {
+    let label = gtk::Label::new(Some(label));
+    class(&label, "eb-skill-meta");
+    label.set_xalign(0.0);
+    container.pack_start(&label, false, false, 0);
+    let entry = gtk::Entry::new();
+    container.pack_start(&entry, false, false, 0);
+    entry
+}
+
+fn text_of(view: &gtk::TextView) -> String {
+    view.buffer()
+        .and_then(|buffer| {
+            buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .map(|text| text.to_string())
+        })
+        .unwrap_or_default()
+}
 
 fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
@@ -768,55 +994,73 @@ fn open_task_dialog(refresh: &Rc<dyn Fn()>, initial: Mode, title: &str) {
     window.show_all();
 }
 
-fn labeled_entry(container: &gtk::Box, label: &str) -> gtk::Entry {
-    let label = gtk::Label::new(Some(label));
-    class(&label, "eb-skill-meta");
-    label.set_xalign(0.0);
-    container.pack_start(&label, false, false, 0);
-    let entry = gtk::Entry::new();
-    container.pack_start(&entry, false, false, 0);
-    entry
-}
-
-fn text_of(view: &gtk::TextView) -> String {
-    view.buffer()
-        .and_then(|buffer| {
-            buffer
-                .text(&buffer.start_iter(), &buffer.end_iter(), false)
-                .map(|text| text.to_string())
-        })
-        .unwrap_or_default()
-}
-
 fn open_prompt_dialog(
     store: &Store,
     refresh: &Rc<dyn Fn()>,
     plan_id: &str,
+    job_id: &str,
     item_id: &str,
     prompt: &str,
+    agent_route: Option<String>,
+    workspace_id: Option<String>,
 ) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("Edit this item");
-    window.set_default_size(520, 320);
+    window.set_default_size(520, 460);
     window.set_modal(true);
     let root = vbox(8);
     root.set_margin_top(16);
     root.set_margin_bottom(16);
     root.set_margin_start(16);
     root.set_margin_end(16);
-    let hint = gtk::Label::new(Some("This edit applies to this item only."));
+    let hint = gtk::Label::new(Some("These edits apply to this item only."));
     hint.set_xalign(0.0);
     class(&hint, "eb-skill-meta");
     root.pack_start(&hint, false, false, 0);
+
     let view = gtk::TextView::new();
     view.set_wrap_mode(gtk::WrapMode::Word);
     if let Some(buffer) = view.buffer() {
         buffer.set_text(prompt);
     }
     let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    scroll.set_size_request(-1, 160);
+    scroll.set_size_request(-1, 150);
     scroll.add(&view);
-    root.pack_start(&scroll, true, true, 0);
+    root.pack_start(&scroll, false, false, 0);
+
+    // Target: agent route and workspace, both optional (empty keeps the
+    // default; "(new workspace)" lets dispatch create a fresh one).
+    let agent = labeled_entry(&root, "Agent route (empty = default)");
+    if let Some(route) = &agent_route {
+        agent.set_text(route);
+    }
+    let workspace_box = hbox(4);
+    let workspace_label = gtk::Label::new(Some("Workspace"));
+    class(&workspace_label, "eb-skill-meta");
+    workspace_box.pack_start(&workspace_label, false, false, 0);
+    let workspace = gtk::ComboBoxText::new();
+    let workspaces: Vec<(String, String)> = {
+        let app = store.borrow();
+        app.workspaces
+            .iter()
+            .map(|workspace| (workspace.id.clone(), workspace.name.clone()))
+            .collect()
+    };
+    workspace.append_text("(new workspace)");
+    let mut selected: Option<u32> = None;
+    for (index, (id, workspace_name)) in workspaces.iter().enumerate() {
+        workspace.append_text(workspace_name);
+        if workspace_id.as_deref() == Some(id.as_str()) {
+            selected = Some(index as u32 + 1);
+        }
+    }
+    workspace.set_active(selected);
+    workspace_box.pack_start(&workspace, true, true, 0);
+    root.pack_start(&workspace_box, false, false, 0);
+
+    let preference = gtk::CheckButton::with_label("Also save this prompt as the template default");
+    root.pack_start(&preference, false, false, 0);
+
     let actions = hbox(8);
     let cancel = gtk::Button::with_label("Cancel");
     let save = gtk::Button::with_label("Save");
@@ -830,20 +1074,30 @@ fn open_prompt_dialog(
     let refresh = refresh.clone();
     let store = store.clone();
     let plan_id = plan_id.to_string();
+    let job_id = job_id.to_string();
     let item_id = item_id.to_string();
     save.connect_clicked(move |_| {
-        let prompt = view
-            .buffer()
-            .and_then(|buffer| {
-                buffer
-                    .text(&buffer.start_iter(), &buffer.end_iter(), false)
-                    .map(|text| text.to_string())
-            })
-            .unwrap_or_default();
+        let prompt = text_of(&view);
         if prompt.trim().is_empty() {
             return;
         }
         schedule::set_prompt(&plan_id, &item_id, &prompt);
+        // Workspace: index 0 = create a new one (None), otherwise the
+        // chosen existing workspace.
+        let workspace_id = match workspace.active() {
+            Some(0) | None => None,
+            Some(index) => workspaces
+                .get(index as usize - 1)
+                .map(|(id, _)| id.clone()),
+        };
+        let agent_route = {
+            let route = agent.text().trim().to_string();
+            if route.is_empty() { None } else { Some(route) }
+        };
+        schedule::set_item_target(&plan_id, &item_id, agent_route, workspace_id);
+        if preference.is_active() {
+            schedule::update_job_template(&job_id, schedule::without_preamble(&prompt));
+        }
         {
             let mut app = store.borrow_mut();
             if let Some(task) = app.tasks.iter_mut().find(|task| {
@@ -856,6 +1110,8 @@ fn open_prompt_dialog(
                 {
                     *text = prompt;
                 }
+                task.agent_route =
+                    agent_route_propagated(&task, task.agent_route.clone());
             }
         }
         refresh();
@@ -864,6 +1120,9 @@ fn open_prompt_dialog(
     window.show_all();
 }
 
+fn agent_route_propagated<T>(_: &T, route: Option<String>) -> Option<String> {
+    route
+}
 fn deadline_line(now: u64, deadline: u64) -> String {
     if now >= deadline {
         return "Past the deadline. It will be skipped and merged into the next plan.".into();
