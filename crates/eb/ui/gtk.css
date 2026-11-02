@@ -96,21 +96,11 @@ button.eb-icon-small {
   padding: 0 12px 20px 12px;
 }
 
-/* logo row 255x48: brand line (18) + version row (18) + 12px bottom padding */
+/* brand row: logo + name + version on one 22px line, so the reclaimed
+ * height goes to the nav list instead of a stacked version row. */
 .eb-brand-row {
-  padding-bottom: 20px;
-}
-
-/* brand-line / version-row / brand-block are all 18px tall in the capture
- * (brand-block 36 = 18 + 18), then a further 10px before the tab list. */
-.eb-brand-line {
-  padding-left: 12px;
-  min-height: 18px;
-}
-
-.eb-version-row {
-  padding-left: 12px;
-  min-height: 18px;
+  padding: 2px 12px 10px 12px;
+  min-height: 22px;
 }
 
 .eb-brand-name {
@@ -122,6 +112,8 @@ button.eb-icon-small {
 .eb-brand-version {
   color: @eb_text_tertiary; /* measured 10px/400 at rgba(0,0,0,.5) */
   font-size: 10px;
+  /* drop the version onto the name's baseline */
+  margin-top: 3px;
 }
 
 /* nav: 5 rows of 255x32, gap 2px, radius 8px, padding 5px 12px, icon+label gap 8px */

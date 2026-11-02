@@ -261,28 +261,23 @@ fn build_filter_menu(button: &gtk::Button, wiring: &Wiring) {
     popover.popup();
 }
 
-/// 279x246: the brand block (255x48) then the nav list (255x168, starting at
-/// y=122 once the 32px brand content, its 20px padding and the 2px gap land).
+/// The header opens with a single brand row (logo + name + version inline),
+/// then the nav list; the merged row keeps more of the 246px budget for the
+/// menu itself.
 fn header(wiring: &Wiring, contribs: &Contribs) -> (gtk::Box, Vec<gtk::Button>) {
     let header = vbox(2);
     class(&header, "eb-sidebar-header");
 
-    let brand_row = vbox(0);
+    // One brand row: name and version side by side. The old two-row block
+    // (name above, version below) cost ~58px before the nav; the merged row
+    // hands the reclaimed height to the sidebar menu.
+    let brand_row = hbox(8);
     class(&brand_row, "eb-brand-row");
-
-    let brand_line = hbox(8);
-    class(&brand_line, "eb-brand-line");
     // EvoBuddy's own mark, embedded as a PNG (no icon theme / librsvg path).
     let brand_mark = crate::icons::named("logo", 18, "eb-brand-name");
-    brand_line.pack_start(&brand_mark, false, false, 0);
-    brand_line.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
-
-    let version_row = hbox(6);
-    class(&version_row, "eb-version-row");
-    version_row.pack_start(&text(spec::APP_VERSION, "eb-brand-version"), false, false, 0);
-
-    brand_row.pack_start(&brand_line, false, false, 0);
-    brand_row.pack_start(&version_row, false, false, 0);
+    brand_row.pack_start(&brand_mark, false, false, 0);
+    brand_row.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
+    brand_row.pack_start(&text(spec::APP_VERSION, "eb-brand-version"), false, false, 0);
     header.pack_start(&brand_row, false, false, 0);
 
     let nav = vbox(2);
