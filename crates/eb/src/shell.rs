@@ -300,6 +300,9 @@ pub fn build(
         app.detail_visible = false;
         // Stay closed for this task even when further files arrive.
         app.artifact_dismissed = true;
+        // A stale Read preview must not resurface the panel on the next paint.
+        app.tool_preview = None;
+        app.tool_preview_task = None;
     });
     let hide_detail: Rc<dyn Fn()> = {
         let base = hide_detail_base.clone();
@@ -714,6 +717,9 @@ pub fn build(
             {
                 let mut app = store.borrow_mut();
                 app.artifact_dismissed = false;
+                // A card click shows the written files, not a Read preview.
+                app.tool_preview = None;
+                app.tool_preview_task = None;
                 let has = match &app.route {
                     crate::model::Route::Task(index) => app
                         .tasks
@@ -737,6 +743,9 @@ pub fn build(
                 let mut app = store.borrow_mut();
                 app.artifact_dismissed = false;
                 app.artifact_select = Some(index);
+                // A card click shows the written files, not a Read preview.
+                app.tool_preview = None;
+                app.tool_preview_task = None;
                 let has = match &app.route {
                     crate::model::Route::Task(index) => app
                         .tasks
@@ -811,6 +820,74 @@ pub fn build(
                             let _ = pending.responder.respond(decision.clone());
                         }
                     }
+                    refresher.request();
+                })
+            },
+            // A `Read` tool row was clicked: load the file it acted on and
+            // show it as the artifact panel's preview tab.
+            open_tool_file: {
+                let store = store.clone();
+                let refresher = refresher.clone();
+                Rc::new(move |raw| {
+                    let mut app = store.borrow_mut();
+                    let Route::Task(index) = app.route.clone() else {
+                        return;
+                    };
+                    // Same resolution the Read tool ran under: the task's
+                    // workspace root, then the process directory.
+                    let bases: Vec<std::path::PathBuf> = app
+                        .tasks
+                        .get(index)
+                        .and_then(|task| task.workspace_id.as_deref())
+                        .and_then(|id| {
+                            app.workspaces
+                                .iter()
+                                .find(|workspace| workspace.id == id)
+                                .map(|workspace| std::path::PathBuf::from(&workspace.root))
+                        })
+                        .into_iter()
+                        .chain(std::iter::once(std::path::PathBuf::from(".")))
+                        .collect();
+                    let resolved = bases
+                        .iter()
+                        .filter_map(|base| crate::tools::resolve_in(base, &raw).ok())
+                        .find(|path| path.is_file());
+                    let Some(path) = resolved else {
+                        eprintln!("[evobuddy] tool row: cannot resolve {raw}");
+                        return;
+                    };
+                    // The viewer trims what it shows, but reading is capped so
+                    // a click on a huge file cannot stall the UI thread.
+                    const PREVIEW_CAP: u64 = 512 * 1024;
+                    let content = match std::fs::File::open(&path) {
+                        Ok(file) => {
+                            use std::io::Read;
+                            let mut buffer = String::new();
+                            let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+                            let mut capped = file.take(PREVIEW_CAP);
+                            if capped.read_to_string(&mut buffer).is_err() {
+                                eprintln!("[evobuddy] tool row: {raw} is not UTF-8 text");
+                                return;
+                            }
+                            if size > PREVIEW_CAP {
+                                buffer.push_str("\n… (truncated at 512 KiB)");
+                            }
+                            buffer
+                        }
+                        Err(error) => {
+                            eprintln!("[evobuddy] tool row: cannot read {raw}: {error}");
+                            return;
+                        }
+                    };
+                    let name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_else(|| raw.clone());
+                    app.tool_preview = Some(crate::model::Artifact { name, code: content });
+                    app.tool_preview_task = Some(index);
+                    app.artifact_dismissed = false;
+                    app.detail_visible = true;
+                    drop(app);
                     refresher.request();
                 })
             },
@@ -1465,22 +1542,37 @@ impl Views {
 
         // ---- artifact panel ----------------------------------------------
         let detail_started = std::time::Instant::now();
-        let open = app.detail_visible && artifact.is_some();
+        // A `Read` row click previews one file in place of the tab strip; the
+        // preview only counts while it still belongs to the open task.
+        let current_task = match &app.route {
+            Route::Task(index) => Some(*index),
+            _ => None,
+        };
+        let preview = app
+            .tool_preview
+            .clone()
+            .filter(|_| app.tool_preview_task == current_task);
+        let open = app.detail_visible && (artifact.is_some() || preview.is_some());
         if open {
             // The tab strip shows every file the task has written; the
-            // newest one arrives selected.
-            let files = match &app.route {
-                Route::Task(index) => app
-                    .tasks
-                    .get(*index)
-                    .map(|task| task.artifacts.as_slice())
-                    .unwrap_or_default(),
-                _ => &[][..],
-            };
-            let files: Vec<crate::model::Artifact> = if files.is_empty() {
-                artifact.into_iter().cloned().collect()
+            // newest one arrives selected. A preview replaces the strip with
+            // just the one file the user asked for.
+            let files: Vec<crate::model::Artifact> = if let Some(preview) = preview {
+                vec![preview]
             } else {
-                files.to_vec()
+                let files = match &app.route {
+                    Route::Task(index) => app
+                        .tasks
+                        .get(*index)
+                        .map(|task| task.artifacts.as_slice())
+                        .unwrap_or_default(),
+                    _ => &[][..],
+                };
+                if files.is_empty() {
+                    artifact.into_iter().cloned().collect()
+                } else {
+                    files.to_vec()
+                }
             };
             detail::fill(&self.detail, &files);
             // A card click named the tab it wants; `fill` above has already

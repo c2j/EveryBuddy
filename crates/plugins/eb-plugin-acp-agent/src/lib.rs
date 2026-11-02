@@ -1920,6 +1920,7 @@ fn emit_tool(state: &ToolState, pending: &mut Vec<Block>) {
             state.title.clone()
         },
         detail,
+        path: None,
     });
 }
 

@@ -62,10 +62,11 @@ files; the result reports the total line count."
                         offset + selected.len()
                     )
                 };
-                report(
+                report_file(
                     ctx,
                     "Ran",
                     format!("Read {raw}"),
+                    raw,
                     if body.is_empty() {
                         format!("{header} (empty range)")
                     } else {

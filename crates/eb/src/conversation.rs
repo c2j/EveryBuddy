@@ -62,6 +62,9 @@ pub struct Wiring {
     /// The user answered an inline tool-permission card: deliver the decision
     /// to the waiting worker and schedule a repaint.
     pub resolve_permission: Rc<dyn Fn(PermissionDecision)>,
+    /// A tool row that acted on one file (`Read src/main.rs`) was clicked:
+    /// open the artifact panel showing that file.
+    pub open_tool_file: Rc<dyn Fn(String)>,
 }
 
 /// The quick actions one painted turn can reach. Built per turn by
@@ -72,6 +75,8 @@ struct TurnActions {
     submit: Rc<dyn Fn(String)>,
     /// Opens the artifact panel on a given file tab.
     artifact: Rc<dyn Fn(usize)>,
+    /// Opens the artifact panel on a file a tool acted on (`Read` rows).
+    open_path: Rc<dyn Fn(String)>,
     /// The user text before an agent turn; `None` on the first turn.
     prompt: Option<String>,
 }
@@ -84,8 +89,9 @@ impl TurnActions {
         let noop: Rc<dyn Fn(String)> = Rc::new(|_| {});
         Self {
             edit: noop.clone(),
-            submit: noop,
+            submit: noop.clone(),
             artifact: Rc::new(|_| {}),
+            open_path: noop,
             prompt: None,
         }
     }
@@ -173,6 +179,8 @@ pub struct Conversation {
     /// Artifact cards in an agent turn bind to this: open the panel with that
     /// file's tab selected.
     open_artifact_at: Rc<dyn Fn(usize)>,
+    /// `Read` tool rows bind to this: open the panel on the file they read.
+    open_tool_file: Rc<dyn Fn(String)>,
 }
 
 pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
@@ -626,6 +634,7 @@ pub fn build(wiring: &Wiring, composer: &Composer) -> Conversation {
         on_edit: wiring.edit.clone(),
         on_submit: wiring.submit.clone(),
         open_artifact_at: wiring.open_artifact_at.clone(),
+        open_tool_file: wiring.open_tool_file.clone(),
         permission_resolver: RefCell::new(Some(wiring.resolve_permission.clone())),
         permission_card: RefCell::new(None),
     }
@@ -858,7 +867,13 @@ pub fn fill_messages(conversation: &Conversation, task: &Task, opened: Option<us
             {
                 let mut packed = conversation.turns.borrow_mut();
                 if let Some(old) = packed.get_mut(reuse) {
-                    sync_blocks(&body, &mut old.blocks, &mut old.widgets, blocks);
+                    sync_blocks(
+                        &body,
+                        &mut old.blocks,
+                        &mut old.widgets,
+                        blocks,
+                        Some(&conversation.open_tool_file),
+                    );
                 }
             }
             let sync_ms = sync_started.elapsed().as_secs_f64() * 1000.0;
@@ -953,6 +968,7 @@ fn build_turn(
         edit: conversation.on_edit.clone(),
         submit: conversation.on_submit.clone(),
         artifact: conversation.open_artifact_at.clone(),
+        open_path: conversation.open_tool_file.clone(),
         prompt,
     };
     match turn {
@@ -992,7 +1008,7 @@ fn build_turn(
             );
             let mut widgets: Vec<gtk::Widget> = Vec::new();
             for block in blocks {
-                let widget = block_widget(block);
+                let widget = block_widget_open(block, Some(&actions.open_path));
                 parts.body.pack_start(&widget, false, false, 0);
                 widgets.push(widget);
             }
@@ -1017,6 +1033,7 @@ fn sync_blocks(
     block_sigs: &mut Vec<u64>,
     widgets: &mut Vec<gtk::Widget>,
     blocks: &[Block],
+    open: Option<&Rc<dyn Fn(String)>>,
 ) {
     if blocks.is_empty() {
         for widget in widgets.drain(..) {
@@ -1062,7 +1079,7 @@ fn sync_blocks(
     }
     block_sigs.truncate(index);
     for block in &blocks[index..] {
-        let widget = block_widget(block);
+        let widget = block_widget_open(block, open);
         widget.show_all();
         body.pack_start(&widget, false, false, 0);
         widgets.push(widget);
@@ -2227,7 +2244,13 @@ fn format_bytes(len: usize) -> String {
 /// A text block does not: live markdown has no outside margin. Its 26px line
 /// box and 12px paragraph gap are inside the text view.
 fn block_widget(block: &Block) -> gtk::Widget {
-    let widget = block_widget_raw(block);
+    block_widget_open(block, None)
+}
+
+/// `open` is the click target for tool rows that acted on one file; `None`
+/// keeps such rows inert (tests, callers without a shell wired up).
+fn block_widget_open(block: &Block, open: Option<&Rc<dyn Fn(String)>>) -> gtk::Widget {
+    let widget = block_widget_raw(block, open);
     if !matches!(block, Block::Text(_)) {
         widget.set_margin_top(14);
         widget.set_margin_bottom(14);
@@ -2237,7 +2260,7 @@ fn block_widget(block: &Block) -> gtk::Widget {
 
 /// A block without the inter-block 14px rhythm, used inside a tool group where
 /// the product keeps rows on a compact 26px line.
-fn block_widget_raw(block: &Block) -> gtk::Widget {
+fn block_widget_raw(block: &Block, open: Option<&Rc<dyn Fn(String)>>) -> gtk::Widget {
     match block {
         Block::Text(value) => crate::markdown::render(value).upcast(),
         Block::Thought { text, collapsed } => thought_block(text, *collapsed).upcast(),
@@ -2245,7 +2268,8 @@ fn block_widget_raw(block: &Block) -> gtk::Widget {
             status,
             primary,
             detail,
-        } => tool_row(status, primary, detail.as_deref()).upcast(),
+            path,
+        } => tool_row(status, primary, detail.as_deref(), path.as_deref(), open).upcast(),
         Block::Diff {
             path,
             added,
@@ -2261,7 +2285,7 @@ fn block_widget_raw(block: &Block) -> gtk::Widget {
             title,
             blocks,
             collapsed,
-        } => group_block(title, blocks, *collapsed).upcast(),
+        } => group_block(title, blocks, *collapsed, open).upcast(),
         Block::Plan { entries } => plan_block(entries).upcast(),
         Block::Table { headers, rows } => table(headers, rows).upcast(),
     }
@@ -2269,7 +2293,16 @@ fn block_widget_raw(block: &Block) -> gtk::Widget {
 
 /// Measured: a single 26.25px line, 8px gap — status, command, then the muted
 /// right-hand detail (duration or diff size).
-fn tool_row(status: &str, primary: &str, detail: Option<&str>) -> gtk::Box {
+///
+/// A row that carries `path` (a `Read src/main.rs` call) is a click target:
+/// pressing it opens the artifact panel on that file, like an artifact card.
+fn tool_row(
+    status: &str,
+    primary: &str,
+    detail: Option<&str>,
+    path: Option<&str>,
+    open: Option<&Rc<dyn Fn(String)>>,
+) -> gtk::Box {
     let row = hbox(8);
     class(&row, "eb-tool-row");
 
@@ -2285,6 +2318,24 @@ fn tool_row(status: &str, primary: &str, detail: Option<&str>) -> gtk::Box {
         detail.set_width_chars(1);
         detail.set_max_width_chars(40);
         row.pack_end(&detail, false, false, 0);
+    }
+
+    if let (Some(path), Some(open)) = (path, open) {
+        let path = path.to_string();
+        let open = open.clone();
+        row.set_tooltip_text(Some("Open the file in the right panel"));
+        row.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK);
+        // Press-on-idle, like the artifact tab: a rebuild inside the handler
+        // would destroy the row under a live button-release.
+        row.connect_button_press_event(move |_widget, event| {
+            if event.button() == 1 {
+                let path = path.clone();
+                let open = open.clone();
+                gtk::glib::idle_add_local_once(move || open(path.clone()));
+                return gtk::glib::Propagation::Stop;
+            }
+            gtk::glib::Propagation::Proceed
+        });
     }
 
     row
@@ -2486,7 +2537,12 @@ fn thought_block(value: &str, collapsed: bool) -> gtk::Box {
     root
 }
 
-fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
+fn group_block(
+    title: &str,
+    blocks: &[Block],
+    collapsed: bool,
+    open: Option<&Rc<dyn Fn(String)>>,
+) -> gtk::Box {
     let root = vbox(0);
     class(&root, "eb-group");
 
@@ -2505,7 +2561,7 @@ fn group_block(title: &str, blocks: &[Block], collapsed: bool) -> gtk::Box {
     let content = vbox(0);
     class(&content, "eb-group-content");
     for block in blocks {
-        content.pack_start(&block_widget_raw(block), false, false, 0);
+        content.pack_start(&block_widget_raw(block, open), false, false, 0);
     }
     let expanded = Rc::new(Cell::new(!collapsed));
     if collapsed {
@@ -2626,7 +2682,7 @@ mod tests {
         let mut widgets = vec![widget];
 
         let after = Block::Text("hello world, streamed further".into());
-        sync_blocks(&body, &mut block_sigs, &mut widgets, &[after]);
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[after], None);
 
         assert_eq!(widgets.len(), 1, "the growing text block reuses its widget");
         assert!(
@@ -2668,7 +2724,7 @@ mod tests {
             text: "one two".into(),
             collapsed: false,
         };
-        sync_blocks(&body, &mut block_sigs, &mut widgets, &[grown]);
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[grown], None);
         assert!(
             std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
             "a growing thought must keep its label"
@@ -2689,7 +2745,7 @@ mod tests {
             text: "one two".into(),
             collapsed: true,
         };
-        sync_blocks(&body, &mut block_sigs, &mut widgets, &[folded]);
+        sync_blocks(&body, &mut block_sigs, &mut widgets, &[folded], None);
         assert!(
             !std::ptr::eq(widgets[0].as_ptr(), widget_ptr),
             "folding replaces the open thought"
@@ -3089,8 +3145,9 @@ mod tests {
         let noop: Rc<dyn Fn(String)> = Rc::new(|_| {});
         TurnActions {
             edit: noop.clone(),
-            submit: noop,
+            submit: noop.clone(),
             artifact: Rc::new(|_| {}),
+            open_path: noop,
             prompt: prompt.map(String::from),
         }
     }

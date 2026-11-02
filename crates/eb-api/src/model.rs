@@ -186,10 +186,15 @@ pub enum Block {
         collapsed: bool,
     },
     /// A tool call. `detail` is the muted secondary text (duration, target).
+    /// `path` is the one file the call acted on, when it has one: a `Read`
+    /// row that carries it opens the artifact panel on that file. Missing on
+    /// old transcripts and on tools without a single obvious file.
     Tool {
         status: String,
         primary: String,
         detail: Option<String>,
+        #[serde(default)]
+        path: Option<String>,
     },
     /// A write/edit result: a file path, the counts shown in the tool row, and
     /// the lines the product renders in its light-green diff card.
@@ -238,6 +243,12 @@ pub struct App {
     /// One-shot tab pick for the artifact panel: set when an artifact card in
     /// the conversation is clicked, consumed by the next paint.
     pub artifact_select: Option<usize>,
+    /// A file a tool opened (`Read` row click): shown as the panel's only tab
+    /// until the panel closes, an artifact card picks the written files, or
+    /// the task changes. Runtime-only — never persisted with the task.
+    pub tool_preview: Option<Artifact>,
+    /// The task the preview belongs to, so a task switch drops it.
+    pub tool_preview_task: Option<usize>,
     /// Sidebar task filter: 0 All Status, 1 Working, 2 Completed, 3 Failed,
     /// 4 Pending, 5 Planning.
     pub filter_status: usize,
@@ -288,6 +299,8 @@ impl App {
             detail_visible: false,
             artifact_dismissed: false,
             artifact_select: None,
+            tool_preview: None,
+            tool_preview_task: None,
             filter_status: 0,
             filter_time: 0,
             detail_maximised: false,
@@ -327,6 +340,8 @@ impl App {
         self.detail_visible = false;
         self.artifact_dismissed = false;
         self.artifact_select = None;
+        self.tool_preview = None;
+        self.tool_preview_task = None;
     }
 
     pub fn open_task(&mut self, index: usize) {
@@ -337,6 +352,10 @@ impl App {
         self.route = Route::Task(index);
         self.artifact_dismissed = false;
         self.artifact_select = None;
+        // The preview belonged to another task; a fresh task opens on its
+        // written files, if any.
+        self.tool_preview = None;
+        self.tool_preview_task = None;
         self.detail_visible = self.tasks[index].artifact.is_some();
         // Opening the task is what "seen" means: the row's red badge clears.
         if let Some(task) = self.tasks.get_mut(index) {
@@ -519,6 +538,10 @@ impl App {
             let overflow = task.artifacts.len().saturating_sub(MAX_TABS);
             task.artifacts.drain(..overflow);
             task.artifact = Some(artifact);
+            // A written file supersedes a `Read` preview: the newest artifact
+            // takes the stage, like it does with no preview in the way.
+            self.tool_preview = None;
+            self.tool_preview_task = None;
             // A manual close wins: the panel stays hidden for this task even
             // when further files arrive (WorkBuddy behaves the same). Only the
             // open task pops the panel; a background task's files surface when
@@ -740,6 +763,7 @@ mod tests {
                     status: "Ran".into(),
                     primary: "Read a".into(),
                     detail: None,
+                    path: None,
                 },
             },
         );
@@ -795,6 +819,7 @@ mod tests {
                     status: "Ran".into(),
                     primary: "echo".into(),
                     detail: None,
+                    path: None,
                 },
             },
         );

@@ -247,11 +247,34 @@ fn rejected_title(args: &serde_json::Value) -> String {
 
 /// Emit the transcript row and return the tool-result text.
 pub fn report(ctx: &ToolContext, status: &str, primary: String, result: String) -> String {
+    report_full(ctx, status, primary, None, result)
+}
+
+/// Like [`report`], but the row carries the one file the call acted on, so
+/// clicking the row opens the artifact panel on it.
+pub fn report_file(
+    ctx: &ToolContext,
+    status: &str,
+    primary: String,
+    path: &str,
+    result: String,
+) -> String {
+    report_full(ctx, status, primary, Some(path), result)
+}
+
+fn report_full(
+    ctx: &ToolContext,
+    status: &str,
+    primary: String,
+    path: Option<&str>,
+    result: String,
+) -> String {
     let _ = ctx.sink.send(eb_api::AgentEvent::Block {
         block: eb_api::model::Block::Tool {
             status: status.to_string(),
             primary,
             detail: None,
+            path: path.map(str::to_string),
         },
     });
     result
@@ -400,13 +423,52 @@ mod tests {
     /// Drive a tool by name through the real dispatcher (auto-approve), in
     /// a fresh temporary workspace.
     fn drive(root: &std::path::Path, name: &str, args: &str) -> String {
-        let (sink, _stream) = eb_api::AgentSink::channel();
+        let (sink, stream) = eb_api::AgentSink::channel();
+        drive_events(root, name, args, sink, &stream).0
+    }
+
+    /// Like `drive`, but hands back the blocks the tool emitted, so a test can
+    /// inspect the transcript row and not just the tool-result text.
+    fn drive_events(
+        root: &std::path::Path,
+        name: &str,
+        args: &str,
+        sink: eb_api::AgentSink,
+        stream: &eb_api::AgentStream,
+    ) -> (String, Vec<eb_api::model::Block>) {
         let mut consent = ToolConsent::default();
         let mut jobs = JobTable::default();
         let mut ask =
             |_class: &str, _title: &str| PermissionDecision::Selected("allow_once".into());
         let call = ToolCall { id: "t".into(), name: name.into(), arguments: args.into() };
-        crate::tools::execute_tool(&call, root, &mut consent, &mut ask, &sink, &mut jobs)
+        let text =
+            crate::tools::execute_tool(&call, root, &mut consent, &mut ask, &sink, &mut jobs);
+        // The sink stays alive while the stream drains: dropping it closes the
+        // channel and the queued blocks would be gone.
+        let mut blocks = Vec::new();
+        while let Ok(event) = stream.recv_timeout(std::time::Duration::from_secs(1)) {
+            if let eb_api::AgentEvent::Block { block } = event {
+                blocks.push(block);
+            }
+        }
+        (text, blocks)
+    }
+
+    #[test]
+    fn read_row_carries_the_file_path() {
+        let root = std::env::temp_dir().join(format!("eb-tools-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("f.txt"), "content").unwrap();
+        let (sink, stream) = eb_api::AgentSink::channel();
+        let (text, blocks) = drive_events(&root, "read_file", r#"{"path":"f.txt"}"#, sink, &stream);
+        assert!(text.contains("content"), "{text}");
+        let path = blocks.iter().find_map(|block| match block {
+            eb_api::model::Block::Tool { path, .. } => path.clone(),
+            _ => None,
+        });
+        assert_eq!(path.as_deref(), Some("f.txt"), "blocks: {blocks:?}");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

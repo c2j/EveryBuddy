@@ -276,6 +276,7 @@ fn placeholder_answer(nth: usize) -> (Vec<Block>, Option<Artifact>) {
                 status: "Wrote".to_string(),
                 primary: "demo/main.rs".to_string(),
                 detail: Some("+42 −0".to_string()),
+                path: None,
             },
             Block::Text(
                 "A table renders as a rounded card with a tinted header row and hairline \

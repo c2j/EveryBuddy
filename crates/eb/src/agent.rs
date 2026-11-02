@@ -1527,6 +1527,7 @@ mod tests {
                 status: "Ran".into(),
                 primary: "gcc quine.c".into(),
                 detail: None,
+                path: None,
             });
         }
         // migrated_prompt keeps every turn but the last pair, so one more
@@ -1714,6 +1715,7 @@ mod tests {
             status: "Ran".into(),
             primary: "Write /tmp/evobuddy-tool-path/example.txt".into(),
             detail: None,
+            path: None,
         };
         assert_eq!(
             collect_written_paths(&block),
@@ -1730,6 +1732,7 @@ mod tests {
             status: "Ran".into(),
             primary: format!("Write {spaced}"),
             detail: None,
+            path: None,
         };
         assert_eq!(
             collect_written_paths(&block),
@@ -1758,6 +1761,7 @@ mod tests {
             status: "Ran".into(),
             primary: format!("Write {plain} created"),
             detail: None,
+            path: None,
         };
         let artifact = resolve_file_artifact(&collect_written_paths(&block), &[std::path::PathBuf::from(".")])
             .expect("noted path resolves");
