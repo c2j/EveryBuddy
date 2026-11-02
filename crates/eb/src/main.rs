@@ -148,7 +148,9 @@ fn retry_resume(views: &Rc<crate::shell::Views>, store: &model::Store, session_i
             eprintln!("phase1: resumed {session_id}");
             views.refresh(store);
         }
-        Err(error) if attempts > 1 => {
+        // A cold-start race is worth waiting for; a "session not found" is
+        // deterministic and must fall straight through to the cleanup arm.
+        Err(error) if attempts > 1 && !bridge::session_missing(&error) => {
             let views = views.clone();
             let store = store.clone();
             let session_id = std::rc::Rc::new(session_id.to_string());
@@ -157,7 +159,25 @@ fn retry_resume(views: &Rc<crate::shell::Views>, store: &model::Store, session_i
                 gtk::glib::ControlFlow::Break
             });
         }
-        Err(error) => eprintln!("phase1: resume failed: {error}"),
+        Err(error) => {
+            if bridge::session_missing(&error) {
+                // The plugin's persistence no longer knows this session:
+                // drop the stale id so the next message opens a fresh one
+                // instead of appending into the void.
+                {
+                    let mut app = store.borrow_mut();
+                    for task in app.tasks.iter_mut() {
+                        if task.session_id.as_deref() == Some(session_id) {
+                            task.session_id = None;
+                        }
+                    }
+                }
+                eprintln!("resume: persisted session {session_id} is gone; starting fresh");
+                views.refresh(store);
+            } else {
+                eprintln!("phase1: resume failed: {error}");
+            }
+        }
     }
 }
 

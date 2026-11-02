@@ -334,8 +334,33 @@ pub fn resume_session(session_id: &str) -> Result<(), String> {
         *ACTIVE_SESSION.lock().unwrap() = Some(session_id.to_string());
         Ok(())
     } else {
-        Err(response)
+        Err(brief_error(&response))
     }
+}
+
+/// The plugin's business error, stripped of the HTTP envelope. The old
+/// callers printed the whole response — headers included — for a one-line
+/// problem.
+fn brief_error(response: &str) -> String {
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or(response);
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value["error"]
+                .as_str()
+                .or_else(|| value["error"]["message"].as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| body.trim().to_string())
+}
+
+/// Whether a resume failure means the persisted session is gone for good
+/// (`SessionPersistenceNotFoundError`). Deterministic: retrying cannot
+/// bring it back, so callers should drop the stale id instead.
+pub fn session_missing(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("sessionpersistencenotfound")
+        || (lower.contains("session") && lower.contains("not found"))
 }
 
 /// Ordered session projection including tool rows.
@@ -391,4 +416,32 @@ pub fn run_agent(prompt: &str) -> Result<Vec<(String, String)>, String> {
                 .collect()
         })
         .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brief_error_strips_the_http_envelope() {
+        let response = "HTTP/1.1 200 OK\r\nServer: tiny-http (Rust)\r\nContent-Type: application/json\r\n\r\n\
+            {\"ok\":false,\"error\":\"SessionPersistenceNotFoundError: session \\\"task-0-1\\\" not found\"}";
+        assert_eq!(
+            brief_error(response),
+            "SessionPersistenceNotFoundError: session \"task-0-1\" not found"
+        );
+        // A body the plugin did not frame as JSON still comes back readable.
+        assert_eq!(brief_error("HTTP/1.1 500 X\r\n\r\nboom"), "boom");
+    }
+
+    #[test]
+    fn session_missing_matches_the_plugin_phrasings() {
+        assert!(session_missing(
+            "SessionPersistenceNotFoundError: session \"task-0-1\" not found"
+        ));
+        assert!(session_missing("session 42 not found"));
+        // A cold-start race (timeout, degraded bridge) must keep retrying.
+        assert!(!session_missing("bridge degraded"));
+        assert!(!session_missing("connection timed out"));
+    }
 }
