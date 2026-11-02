@@ -10,6 +10,12 @@ MOCK_MODE=multi  a three-tool script ending in prose: search_content to find
                  matched line, todo_write to publish the plan — each round
                  asserts the previous tool result came back, and the last
                  request (no tool messages beyond the plan) answers in text.
+MOCK_MODE=limit  the first request fails with an OpenAI-style context-length
+                 error naming 8192 tokens; the retried request streams plain
+                 text, so the client must learn the window and self-heal.
+
+All modes: GET /models answers {"data":[{"id":"mock-model",
+"context_length":8192}]}, and the final SSE chunk carries a usage block.
 
 Prints its listening address as the first stdout line.
 """
@@ -19,6 +25,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 mode = os.environ.get("MOCK_MODE", "plain")
+posts = {"count": 0}
 out = sys.stdout
 
 
@@ -32,7 +39,20 @@ def sse(chunk):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.rstrip("/").endswith("/models"):
+            body = json.dumps({"data": [{"id": "mock-model", "context_length": 8192}]})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_POST(self):
+        posts["count"] += 1
         length = int(self.headers.get("Content-Length", "0"))
         try:
             body = json.loads(self.rfile.read(length))
@@ -84,11 +104,31 @@ class Handler(BaseHTTPRequestHandler):
             self._multi(body)
             return
 
-        # plain mode: a reasoning chunk, then the answer.
+        if mode == "limit":
+            if posts["count"] == 1:
+                self.wfile.write(sse({"error": {"message":
+                    "This model's maximum context length is 8192 tokens. "
+                    "However, your messages resulted in 9000 tokens."}}))
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                return
+            # The client learned the window from the error, compacted and
+            # retried: prove the turn can still finish.
+            for piece in ("recovered ", "after compaction"):
+                self.wfile.write(sse({"choices": [{"delta": {"content": piece}}]}))
+            self.wfile.write(sse({"choices": [{"delta": {}}],
+                                  "usage": {"prompt_tokens": 64, "completion_tokens": 5}}))
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
+
+        # plain mode: a reasoning chunk, then the answer, then usage.
         self.wfile.write(sse({"choices": [{"delta": {"reasoning_content": "thinking hard"}}]}))
         prompt = body["messages"][-1]["content"]
         for piece in ("mock says: ", prompt):
             self.wfile.write(sse({"choices": [{"delta": {"content": piece}}]}))
+        self.wfile.write(sse({"choices": [{"delta": {}}],
+                              "usage": {"prompt_tokens": 42, "completion_tokens": 7}}))
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 

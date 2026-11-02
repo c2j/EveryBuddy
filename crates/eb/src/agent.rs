@@ -219,9 +219,12 @@ fn migrated_prompt_with(
             }
         }
     }
-    const MAX: usize = 24_000;
-    if context.len() > MAX {
-        let start = context.len() - MAX;
+    // The cap is context-window aware when the custom model's window has
+    // been configured or detected; otherwise it stays at the historical
+    // 24 000 characters. See custom_model::transcript_char_cap.
+    let max = crate::custom_model::transcript_char_cap();
+    if context.len() > max {
+        let start = context.len() - max;
         let start = context
             .char_indices()
             .map(|(index, _)| index)

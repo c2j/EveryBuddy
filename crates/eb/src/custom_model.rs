@@ -37,6 +37,245 @@ pub struct CustomConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+    /// Context window in tokens. Optional: when empty the window is probed
+    /// from `{base}/models` and, failing that, learned from a
+    /// context-length error. Compaction kicks in at 85% of this budget.
+    pub context_length: Option<u64>,
+}
+
+/// Compaction kicks in when the estimated prompt reaches this share of the
+/// context window; the rest is headroom for the answer itself.
+const COMPACTION_THRESHOLD: f64 = 0.85;
+/// Tool results kept verbatim during compaction; older ones are blanked.
+const TOOL_KEEP_RECENT: usize = 3;
+/// Replacement left behind for a blanked tool result.
+const OMITTED_TOOL: &str = "[earlier tool result omitted to fit the context window]";
+/// Cross-turn transcript cap when the window is unknown (previous behavior).
+const DEFAULT_TRANSCRIPT_CAP: usize = 24_000;
+/// How many characters one token is worth, before usage feedback calibrates it.
+const DEFAULT_CHARS_PER_TOKEN: f64 = 4.0;
+
+/// Shared across turns (and across task instances) so the window has to be
+/// detected only once per endpoint. `chars_per_token` is the observed
+/// serialized-bytes-per-prompt-token ratio from `usage.prompt_tokens`.
+#[derive(Debug)]
+struct WindowCache {
+    limit_tokens: Option<u64>,
+    chars_per_token: f64,
+}
+
+static WINDOW: std::sync::OnceLock<Mutex<WindowCache>> = std::sync::OnceLock::new();
+
+fn window_cache() -> &'static Mutex<WindowCache> {
+    WINDOW.get_or_init(|| {
+        Mutex::new(WindowCache {
+            limit_tokens: None,
+            chars_per_token: DEFAULT_CHARS_PER_TOKEN,
+        })
+    })
+}
+
+/// Remember a detected context window, keeping the smallest known value:
+/// a hard error is more authoritative than a generous `/models` claim.
+fn remember_window_limit(tokens: u64) {
+    if !(256..=100_000_000).contains(&tokens) {
+        return;
+    }
+    if let Ok(mut cache) = window_cache().lock() {
+        cache.limit_tokens = Some(match cache.limit_tokens {
+            Some(known) => known.min(tokens),
+            None => tokens,
+        });
+    }
+}
+
+fn window_limit() -> Option<u64> {
+    window_cache().lock().ok().and_then(|c| c.limit_tokens)
+}
+
+/// Calibrate the bytes-per-token ratio from a real `usage.prompt_tokens`
+/// reading, so later estimates track the actual tokenizer instead of the
+/// ASCII/CJK heuristic.
+fn calibrate_chars_per_token(serialized_bytes: usize, prompt_tokens: u64) {
+    if prompt_tokens == 0 || serialized_bytes == 0 {
+        return;
+    }
+    let ratio = serialized_bytes as f64 / prompt_tokens as f64;
+    if !(1.0..=16.0).contains(&ratio) {
+        return;
+    }
+    if let Ok(mut cache) = window_cache().lock() {
+        // Blend toward the new observation; a single reading must not swing it.
+        cache.chars_per_token = (cache.chars_per_token * 0.5 + ratio * 0.5).clamp(1.5, 12.0);
+    }
+}
+
+fn calibrated_chars_per_token() -> f64 {
+    window_cache()
+        .lock()
+        .map(|c| c.chars_per_token)
+        .unwrap_or(DEFAULT_CHARS_PER_TOKEN)
+}
+
+/// Character budget for the host-side cross-turn transcript: 85% of the
+/// detected window converted through the calibrated ratio, falling back to
+/// the historical 24 000 characters when nothing is known.
+pub fn transcript_char_cap() -> usize {
+    match window_limit() {
+        Some(tokens) => ((tokens as f64 * COMPACTION_THRESHOLD * calibrated_chars_per_token())
+            as usize)
+            .clamp(2_000, 4_000_000),
+        None => DEFAULT_TRANSCRIPT_CAP,
+    }
+}
+
+/// Pull the context length out of a context-overflow error message. Covers
+/// the OpenAI phrasing ("maximum context length is 8192 tokens"), vLLM
+/// ("max context length is ... tokens") and the Chinese variants
+/// ("上下文长度为 8192"/"上下文窗口...8192").
+pub fn parse_context_limit(message: &str) -> Option<u64> {
+    let lower = message.to_lowercase();
+    for keyword in ["context length", "context window", "上下文长度", "上下文窗口"] {
+        let Some(position) = lower.find(keyword) else {
+            continue;
+        };
+        // ASCII keywords and CJK keywords survive `to_lowercase` byte-for-byte,
+        // so the offset is valid in the original string too.
+        let tail = &message[position + keyword.len()..];
+        let digits: String = tail
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(tokens) = digits.parse::<u64>() {
+            if (256..=100_000_000).contains(&tokens) {
+                return Some(tokens);
+            }
+        }
+    }
+    None
+}
+
+/// Where an overflow can surface: the SSE error payload, curl's stderr
+/// (some gateways put the HTTP 400 body there), or a non-streamed JSON
+/// error body. `raw` is only scanned when the cheap sources came up empty.
+fn context_limit_from(outcome: &RoundOutcome) -> Option<u64> {
+    if !outcome.stream_error.is_empty() {
+        if let Some(limit) = parse_context_limit(&outcome.stream_error) {
+            return Some(limit);
+        }
+    }
+    if !outcome.errors.is_empty() {
+        if let Some(limit) = parse_context_limit(&outcome.errors) {
+            return Some(limit);
+        }
+    }
+    parse_context_limit(&outcome.raw)
+}
+
+/// Serialized byte size of a message list — the input to both estimators.
+fn messages_bytes(messages: &[serde_json::Value]) -> usize {
+    serde_json::to_string(&messages)
+        .map(|text| text.len())
+        .unwrap_or(0)
+}
+
+/// Rough token estimate for a message list. Once real `usage` feedback has
+/// calibrated the ratio, the serialized byte size divided by it is the best
+/// guess; before that, a per-byte heuristic (ASCII ~4 bytes/token, UTF-8
+/// CJK ~3 bytes/token) errs on the compacting-early side.
+fn estimate_tokens_messages(messages: &[serde_json::Value]) -> f64 {
+    let Ok(text) = serde_json::to_string(&messages) else {
+        return f64::MAX;
+    };
+    let ratio = calibrated_chars_per_token();
+    if (ratio - DEFAULT_CHARS_PER_TOKEN).abs() > f64::EPSILON {
+        return text.len() as f64 / ratio;
+    }
+    let ascii = text.bytes().filter(|byte| *byte < 128).count();
+    let non_ascii = text.len() - ascii;
+    ascii as f64 * 0.25 + non_ascii as f64 * 0.33
+}
+
+/// Shrink a turn's message list toward `budget_tokens`. Two mechanical
+/// passes, in order of information loss:
+///
+/// 1. blank the bodies of every tool result except the most recent
+///    [`TOOL_KEEP_RECENT`] — tool output is the bulk of a long turn;
+/// 2. drop the oldest complete rounds, always keeping the first message
+///    (the original request) and a self-contained tail (a round never
+///    loses its assistant `tool_calls` message).
+///
+/// Returns whether anything changed. Purely mechanical: no extra model
+/// request, so it cannot recurse into the same overflow.
+fn compact_messages(messages: &mut Vec<serde_json::Value>, budget_tokens: f64) -> bool {
+    if messages.is_empty() || estimate_tokens_messages(messages) <= budget_tokens {
+        return false;
+    }
+    let mut changed = false;
+
+    // Pass 1: blank old tool bodies.
+    let tool_indices: Vec<usize> = (0..messages.len())
+        .filter(|&index| messages[index]["role"] == "tool")
+        .collect();
+    let keep_from = tool_indices.len().saturating_sub(TOOL_KEEP_RECENT);
+    for &index in &tool_indices[..keep_from] {
+        if messages[index]["content"].as_str() != Some(OMITTED_TOOL) {
+            messages[index]["content"] = serde_json::json!(OMITTED_TOOL);
+            changed = true;
+        }
+    }
+
+    // Pass 2: drop whole rounds from the front until the estimate fits.
+    while estimate_tokens_messages(messages) > budget_tokens && messages.len() > 2 {
+        // The last self-contained round start: a user message or an
+        // assistant message carrying tool_calls. Everything between it and
+        // the front can go without orphaning a tool result.
+        let Some(start) = (1..messages.len()).rev().find(|&index| {
+            let message = &messages[index];
+            message["role"] == "user"
+                || (message["role"] == "assistant" && message["tool_calls"].is_array())
+        }) else {
+            break;
+        };
+        if start <= 1 {
+            break;
+        }
+        messages.drain(1..start);
+        changed = true;
+    }
+    changed
+}
+
+/// One-time `{base}/models` probe. vLLM exposes `max_model_len`, LM Studio
+/// and some gateways `context_length` or `context_window`; servers that
+/// return neither (OpenAI itself, bigmodel.cn) yield `None` and the
+/// error-driven detection covers them later.
+fn probe_models_limit(base_url: &str, key: &str, model: &str) -> Option<u64> {
+    let base = base_url.trim().trim_end_matches('/');
+    let base = base.strip_suffix("/chat/completions").unwrap_or(base);
+    let mut command = Command::new("curl");
+    command
+        .args(["-sS", "--max-time", "8", &format!("{base}/models")])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if !key.trim().is_empty() {
+        command.arg("-H").arg(format!("Authorization: Bearer {key}"));
+    }
+    let Ok(output) = command.output() else {
+        return None;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return None;
+    };
+    let entries = value["data"].as_array()?;
+    let matching = entries
+        .iter()
+        .find(|entry| entry["id"].as_str() == Some(model))
+        .or_else(|| entries.first())?;
+    ["context_length", "max_model_len", "context_window"]
+        .iter()
+        .find_map(|field| matching[field].as_u64())
 }
 
 pub struct CustomModel {
@@ -90,6 +329,7 @@ impl AnswerSource for CustomModel {
         let base_url = self.config.base_url.clone();
         let model = self.config.model.clone();
         let root = workspace.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let configured_limit = self.config.context_length;
         let cancelled = Arc::new(AtomicBool::new(false));
         let child = Arc::new(Mutex::new(None));
         let child_for_handle = child.clone();
@@ -170,11 +410,44 @@ impl AnswerSource for CustomModel {
                     }
                     request_round(&body, &endpoint, &key, &child, &cancelled_for_worker, &sink)
                 };
+                // Establish the context budget once per turn: explicit config
+                // wins, then whatever earlier turns learned, then a one-time
+                // `/models` probe. Servers that answer none of these stay
+                // unbounded until an overflow error teaches us the limit.
+                let mut budget_tokens = configured_limit
+                    .or_else(window_limit)
+                    .or_else(|| {
+                        probe_models_limit(&base_url, &key, &model)
+                            .inspect(|tokens| remember_window_limit(*tokens))
+                    })
+                    .map(|tokens| tokens as f64 * COMPACTION_THRESHOLD);
+                let mut healed = false;
                 for _round in 0..MAX_TOOL_ROUNDS {
-                    let outcome = request(&messages, Some(crate::tools::tool_definitions()));
+                    if let Some(budget) = budget_tokens {
+                        compact_messages(&mut messages, budget);
+                    }
+                    let mut outcome = request(&messages, Some(crate::tools::tool_definitions()));
                     if !outcome.started {
                         // curl could not spawn; the failure is already out.
                         return;
+                    }
+                    // Self-heal a context-length overflow: learn the window
+                    // from the error text, compact, and retry this round once.
+                    if !healed {
+                        if let Some(limit) = context_limit_from(&outcome) {
+                            remember_window_limit(limit);
+                            let compact_budget = limit as f64 * 0.70;
+                            compact_messages(&mut messages, compact_budget);
+                            budget_tokens = Some(limit as f64 * COMPACTION_THRESHOLD);
+                            healed = true;
+                            outcome = request(&messages, Some(crate::tools::tool_definitions()));
+                            if !outcome.started {
+                                return;
+                            }
+                        }
+                    }
+                    if let Some(tokens) = outcome.prompt_tokens {
+                        calibrate_chars_per_token(messages_bytes(&messages), tokens);
                     }
                     if cancelled_for_worker.load(Ordering::SeqCst) {
                         let _ = sink.send(AgentEvent::Failed { message: "Cancelled".into() });
@@ -268,6 +541,9 @@ impl AnswerSource for CustomModel {
 Do not call any more tools. Give your final answer now, summarizing what \
 you did and what remains undone.",
                 }));
+                if let Some(budget) = budget_tokens {
+                    compact_messages(&mut messages, budget);
+                }
                 let outcome = request(&messages, None);
                 if !outcome.started {
                     return;
@@ -347,6 +623,9 @@ struct RoundOutcome {
     errors: String,
     stream_error: String,
     calls: Vec<crate::tools::ToolCall>,
+    /// `usage.prompt_tokens` from the server, when it reports one. Each
+    /// reading recalibrates the token estimator for the compaction budget.
+    prompt_tokens: Option<u64>,
 }
 
 fn request_round(
@@ -364,6 +643,7 @@ fn request_round(
         errors: String::new(),
         stream_error: String::new(),
         calls: Vec::new(),
+        prompt_tokens: None,
     };
     let mut command = Command::new("curl");
     command
@@ -435,6 +715,9 @@ fn request_round(
             if let Some(message) = value["error"]["message"].as_str() {
                 outcome.stream_error = message.to_string();
                 break;
+            }
+            if let Some(tokens) = value["usage"]["prompt_tokens"].as_u64() {
+                outcome.prompt_tokens = Some(tokens);
             }
             let choice = &value["choices"][0];
             let delta = &choice["delta"];
@@ -598,6 +881,7 @@ mod tests {
             base_url: format!("http://{address}/v1"),
             api_key: "test-key".into(),
             model: "mock-model".into(),
+            ..Default::default()
         });
         let (sink, stream) = eb_api::AgentSink::channel();
         let handle = model.start("what is 2 + 2", sink);
@@ -675,6 +959,7 @@ mod tests {
             base_url: format!("http://{address}/v1"),
             api_key: "test-key".into(),
             model: "mock-model".into(),
+            ..Default::default()
         });
         let (sink, stream) = eb_api::AgentSink::channel();
         std::env::set_var("EB_PERMISSION_AUTO", "allow");
@@ -755,6 +1040,7 @@ mod tests {
             base_url: format!("http://{address}/v1"),
             api_key: "test-key".into(),
             model: "mock-model".into(),
+            ..Default::default()
         });
         let (sink, stream) = eb_api::AgentSink::channel();
         std::env::set_var("EB_PERMISSION_AUTO", "allow");
@@ -981,6 +1267,140 @@ hi");
         execute_tool(&write, &dir, &mut consent, &mut ask, &sink);
         assert_eq!(prompts.load(AtomicOrdering::SeqCst), 2, "a different class prompts again");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_limit_errors_are_parsed_across_providers() {
+        // OpenAI's classic phrasing.
+        assert_eq!(
+            parse_context_limit(
+                "This model's maximum context length is 8192 tokens. However, your messages resulted in 9000 tokens."
+            ),
+            Some(8192)
+        );
+        // vLLM.
+        assert_eq!(
+            parse_context_limit("This model's max context length is 32768 tokens"),
+            Some(32768)
+        );
+        // Chinese gateways.
+        assert_eq!(parse_context_limit("错误：上下文长度为 128000，超出限制"), Some(128000));
+        assert_eq!(parse_context_limit("上下文窗口 8192 已满"), Some(8192));
+        // Unrelated errors must not produce a number.
+        assert_eq!(parse_context_limit("insufficient quota"), None);
+        assert_eq!(parse_context_limit("mock: bad auth"), None);
+    }
+
+    #[test]
+    fn compaction_blanks_old_tool_results_then_drops_old_rounds() {
+        let big = |tag: &str| "x".repeat(6_000) + tag;
+        let mut messages = vec![
+            serde_json::json!({"role": "user", "content": "original task"}),
+            serde_json::json!({"role": "assistant", "tool_calls": [{"id": "a1"}]}),
+            serde_json::json!({"role": "tool", "tool_call_id": "a1", "content": big("A")}),
+            serde_json::json!({"role": "assistant", "tool_calls": [{"id": "a2"}]}),
+            serde_json::json!({"role": "tool", "tool_call_id": "a2", "content": big("B")}),
+            serde_json::json!({"role": "assistant", "tool_calls": [{"id": "a3"}]}),
+            serde_json::json!({"role": "tool", "tool_call_id": "a3", "content": big("C")}),
+            serde_json::json!({"role": "assistant", "tool_calls": [{"id": "a4"}]}),
+            serde_json::json!({"role": "tool", "tool_call_id": "a4", "content": big("D")}),
+        ];
+        // A comfortable budget changes nothing.
+        assert!(!compact_messages(&mut messages, f64::MAX));
+        assert!(messages.iter().any(|m| m["content"].as_str() == Some(big("A").as_str())));
+
+        // A tiny budget: the oldest tool body is blanked first, then whole
+        // rounds drop from the front until the estimate fits.
+        let changed = compact_messages(&mut messages, 600.0);
+        assert!(changed);
+        assert_eq!(messages[0]["content"], "original task", "the original request is kept");
+        // Nothing may be over budget after compaction (the tail is small).
+        assert!(estimate_tokens_messages(&messages) <= 600.0 * 4.0 + 500.0);
+        // Structural consistency: every tool message directly follows an
+        // assistant message carrying its tool_calls, so the API never sees
+        // an orphaned tool result.
+        for index in 1..messages.len() {
+            if messages[index]["role"] == "tool" {
+                let previous = &messages[index - 1];
+                assert_eq!(previous["role"], "assistant");
+                assert!(previous["tool_calls"].is_array(), "orphaned tool result at {index}");
+            }
+        }
+        // The newest tool body must have survived verbatim.
+        assert!(
+            messages.iter().any(|m| m["content"].as_str() == Some(big("D").as_str())),
+            "the most recent tool result is kept"
+        );
+    }
+
+    /// The cross-turn transcript cap follows the detected window. Runs under
+    /// the mode lock so parallel integration tests cannot recalibrate the
+    /// byte/token ratio (or rewrite the window) mid-assertion.
+    #[test]
+    fn transcript_cap_follows_the_detected_window() {
+        let _guard = mode_lock();
+        remember_window_limit(8192);
+        assert_eq!(window_limit(), Some(8192));
+        let expected = (8192.0 * COMPACTION_THRESHOLD * calibrated_chars_per_token()) as usize;
+        assert_eq!(transcript_char_cap(), expected);
+        // Sanity bounds regardless of calibration state.
+        assert!((10_000..=84_000).contains(&transcript_char_cap()));
+    }
+
+    /// End-to-end self-heal: the mock rejects the first request with a
+    /// context-length error, so the client must learn the 8192-token window
+    /// from the error text, compact, retry, and still finish the turn.
+    #[test]
+    fn context_overflow_error_is_learned_and_retried() {
+        let _guard = mode_lock();
+        if !python_available() {
+            eprintln!("skipping: python3 not available");
+            return;
+        }
+        use std::io::BufRead as _;
+        let mut server = std::process::Command::new("python3")
+            .args(["tests/fixtures/openai_mock.py"])
+            .env("MOCK_MODE", "limit")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start mock server");
+        let address = {
+            let stdout = server.stdout.take().expect("mock server stdout");
+            let mut lines = BufReader::new(stdout).lines();
+            lines.next().expect("mock server prints its address").unwrap()
+        };
+
+        // No explicit window: the /models probe on the mock must find it.
+        let model = CustomModel::new(CustomConfig {
+            name: "mock".into(),
+            base_url: format!("http://{address}/v1"),
+            api_key: "test-key".into(),
+            model: "mock-model".into(),
+            context_length: None,
+        });
+        let (sink, stream) = eb_api::AgentSink::channel();
+        let handle = model.start("fill the window", sink);
+        let mut text = String::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let finished = loop {
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            match stream.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(eb_api::AgentEvent::Delta { text: value }) => text.push_str(&value),
+                Ok(eb_api::AgentEvent::Failed { message }) => {
+                    panic!("the overflow should self-heal, got: {message}");
+                }
+                Ok(eb_api::AgentEvent::Finished) => break true,
+                Ok(_) => {}
+                Err(_) => break false,
+            }
+        };
+        handle.cancel();
+        let _ = server.kill();
+        assert!(finished, "the turn never finished after the overflow retry");
+        assert_eq!(text, "recovered after compaction");
     }
 
     /// The composer permission mode and the EB_PERMISSION_AUTO env are

@@ -762,11 +762,20 @@ fn custom_model_page() -> gtk::Box {
     } else {
         "API key saved; leave blank to keep it"
     }));
+    let context = gtk::Entry::new();
+    context.set_text(
+        &config
+            .context_length
+            .map(|tokens| tokens.to_string())
+            .unwrap_or_default(),
+    );
+    context.set_placeholder_text(Some("Context window tokens, e.g. 128000 (optional)"));
     for (label, entry) in [
         ("Name", &name),
         ("Base URL", &base_url),
         ("Model", &model),
         ("API key", &key),
+        ("Context", &context),
     ] {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         let label = text(label, "eb-settings-model-label");
@@ -788,6 +797,7 @@ fn custom_model_page() -> gtk::Box {
             base_url: base_url.text().to_string(),
             api_key: key.text().to_string(),
             model: model.text().to_string(),
+            context_length: context.text().trim().parse::<u64>().ok(),
         };
         match crate::router::set_custom(custom) {
             Ok(()) => status.set_text("Saved. The next message uses this custom model."),
