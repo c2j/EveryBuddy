@@ -459,7 +459,9 @@ impl App {
         task.meta = "now".to_string();
         task.turns.push(Turn::User {
             text: text.to_string(),
-            time: "now".to_string(),
+            // Unix seconds as text; the renderer formats it date-aware
+            // (HH:MM today, with the date prepended on older turns).
+            time: unix_now().to_string(),
         });
         task.turns.push(Turn::Agent {
             name: "EvoBuddy".to_string(),

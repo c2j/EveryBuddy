@@ -957,7 +957,8 @@ fn build_turn(
     };
     match turn {
         Turn::User { text, time } => {
-            let frame = user_turn(text, time, &actions);
+            let stamp = turn_stamp_text(time);
+            let frame = user_turn(text, &stamp, &actions);
             // Show what this turn just built, not the whole list: a blanket
             // `messages.show_all()` walks every widget in the conversation on
             // every frame, which is what made a long transcript expensive to
@@ -986,7 +987,7 @@ fn build_turn(
                 blocks,
                 *streaming,
                 artifacts,
-                time.as_ref().map(clock_hhmm).as_deref(),
+                time.as_ref().map(|epoch| turn_stamp(*epoch)).as_deref(),
                 &actions,
             );
             let mut widgets: Vec<gtk::Widget> = Vec::new();
@@ -1946,12 +1947,38 @@ struct AgentTurnParts {
     body: gtk::Box,
 }
 
-/// Local `HH:MM` for a turn's unix-second stamp, revealed under the message
-/// on hover. Out-of-range epochs fall back to no timestamp rather than 00:00.
-fn clock_hhmm(epoch: &u64) -> String {
-    gtk::glib::DateTime::from_unix_local(i64::try_from(*epoch).unwrap_or(0))
-        .map(|time| format!("{:02}:{:02}", time.hour(), time.minute()))
-        .unwrap_or_default()
+/// A turn's hover stamp, from the stored time field. New turns store unix
+/// seconds as text and format date-aware; older saved sessions keep their
+/// literal "HH:MM" (or placeholder) text verbatim.
+fn turn_stamp_text(stored: &str) -> String {
+    stored
+        .parse::<u64>()
+        .map(turn_stamp)
+        .unwrap_or_else(|_| stored.to_string())
+}
+
+/// Date-aware stamp for a turn's unix-second time: `HH:MM` today, so a live
+/// conversation stays compact; `MM-DD HH:MM` within the calendar year; and
+/// `YYYY-MM-DD HH:MM` beyond it. Out-of-range epochs fall back to no
+/// timestamp rather than 00:00.
+fn turn_stamp(epoch: u64) -> String {
+    let Ok(time) = gtk::glib::DateTime::from_unix_local(i64::try_from(epoch).unwrap_or(0)) else {
+        return String::new();
+    };
+    let clock = format!("{:02}:{:02}", time.hour(), time.minute());
+    let Ok(now) = gtk::glib::DateTime::now_local() else {
+        return clock;
+    };
+    if time.year() == now.year()
+        && time.month() == now.month()
+        && time.day_of_month() == now.day_of_month()
+    {
+        clock
+    } else if time.year() == now.year() {
+        format!("{:02}-{:02} {clock}", time.month(), time.day_of_month())
+    } else {
+        format!("{}-{:02}-{:02} {clock}", time.year(), time.month(), time.day_of_month())
+    }
 }
 
 fn agent_turn(
@@ -2560,6 +2587,25 @@ mod tests {
 
     use super::*;
     use crate::model::Block;
+
+    /// A today stamp stays `HH:MM`; anything older carries its date. The
+    /// fixed epoch (2000-02-29 UTC) pins the year branch without depending
+    /// on the machine's time zone (±14h keeps it on Feb 28/29, never March).
+    #[test]
+    fn turn_stamp_extends_the_date_off_day() {
+        let now = gtk::glib::DateTime::now_local().unwrap();
+        let today = turn_stamp(now.to_unix() as u64);
+        assert_eq!(today.len(), 5, "today must stay HH:MM, got {today}");
+        assert!(!today.contains('-'), "today must stay HH:MM, got {today}");
+
+        let ancient = turn_stamp(951_782_400);
+        assert!(ancient.starts_with("2000-02-2"), "got {ancient}");
+        assert_eq!(ancient.len(), 16, "expected YYYY-MM-DD HH:MM, got {ancient}");
+
+        // Stored text that is not an epoch (older sessions) passes through.
+        assert_eq!(turn_stamp_text("12:00"), "12:00");
+        assert_eq!(turn_stamp_text("now"), "now");
+    }
 
     /// The streaming hot path: a text block that only grew must keep its
     /// TextView widget (same instance) and get its buffer rewritten in place,
