@@ -1097,7 +1097,7 @@ pub fn open() {
         "presets",
     );
     stack.add_named(
-        &simple_page("About", "EvoBuddy 0.1.0 — WorkBuddy-style GTK client."),
+        &simple_page("About", concat!("EvoBuddy ", env!("CARGO_PKG_VERSION"), " — WorkBuddy-style GTK client.")),
         "about",
     );
     content.pack_start(&stack, true, true, 0);

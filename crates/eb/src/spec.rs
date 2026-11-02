@@ -27,7 +27,9 @@ include!(concat!(
 pub const APP_ID: &str = "com.evobuddy.app";
 /// Product name. Nothing in the UI may say "WorkBuddy" (see ui-spec §9).
 pub const APP_NAME: &str = "EvoBuddy";
-pub const APP_VERSION: &str = "v0.1.0";
+/// Version shown in the sidebar, taken from the workspace version at
+/// compile time so it can never drift from Cargo.toml again.
+pub const APP_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
 // ------------------------------------------------------------ window shell
 
