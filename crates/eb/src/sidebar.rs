@@ -157,6 +157,18 @@ fn topbar(
     let bar = hbox(4);
     class(&bar, "eb-sidebar-topbar");
 
+    // Brand on the same line as the window actions: the left space the
+    // traffic lights otherwise leave empty carries logo + name + version,
+    // and the nav menu starts right under this row.
+    let brand = hbox(8);
+    class(&brand, "eb-brand-row");
+    // EvoBuddy's own mark, embedded as a PNG (no icon theme / librsvg path).
+    let brand_mark = crate::icons::named("logo", 18, "eb-brand-name");
+    brand.pack_start(&brand_mark, false, false, 0);
+    brand.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
+    brand.pack_start(&text(spec::APP_VERSION, "eb-brand-version"), false, false, 0);
+    bar.pack_start(&brand, false, false, 0);
+
     // The product opens a dedicated search window; this build pops the same
     // search over the sidebar. The button is pre-wired by the caller.
 
@@ -261,24 +273,10 @@ fn build_filter_menu(button: &gtk::Button, wiring: &Wiring) {
     popover.popup();
 }
 
-/// The header opens with a single brand row (logo + name + version inline),
-/// then the nav list; the merged row keeps more of the 246px budget for the
-/// menu itself.
+/// The header is just the nav list now: the brand lives on the topbar row.
 fn header(wiring: &Wiring, contribs: &Contribs) -> (gtk::Box, Vec<gtk::Button>) {
     let header = vbox(2);
     class(&header, "eb-sidebar-header");
-
-    // One brand row: name and version side by side. The old two-row block
-    // (name above, version below) cost ~58px before the nav; the merged row
-    // hands the reclaimed height to the sidebar menu.
-    let brand_row = hbox(8);
-    class(&brand_row, "eb-brand-row");
-    // EvoBuddy's own mark, embedded as a PNG (no icon theme / librsvg path).
-    let brand_mark = crate::icons::named("logo", 18, "eb-brand-name");
-    brand_row.pack_start(&brand_mark, false, false, 0);
-    brand_row.pack_start(&text(spec::APP_NAME, "eb-brand-name"), false, false, 0);
-    brand_row.pack_start(&text(spec::APP_VERSION, "eb-brand-version"), false, false, 0);
-    header.pack_start(&brand_row, false, false, 0);
 
     let nav = vbox(2);
     let mut buttons = Vec::new();
