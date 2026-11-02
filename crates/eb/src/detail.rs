@@ -372,6 +372,30 @@ fn code(source: &str) -> gtk::ScrolledWindow {
     }
     row.pack_start(&source_view, true, true, 0);
 
+    // Full redraw on every scroll step. Scrolling a viewport on X11 copies the
+    // window's pixels and repaints only the exposed strips, and any pixel a
+    // draw leaves unpainted keeps the previous frame's content: on UOS/Kylin
+    // the alpha text then re-blended over stale glyphs every step and the
+    // code area darkened as it scrolled. An opaque view background alone did
+    // not cover every path, so repaint the two views (and the scroller's own
+    // background) from scratch each step — they are one panel tall, redraws
+    // are cheap, and nothing can accumulate.
+    let gutter_view = row
+        .children()
+        .first()
+        .and_then(|w| w.clone().downcast::<gtk::TextView>().ok());
+    for adjustment in [scroll.hadjustment(), scroll.vadjustment()] {
+        let views: Vec<gtk::Widget> = std::iter::once(scroll.clone().upcast::<gtk::Widget>())
+            .chain(gutter_view.clone().map(|view| view.upcast::<gtk::Widget>()))
+            .chain(std::iter::once(source_view.clone().upcast::<gtk::Widget>()))
+            .collect();
+        adjustment.connect_value_changed(move |_| {
+            for view in &views {
+                view.queue_draw();
+            }
+        });
+    }
+
     scroll.add(&row);
     scroll
 }
@@ -400,6 +424,9 @@ fn read_only(value: &str, class_name: &str, justify: gtk::Justification) -> gtk:
     view.set_bottom_margin(0);
     view.set_left_margin(0);
     view.set_right_margin(0);
+    // Allocation changes (the pane resizing) are full redraws too, so a
+    // resize can never mix old glyphs into the new layout.
+    view.set_redraw_on_allocate(true);
     class(&view, class_name);
     buffer_of(&view).set_text(value);
     view
