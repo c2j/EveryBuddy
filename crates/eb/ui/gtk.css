@@ -1180,7 +1180,16 @@ button.eb-detail-add:hover {
   background-color: @bg_card;
 }
 
-textview.eb-code-gutter,
+/* The views themselves must paint an opaque background. `background: none`
+ * on the view leaves the draw clear-free: on Linux (X11) scrolling blits the
+ * scrolled window's backing store and only repaints damaged strips, so glyphs
+ * from earlier frames survive and the alpha text re-blends over them — text
+ * trails and darkens as you scroll. Filling the view each draw fixes that;
+ * the `text` child can still stay transparent. */
+textview.eb-code-gutter {
+  background-color: @bg_card;
+}
+
 textview.eb-code-gutter text {
   background: none;
   color: alpha(@palette_black_100, 0.3);
@@ -1190,7 +1199,10 @@ textview.eb-code-gutter text {
   padding: 0 16px 0 0;
 }
 
-textview.eb-code,
+textview.eb-code {
+  background-color: @bg_card;
+}
+
 textview.eb-code text {
   background: none;
   color: #3b3b3b;
