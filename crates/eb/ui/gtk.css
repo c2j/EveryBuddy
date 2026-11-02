@@ -59,11 +59,12 @@ window.eb-window {
   background-color: @bg_secondary;
 }
 
-/* 279x64, padding 0 12px 0 86px — the 86px leaves room for the macOS
- * traffic lights, which float over the sidebar. */
+/* 279x64, padding 0 12px — the brand sits flush left with the nav list
+ * (12px content edge), and blank space separates it from the action icons
+ * on the right. */
 .eb-sidebar-topbar {
   min-height: 64px;
-  padding: 0 12px 0 86px;
+  padding: 0 12px;
 }
 
 /* 32x32 ghost icon buttons, radius 8px, gap 4px */
