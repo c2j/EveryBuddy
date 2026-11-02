@@ -451,9 +451,14 @@ fn load_app_icon() {
         Some(pixbuf) => gtk::Window::set_default_icon(&pixbuf),
         None => eprintln!("[evobuddy] app icon decode failed"),
     }
-    // Wayland compositors match the desktop entry by app id instead; keep the
-    // icon-theme name as the fallback for installed bundles.
-    gtk::Window::set_default_icon_name("evobuddy");
+    // The theme-name lookup is only a fallback for a failed decode. GTK3's
+    // default-icon sources are mutually exclusive — setting the name clears
+    // the pixbuf list — and on a machine whose icon cache has not indexed the
+    // self-installed hicolor icon yet (UOS/Kylin), the lookup fails and the
+    // window realizes with *no* icon at all: the dock then shows a generic
+    // gear even though the desktop entry is installed. The pixbuf always
+    // decodes from the embedded bytes, so it wins. Wayland compositors ignore
+    // window icons anyway and match the desktop entry by app id.
     #[cfg(target_os = "macos")]
     apply_macos_dock_icon();
 }
