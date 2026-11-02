@@ -792,6 +792,18 @@ impl AcpSession {
         cancelled: &AtomicBool,
         tail: TailPolicy,
     ) -> Result<(), PromptError> {
+        // Anything the agent produced before this request reached it is the
+        // tail of a turn that gave up while the agent kept working. It must be
+        // cleared *before* the prompt is written: the write is the causal
+        // divide, and draining after it would race the reader thread — on a
+        // slow machine this turn's first chunks can already sit in the queue
+        // by then, and discarding them would finish the turn with no answer.
+        // Its requests still get answered (the agent would block on them), but
+        // attributing its text to this turn would glue the previous answer onto
+        // the new question. Its `activity` flips are the agent's current word on
+        // the session, so those are kept.
+        self.discard_backlog();
+
         let id = self.next_id;
         self.next_id += 1;
         if self.debug {
@@ -807,14 +819,6 @@ impl AcpSession {
             }
         }))
         .map_err(PromptError::Message)?;
-
-        // Anything still queued was produced before this request reached the
-        // agent — the tail of a turn that gave up while the agent kept working.
-        // Its requests still get answered (the agent would block on them), but
-        // attributing its text to this turn would glue the previous answer onto
-        // the new question. Its `activity` flips are the agent's current word on
-        // the session, so those are kept.
-        self.discard_backlog();
 
         let mut tools: HashMap<String, ToolState> = HashMap::new();
         let mut pending_tools: Vec<Block> = Vec::new();
