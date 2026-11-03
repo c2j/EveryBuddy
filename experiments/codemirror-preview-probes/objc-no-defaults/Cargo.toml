@@ -1,0 +1,13 @@
+[package]
+name = "objc-no-defaults"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# The feature list the design would have if defaults were turned off.
+[workspace]
+
+[dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = "=0.3.2"
+objc2-web-kit = { version = "=0.3.2", default-features = false, features = ["WKSnapshotConfiguration", "block2"] }

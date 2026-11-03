@@ -1,0 +1,67 @@
+wry_version=0.57.1
+Cargo.toml: default = [
+Cargo.toml: "webkit2gtk/v2_40",
+Cargo.toml: "webkit2gtk",
+Cargo.toml: "webkit2gtk-sys",
+Cargo.toml: "dep:gtk",
+Cargo.toml: name = "gtk_multiwebview"
+Cargo.toml: path = "examples/gtk_multiwebview.rs"
+Cargo.toml: name = "gtk_opengl"
+Cargo.toml: path = "examples/gtk_opengl.rs"
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.gtk]
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.webkit2gtk]
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.webkit2gtk-sys]
+Cargo.toml: "cfg(gtk)",
+Cargo.toml: "webkit2gtk/v2_40",
+Cargo.toml: "webkit2gtk",
+Cargo.toml: "webkit2gtk-sys",
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.webkit2gtk]
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.webkit2gtk-sys]
+Cargo.toml: rust-version = "1.85"
+Cargo.toml: features = ["os-webview"]
+Cargo.toml: "os-webview",
+Cargo.toml: "os-webview",
+Cargo.toml: os-webview = [
+Cargo.toml: "x11",
+Cargo.toml: x11 = [
+Cargo.toml: "x11-dl",
+Cargo.toml: "gdkx11",
+Cargo.toml: "tao/x11",
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.gdkx11]
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dependencies.x11-dl]
+Cargo.toml: [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))'.dev-dependencies.x11-dl]
+Cargo.toml.orig: default = ["os-webview", "x11"]
+Cargo.toml.orig: linux-body = ["webkit2gtk/v2_40", "os-webview"]
+Cargo.toml.orig: "webkit2gtk",
+Cargo.toml.orig: "webkit2gtk-sys",
+Cargo.toml.orig: "dep:gtk",
+Cargo.toml.orig: webkit2gtk = { version = "=2.0.2", features = ["v2_38"], optional = true }
+Cargo.toml.orig: webkit2gtk-sys = { version = "=2.0.2", optional = true }
+Cargo.toml.orig: gtk = { version = "0.18", optional = true }
+Cargo.toml.orig: check-cfg = ["cfg(linux)", "cfg(gtk)"]
+Cargo.toml.orig: linux-body = ["webkit2gtk/v2_40", "os-webview"]
+Cargo.toml.orig: "webkit2gtk",
+Cargo.toml.orig: "webkit2gtk-sys",
+Cargo.toml.orig: webkit2gtk = { version = "=2.0.2", features = ["v2_38"], optional = true }
+Cargo.toml.orig: webkit2gtk-sys = { version = "=2.0.2", optional = true }
+Cargo.toml.orig: rust-version = "1.85"
+Cargo.toml.orig: features = ["os-webview"]
+Cargo.toml.orig: default = ["os-webview", "x11"]
+Cargo.toml.orig: linux-body = ["webkit2gtk/v2_40", "os-webview"]
+Cargo.toml.orig: os-webview = [
+Cargo.toml.orig: default = ["os-webview", "x11"]
+Cargo.toml.orig: x11 = ["x11-dl", "gdkx11", "tao/x11"]
+Cargo.toml.orig: x11-dl = { version = "2.21", optional = true }
+Cargo.toml.orig: gdkx11 = { version = "0.18", optional = true }
+Cargo.toml.orig: x11-dl = { version = "2.21" }
+public_build_as_child=True
+public_set_bounds_child_only=True
+public_reparent_trait=True
+webview2_calls_SetParent=True
+gtk_dep_line=gtk = { version = "0.18", optional = true }
+webkit_dep_is_linux_target=true
+default_features=os-webview,x11
+linux_body_requires=webkit2gtk/v2_40
+rust-version=1.85
+HAZARD wry-embed CONFIRMED creation is build_as_child(HasWindowHandle); SetParent is inside WebViewExtWindows::reparent, not an app-level embedding API
+HAZARD wry-gtk018 CONFIRMED default features enable optional gtk 0.18 and webkit2gtk 2.0.2, but only on the Linux target table. A windows-only dependency does not compile that gtk. linux-body requires webkit2gtk/v2_40, so wry is not a WebKitGTK 2.28 backend

@@ -1,0 +1,13 @@
+[package]
+name = "objc-as-eb"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Same dependency line as crates/eb/Cargo.toml. Defaults stay on.
+[workspace]
+
+[dependencies]
+objc2 = "=0.6.5"
+objc2-foundation = "=0.3.2"
+objc2-web-kit = { version = "=0.3.2", features = ["WKSnapshotConfiguration", "block2"] }

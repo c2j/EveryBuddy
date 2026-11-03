@@ -978,6 +978,59 @@ mod tests {
         assert!(app.tasks.is_empty());
     }
 
+    /// The CodeMirror preview design treats `tool_preview` and `task.artifacts`
+    /// as one stack with one set of clear rules. They are not.
+    #[test]
+    fn read_preview_is_a_separate_pile_from_written_files() {
+        let mut app = App::new();
+        let first = app.begin_task("read notes").unwrap();
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        app.detail_visible = true;
+
+        app.apply_agent_event(
+            first,
+            AgentEvent::Artifact {
+                artifact: Artifact {
+                    name: "out.rs".into(),
+                    code: "fn main() {}".into(),
+                },
+            },
+        );
+        assert!(app.tool_preview.is_none());
+        assert!(app.tool_preview_task.is_none());
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+        assert_eq!(app.tasks[first].artifacts[0].name, "out.rs");
+
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        let second = app.begin_task("another").unwrap();
+        assert!(matches!(app.route, Route::Task(index) if index == second));
+        assert!(app.tool_preview.is_some());
+        assert_eq!(app.tool_preview_task, Some(first));
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+
+        app.open_task(first);
+        assert!(app.tool_preview.is_none());
+        assert_eq!(app.tool_preview_task, None);
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        app.new_task();
+        assert!(app.tool_preview.is_none());
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+    }
+
     #[test]
     fn a_background_task_stays_behind_the_open_one() {
         let mut app = App::new();
