@@ -22,6 +22,27 @@ pub fn class<W: WidgetExt>(widget: &W, name: &str) {
     widget.style_context().add_class(name);
 }
 
+/// Pin the widget's X11 window background to its styled CSS background (or
+/// `fallback` when that is translucent), on realize.
+///
+/// GTK clears exposed X regions with this background before draws run. On
+/// some vendor X stacks (UOS/Kylin) the copy-scroll and panel-toggle paths
+/// expose strips that the GTK draw layer then only partially repaints, and
+/// whatever a draw leaves unpainted keeps the *previous frame's* content —
+/// conversation widgets showed through the artifact panel as ghost blocks.
+/// An opaque window background clears those strips at the X level, before
+/// any GTK painting, so nothing stale can survive there.
+pub fn pin_opaque_window_background<W: WidgetExt>(widget: &W, background: gtk::gdk::RGBA) {
+    widget.connect_realize(move |widget| {
+        if let Some(window) = widget.window() {
+            // The Rust `set_background_rgba` wrapper is gone from current
+            // gdk crates (deprecated upstream); the GdkWindow property is
+            // the same thing and has existed since GDK 3.4.
+            window.set_property("background-rgba", background);
+        }
+    });
+}
+
 /// A horizontal `GtkBox`.
 pub fn hbox(spacing: i32) -> gtk::Box {
     gtk::Box::new(gtk::Orientation::Horizontal, spacing)

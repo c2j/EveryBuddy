@@ -1593,7 +1593,16 @@ impl Views {
                 detail::select(&self.detail, index);
             }
         }
+        let was_open = self.detail.root.is_visible();
         self.detail.root.set_visible(open);
+        if open && !was_open {
+            // The panel just uncovered a region of the toplevel window. On
+            // some vendor X stacks (UOS/Kylin) that exposure is only partly
+            // repainted — conversation widgets ghosted through the panel.
+            // One full-window redraw settles the whole frame at once; it
+            // runs once per toggle, never per scroll step.
+            self.window.queue_draw();
+        }
         // The toggle is always on the topbar (capture 1); only its tooltip
         // follows the panel state.
         self.conversation

@@ -105,6 +105,10 @@ fn rebuild(view: &Rc<RefCell<ArtifactView>>) {
 pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     let root = vbox(0);
     class(&root, "eb-detail");
+    // X-level backstop for the whole panel: exposed strips of the panel's
+    // own window clear to white instead of keeping the conversation pixels
+    // that sat underneath before the panel opened (UOS/Kylin).
+    crate::widgets::pin_opaque_window_background(&root.clone().upcast::<gtk::Widget>(), gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0));
 
     // ---- tab strip ------------------------------------------------------
     let header = hbox(4);
@@ -410,6 +414,21 @@ fn code(source: &str) -> gtk::ScrolledWindow {
             }
         });
     }
+
+    // The X-level backstop. On UOS/Kylin the exposed strips around a scroll
+    // or a panel toggle keep the previous frame's content (a whole widget —
+    // the conversation's green diff card — ghosted through the panel), and
+    // the GTK draw layer only repaints part of them. Pin the gdk windows'
+    // backgrounds opaque so the X server clears every exposed strip to the
+    // card colour before GTK paints anything.
+    crate::widgets::pin_opaque_window_background(
+        &source_view.clone().upcast::<gtk::Widget>(),
+        gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
+    );
+    crate::widgets::pin_opaque_window_background(
+        &scroll.clone().upcast::<gtk::Widget>(),
+        gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
+    );
 
     scroll.add(&source_view);
     scroll
