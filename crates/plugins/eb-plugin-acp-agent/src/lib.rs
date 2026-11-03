@@ -1669,6 +1669,10 @@ struct ToolState {
     kind: String,
     status: String,
     command: Option<String>,
+    /// The one file the call acted on, so the transcript row opens it in the
+    /// artifact panel. Kept from the first update that carries one: agents
+    /// repeat the path in every progress notification.
+    path: Option<String>,
     output: String,
     diffs: Vec<(String, String, String)>,
 }
@@ -1806,6 +1810,14 @@ fn map_update(
 }
 
 fn merge_tool(state: &mut ToolState, update: &Value) {
+    if std::env::var_os("EB_DEBUG").is_some() {
+        let keys: Vec<&str> = update.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+        eprintln!(
+            "acp tool: kind={:?} title={:?} keys={keys:?}",
+            update.get("kind").and_then(Value::as_str),
+            update.get("title").and_then(Value::as_str)
+        );
+    }
     if let Some(title) = update.get("title").and_then(Value::as_str) {
         if !title.is_empty() {
             state.title = title.to_string();
@@ -1825,6 +1837,26 @@ fn merge_tool(state: &mut ToolState, update: &Value) {
             .map(ToString::to_string)
             .or_else(|| input.as_str().map(ToString::to_string))
             .or(state.command.take());
+        if state.path.is_none() {
+            state.path = ["path", "file_path", "filePath"]
+                .iter()
+                .find_map(|key| input.get(key).and_then(Value::as_str))
+                .map(ToString::to_string);
+            if state.path.is_none() && std::env::var_os("EB_DEBUG").is_some() {
+                eprintln!(
+                    "acp tool: no path key in rawInput {input} (title {:?})",
+                    state.title
+                );
+            }
+        }
+    }
+    if state.path.is_none() {
+        if let Some(locations) = update.get("locations").and_then(Value::as_array) {
+            state.path = locations
+                .iter()
+                .find_map(|location| location.get("path").and_then(Value::as_str))
+                .map(ToString::to_string);
+        }
     }
     if let Some(content) = update.get("content").and_then(Value::as_array) {
         for item in content {
@@ -1912,6 +1944,10 @@ fn emit_tool(state: &ToolState, pending: &mut Vec<Block>) {
     } else {
         Some(first_line(&state.output, 80))
     };
+    // Some agents (observed: grok) never send `rawInput` or `locations`; the
+    // path only exists in the row title, quoted or bare. The title is what
+    // the user reads, so it is a fair fallback for a one-file call.
+    let path = state.path.clone().or_else(|| title_path(&state.title));
     pending.push(Block::Tool {
         status: status.to_string(),
         primary: if state.title.is_empty() {
@@ -1920,8 +1956,18 @@ fn emit_tool(state: &ToolState, pending: &mut Vec<Block>) {
             state.title.clone()
         },
         detail,
-        path: None,
+        path,
     });
+}
+
+/// The file a `Read <path>` title acted on, quotes stripped. `None` for any
+/// other verb, so `List docs` or `Search "x"` rows stay inert.
+fn title_path(title: &str) -> Option<String> {
+    let rest = title.trim().strip_prefix("Read ")?.trim();
+    let rest = rest
+        .trim_matches(|c| matches!(c, '`' | '"' | '\''))
+        .trim();
+    (!rest.is_empty()).then(|| rest.to_string())
 }
 
 fn flush_tool_group(sink: &AgentSink, pending: &mut Vec<Block>) -> Result<(), String> {
@@ -2785,6 +2831,85 @@ mod integration_tests {
         assert!(servers.iter().any(|server| server["name"] == "search"
             && server["url"] == "https://example.test/mcp"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tool_row_keeps_the_file_it_acted_on() {
+        // rawInput carries the path, the way Claude Code's Read tool reports it.
+        let mut state = ToolState::default();
+        merge_tool(
+            &mut state,
+            &serde_json::json!({
+                "sessionId": "s", "response": [], "title": "Read file",
+                "kind": "read", "status": "completed",
+                "rawInput": {"file_path": "/tmp/src/main.rs"}
+            }),
+        );
+        assert_eq!(state.path.as_deref(), Some("/tmp/src/main.rs"));
+
+        // Later notifications repeat it; the first one wins.
+        merge_tool(
+            &mut state,
+            &serde_json::json!({
+                "sessionId": "s", "response": [], "status": "completed",
+                "rawInput": {"file_path": "/tmp/other.rs"}
+            }),
+        );
+        assert_eq!(state.path.as_deref(), Some("/tmp/src/main.rs"));
+
+        // The spec's locations array is another source.
+        let mut state = ToolState::default();
+        merge_tool(
+            &mut state,
+            &serde_json::json!({
+                "sessionId": "s", "response": [], "title": "Read", "kind": "read",
+                "status": "completed",
+                "locations": [{"path": "src/lib.rs", "line": 3}]
+            }),
+        );
+        assert_eq!(state.path.as_deref(), Some("src/lib.rs"));
+
+        // The emitted row carries the path so clicking it opens the panel.
+        let mut pending = Vec::new();
+        emit_tool(&state, &mut pending);
+        match pending.as_slice() {
+            [Block::Tool { path: Some(path), .. }] => assert_eq!(path, "src/lib.rs"),
+            other => panic!("expected a Tool row with a path, got {other:?}"),
+        }
+        // Grok sends neither rawInput nor locations; the title fallback picks
+        // the file out of its `Read \`path\`` row title, quoted or bare.
+        let grok = ToolState {
+            title: "Read `/tmp/src/lib.rs`".into(),
+            kind: "read".into(),
+            status: "completed".into(),
+            ..ToolState::default()
+        };
+        let mut pending = Vec::new();
+        emit_tool(&grok, &mut pending);
+        match pending.as_slice() {
+            [Block::Tool { path: Some(path), .. }] => assert_eq!(path, "/tmp/src/lib.rs"),
+            other => panic!("expected the title fallback, got {other:?}"),
+        }
+        // A bare title works too, and non-Read verbs stay inert.
+        let bare = ToolState { title: "Read src/lib.rs".into(), ..grok.clone() };
+        let mut pending = Vec::new();
+        emit_tool(&bare, &mut pending);
+        match pending.as_slice() {
+            [Block::Tool { status, primary, detail, path }] => {
+                assert_eq!(status, "Ran");
+                assert_eq!(primary, "Read src/lib.rs");
+                assert_eq!(detail, &None);
+                assert_eq!(path.as_deref(), Some("src/lib.rs"));
+            }
+            other => panic!("unexpected blocks {other:?}"),
+        }
+        let listing = ToolState { title: "List docs".into(), kind: "other".into(), ..grok.clone() };
+        let mut pending = Vec::new();
+        emit_tool(&listing, &mut pending);
+        match pending.as_slice() {
+            [Block::Tool { path: None, .. }] => {}
+            other => panic!("List rows must stay inert, got {other:?}"),
+        }
     }
 
 }

@@ -331,9 +331,11 @@ fn toolbar(name: &str, code: &str) -> gtk::Box {
 
 /// Measured: 579x708, a 68px gutter and a 14px monospace column with 20px lines.
 ///
-/// The gutter is a second text view rather than a drawn widget: two text views
-/// with the same font produce the same line height, so they stay in step without
-/// any coupling, and the code view keeps its own selection behaviour.
+/// The line numbers live in the same buffer as the code, separated by a tab
+/// stop at the measured 68px: one line box per line, so numbers and code
+/// cannot drift apart. Two side-by-side text views used to stay in step only
+/// while every line measured the same height — ASCII does; CJK falls back to
+/// a taller font and the gutter walked away from the code line by line.
 fn code(source: &str) -> gtk::ScrolledWindow {
     let scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
     scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
@@ -346,47 +348,60 @@ fn code(source: &str) -> gtk::ScrolledWindow {
     scroll.set_min_content_width(120);
     class(&scroll, "eb-code-scroll");
 
-    let row = hbox(0);
-    row.set_valign(gtk::Align::Start);
-
-    let numbers: String = (1..=source.lines().count().max(1))
-        .map(|n| n.to_string())
+    let lines: Vec<&str> = source.lines().collect();
+    let number_width = lines.len().to_string().len();
+    let numbered = lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| format!("{:>width$}\t{line}", index + 1, width = number_width))
         .collect::<Vec<_>>()
         .join("\n");
 
-    row.pack_start(
-        &read_only(&numbers, "eb-code-gutter", gtk::Justification::Right),
-        false,
-        false,
-        0,
-    );
+    let source_view = read_only(&numbered, "eb-code", gtk::Justification::Left);
+    // Gray numbers behind a 68px tab stop, replicating the old gutter's
+    // measured 68px column and its `alpha(black, .3)` ink.
+    let buffer = crate::widgets::buffer_of(&source_view);
+    let gray = gtk::TextTag::new(Some("eb-gutter-fg"));
+    gray.set_foreground(Some("rgba(0,0,0,0.3)"));
+    let table = buffer.tag_table().expect("the view's buffer has a tag table");
+    table.add(&gray);
+    let tabs_tag = gtk::TextTag::new(Some("eb-gutter-tabs"));
+    let mut tabs = gtk::pango::TabArray::new(1, false);
+    tabs.set_tab(0, gtk::pango::TabAlign::Left, 68 * gtk::pango::SCALE);
+    tabs_tag.set_property("tabs", tabs);
+    table.add(&tabs_tag);
+    let mut start_iter = buffer.start_iter();
+    let mut end_iter = buffer.start_iter();
+    for (index, line) in lines.iter().enumerate() {
+        // Gray exactly the number prefix, then step both iters across the
+        // rest of the line and its newline together.
+        let prefix = format!("{:>width$}\t", index + 1, width = number_width);
+        end_iter.forward_chars(prefix.chars().count() as i32);
+        buffer.apply_tag(&gray, &start_iter, &end_iter);
+        start_iter = end_iter;
+        end_iter.forward_chars(line.chars().count() as i32 + 1);
+        start_iter = end_iter;
+    }
 
-    let source_view = read_only(source, "eb-code", gtk::Justification::Left);
     // A non-wrapping `GtkTextView` reports the width of the lines it has laid
     // out, and it can never lay out more than the width it was allocated — so
     // its request settles at whatever the allocation was and a long line is
     // clipped with nothing to scroll to. Measuring the widest line with Pango
     // and requesting that width is what gives the scroller a wider child.
     if let Some(width) = widest_line_width(&source_view, source) {
-        source_view.set_size_request(width, -1);
+        source_view.set_size_request(width + 68, -1);
     }
-    row.pack_start(&source_view, true, true, 0);
 
     // Full redraw on every scroll step. Scrolling a viewport on X11 copies the
     // window's pixels and repaints only the exposed strips, and any pixel a
     // draw leaves unpainted keeps the previous frame's content: on UOS/Kylin
     // the alpha text then re-blended over stale glyphs every step and the
     // code area darkened as it scrolled. An opaque view background alone did
-    // not cover every path, so repaint the two views (and the scroller's own
-    // background) from scratch each step — they are one panel tall, redraws
+    // not cover every path, so repaint the view (and the scroller's own
+    // background) from scratch each step — it is one panel tall, redraws
     // are cheap, and nothing can accumulate.
-    let gutter_view = row
-        .children()
-        .first()
-        .and_then(|w| w.clone().downcast::<gtk::TextView>().ok());
     for adjustment in [scroll.hadjustment(), scroll.vadjustment()] {
         let views: Vec<gtk::Widget> = std::iter::once(scroll.clone().upcast::<gtk::Widget>())
-            .chain(gutter_view.clone().map(|view| view.upcast::<gtk::Widget>()))
             .chain(std::iter::once(source_view.clone().upcast::<gtk::Widget>()))
             .collect();
         adjustment.connect_value_changed(move |_| {
@@ -396,7 +411,7 @@ fn code(source: &str) -> gtk::ScrolledWindow {
         });
     }
 
-    scroll.add(&row);
+    scroll.add(&source_view);
     scroll
 }
 

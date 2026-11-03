@@ -1192,18 +1192,10 @@ button.eb-detail-add:hover {
  * from earlier frames survive and the alpha text re-blends over them — text
  * trails and darkens as you scroll. Filling the view each draw fixes that;
  * the `text` child can still stay transparent. */
-textview.eb-code-gutter {
-  background-color: @bg_card;
-}
-
-textview.eb-code-gutter text {
-  background: none;
-  color: alpha(@palette_black_100, 0.3);
-  font-family: monospace;
-  font-size: 14px;
-  min-width: 68px;
-  padding: 0 16px 0 0;
-}
+/* The artifact preview's line numbers are part of the code buffer itself
+ * (gray text before a 68px tab stop), so there is no separate gutter view to
+ * keep in line-height step with the code — CJK fallback fonts used to walk
+ * the two views apart. */
 
 textview.eb-code {
   background-color: @bg_card;

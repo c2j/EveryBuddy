@@ -2302,7 +2302,7 @@ fn tool_row(
     detail: Option<&str>,
     path: Option<&str>,
     open: Option<&Rc<dyn Fn(String)>>,
-) -> gtk::Box {
+) -> gtk::EventBox {
     let row = hbox(8);
     class(&row, "eb-tool-row");
 
@@ -2320,15 +2320,25 @@ fn tool_row(
         row.pack_end(&detail, false, false, 0);
     }
 
+    // A `GtkBox` is a NO_WINDOW widget: the button press lands on the nearest
+    // ancestor with a GdkWindow and the row's handler never fires. The
+    // EventBox owns a window, so it carries the click target.
+    let outer = gtk::EventBox::new();
+    outer.add(&row);
     if let (Some(path), Some(open)) = (path, open) {
+        if std::env::var_os("EB_DEBUG").is_some() {
+            eprintln!("tool_row: click target on {primary:?} -> {path}");
+        }
         let path = path.to_string();
         let open = open.clone();
-        row.set_tooltip_text(Some("Open the file in the right panel"));
-        row.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK);
+        outer.set_tooltip_text(Some("Open the file in the right panel"));
         // Press-on-idle, like the artifact tab: a rebuild inside the handler
         // would destroy the row under a live button-release.
-        row.connect_button_press_event(move |_widget, event| {
+        outer.connect_button_press_event(move |_widget, event| {
             if event.button() == 1 {
+                if std::env::var_os("EB_DEBUG").is_some() {
+                    eprintln!("tool_row: pressed {path}");
+                }
                 let path = path.clone();
                 let open = open.clone();
                 gtk::glib::idle_add_local_once(move || open(path.clone()));
@@ -2336,9 +2346,14 @@ fn tool_row(
             }
             gtk::glib::Propagation::Proceed
         });
+    } else if std::env::var_os("EB_DEBUG").is_some() {
+        eprintln!(
+            "tool_row: inert {primary:?} (path={path:?}, open={})",
+            open.is_some()
+        );
     }
 
-    row
+    outer
 }
 
 /// Measured: a rounded card with a tinted header row, hairline separators and

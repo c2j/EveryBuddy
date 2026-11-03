@@ -829,6 +829,9 @@ pub fn build(
                 let store = store.clone();
                 let refresher = refresher.clone();
                 Rc::new(move |raw| {
+                    if std::env::var_os("EB_DEBUG").is_some() {
+                        eprintln!("open_tool_file: invoked for {raw:?}");
+                    }
                     let mut app = store.borrow_mut();
                     let Route::Task(index) = app.route.clone() else {
                         return;
@@ -851,7 +854,16 @@ pub fn build(
                     let resolved = bases
                         .iter()
                         .filter_map(|base| crate::tools::resolve_in(base, &raw).ok())
-                        .find(|path| path.is_file());
+                        .find(|path| path.is_file())
+                        // A row may carry an absolute path outside the task
+                        // workspace — an agent's own store, like grok's
+                        // memory-v2 topics. The preview is read-only and
+                        // capped, so an existing absolute file is safe to
+                        // show even where the write-sandbox would refuse.
+                        .or_else(|| {
+                            let path = std::path::PathBuf::from(&raw);
+                            (path.is_absolute() && path.is_file()).then_some(path)
+                        });
                     let Some(path) = resolved else {
                         eprintln!("[evobuddy] tool row: cannot resolve {raw}");
                         return;
