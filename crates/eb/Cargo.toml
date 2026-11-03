@@ -12,6 +12,7 @@ default-run = "evobuddy"
 #                                    validated GTK 3 + CJK-input baseline)
 
 [dependencies]
+glib = "0.22"
 gtk = "0.19"
 
 # The plugin runtime (vendored; see vendor/rutis). The host is the embedder.

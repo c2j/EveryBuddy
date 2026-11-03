@@ -36,9 +36,17 @@ pub fn pin_opaque_window_background<W: WidgetExt>(widget: &W, background: gtk::g
     widget.connect_realize(move |widget| {
         if let Some(window) = widget.window() {
             // The Rust `set_background_rgba` wrapper is gone from current
-            // gdk crates (deprecated upstream); the GdkWindow property is
-            // the same thing and has existed since GDK 3.4.
-            window.set_property("background-rgba", background);
+            // gdk crates (deprecated upstream), and the `background-rgba`
+            // property is absent from the derived X11/Win32 window classes —
+            // setting it panics. Call the C function, which every GTK 3
+            // build has had since 3.4.
+            use glib::translate::ToGlibPtr;
+            unsafe {
+                gtk::gdk::ffi::gdk_window_set_background_rgba(
+                    window.to_glib_none().0,
+                    background.to_glib_none().0,
+                );
+            }
         }
     });
 }

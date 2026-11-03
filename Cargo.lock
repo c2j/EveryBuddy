@@ -498,6 +498,7 @@ dependencies = [
  "eb-plugin-demo-agent",
  "eb-plugin-nav",
  "eb-plugin-notices",
+ "glib",
  "globset",
  "grep-regex",
  "grep-searcher",
