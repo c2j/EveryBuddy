@@ -3,6 +3,7 @@ name = "evobuddy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 description = "EvoBuddy — a GTK 3 desktop client, UI-replicating the WorkBuddy AI desktop app"
 default-run = "evobuddy"
 
@@ -69,3 +70,17 @@ core-graphics = "0.23"
 # compiled but never used.
 [build-dependencies]
 winresource = "0.1"
+
+# Windows preview only. wry's gtk/webkit2gtk features sit on the Linux target
+# table; `default-features = false` keeps them out. WebView2 itself is on
+# wry's Windows target table and does not need the `os-webview` feature
+# (`webview_version()` from that feature is empty on Windows).
+[target.'cfg(target_os = "windows")'.dependencies]
+wry = { version = "0.57.1", default-features = false }
+raw-window-handle = "0.6"
+webview2-com = "0.39"
+windows-core = "0.62"
+# Stable file identity. `std::os::windows::fs::MetadataExt::file_index` is
+# unstable (`windows_by_handle`), so the preview compares
+# `GetFileInformationByHandle` on both the register and the read.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

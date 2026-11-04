@@ -113,7 +113,9 @@ fn await_start(
     budget: Duration,
 ) -> Result<Box<dyn AnswerHandle>, String> {
     reply.recv_timeout(budget).map_err(|error| match error {
-        mpsc::RecvTimeoutError::Disconnected => "the agent runtime dropped the start request".to_string(),
+        mpsc::RecvTimeoutError::Disconnected => {
+            "the agent runtime dropped the start request".to_string()
+        }
         mpsc::RecvTimeoutError::Timeout => {
             "the agent did not acknowledge the start; it may still be running in the background"
                 .to_string()
@@ -162,11 +164,7 @@ fn migrated_prompt(task: &crate::model::Task, prompt: &str) -> String {
     migrated_prompt_with(task, prompt, None)
 }
 
-fn migrated_prompt_with(
-    task: &crate::model::Task,
-    prompt: &str,
-    note: Option<&str>,
-) -> String {
+fn migrated_prompt_with(task: &crate::model::Task, prompt: &str, note: Option<&str>) -> String {
     let mut context = String::new();
     let end = task.turns.len().saturating_sub(2);
     for turn in task.turns.iter().take(end) {
@@ -298,7 +296,6 @@ impl PermissionPrompter for PermissionBridge {
     }
 }
 
-
 /// Paths of files a reported block wrote, in report order. `Diff` blocks carry
 /// the path directly; tool rows often carry it in the title ("Write /abs/path").
 fn collect_written_paths(block: &crate::model::Block) -> Vec<String> {
@@ -331,22 +328,15 @@ fn collect_written_paths(block: &crate::model::Block) -> Vec<String> {
             }
             Vec::new()
         }
-        Block::Group { blocks, .. } => blocks
-            .iter()
-            .flat_map(collect_written_paths)
-            .collect(),
+        Block::Group { blocks, .. } => blocks.iter().flat_map(collect_written_paths).collect(),
         _ => Vec::new(),
     }
 }
 
-
 /// Read the newest written file that exists under any of `bases` (absolute
 /// paths win as-is). The newest candidate wins: within a batch the last
 /// written file is the one the user just produced.
-fn resolve_file_artifact(
-    paths: &[String],
-    bases: &[std::path::PathBuf],
-) -> Option<Artifact> {
+fn resolve_file_artifact(paths: &[String], bases: &[std::path::PathBuf]) -> Option<Artifact> {
     const MAX: usize = 512 * 1024;
     for path in paths.iter().rev() {
         for base in bases {
@@ -359,7 +349,9 @@ fn resolve_file_artifact(
             // is bounded up front: slurping a multi-gigabyte log first and
             // slicing afterwards would freeze the window (and clipping a String
             // mid-character panics).
-            let Ok(file) = std::fs::File::open(&resolved) else { continue };
+            let Ok(file) = std::fs::File::open(&resolved) else {
+                continue;
+            };
             let mut buffer = Vec::new();
             let mut preview = std::io::Read::take(file, MAX as u64);
             if std::io::Read::read_to_end(&mut preview, &mut buffer).is_err() {
@@ -384,7 +376,10 @@ fn resolve_file_artifact(
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| path.clone());
-            return Some(Artifact { name, code: content });
+            return Some(Artifact {
+                name,
+                code: content,
+            });
         }
     }
     None
@@ -489,7 +484,13 @@ impl Runner {
             };
             match (force_new_task, current) {
                 (false, Some(index)) => app.begin_turn(index, &text),
-                _ => app.begin_task(&text),
+                _ => {
+                    let created = app.begin_task(&text);
+                    if created.is_some() {
+                        crate::preview_web_server::clear_stack();
+                    }
+                    created
+                }
             }
         };
         let Some(task) = task else {
@@ -518,9 +519,12 @@ impl Runner {
                     return;
                 };
                 task_ref.dispatch_queued = false;
-                if let Some(turn) = task_ref.turns.iter_mut().rev().find(|turn| {
-                    matches!(turn, crate::model::Turn::Agent { .. })
-                }) {
+                if let Some(turn) = task_ref
+                    .turns
+                    .iter_mut()
+                    .rev()
+                    .find(|turn| matches!(turn, crate::model::Turn::Agent { .. }))
+                {
                     if let crate::model::Turn::Agent {
                         status, streaming, ..
                     } = turn
@@ -597,26 +601,24 @@ impl Runner {
         // conversations, so it deliberately binds to no workspace. Two paths
         // set the flag: plan-dispatched items read the item's scope, and
         // cross prompt jobs carry `cross_workspace` on the task itself.
-        let cross_workspace = dispatched
-            && {
-                let app = self.store.borrow();
-                app.tasks
-                    .get(task)
-                    .map(|task| task.cross_workspace)
-                    .unwrap_or(false)
-            }
-            || dispatched && {
-                let item_id = self
-                    .store
-                    .borrow()
-                    .tasks
-                    .get(task)
-                    .and_then(|task| task.plan_item_id.clone());
-                item_id
-                    .and_then(|id| crate::schedule::item_workspace_scope(&id))
-                    .as_deref()
-                    == Some("cross")
-            };
+        let cross_workspace = dispatched && {
+            let app = self.store.borrow();
+            app.tasks
+                .get(task)
+                .map(|task| task.cross_workspace)
+                .unwrap_or(false)
+        } || dispatched && {
+            let item_id = self
+                .store
+                .borrow()
+                .tasks
+                .get(task)
+                .and_then(|task| task.plan_item_id.clone());
+            item_id
+                .and_then(|id| crate::schedule::item_workspace_scope(&id))
+                .as_deref()
+                == Some("cross")
+        };
         let workspace = match existing_root {
             Some(root) if !cross_workspace => Some(std::path::PathBuf::from(root)),
             Some(_) => None,
@@ -650,10 +652,13 @@ impl Runner {
         self.refresh_now();
         // Bind a stable dsh session to this task before the first event, unless
         // an external ACP agent owns the conversation.
-        let session_id = format!("task-{task}-{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|time| time.as_millis())
-            .unwrap_or(0));
+        let session_id = format!(
+            "task-{task}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|time| time.as_millis())
+                .unwrap_or(0)
+        );
         crate::bridge::ensure();
         if let Err(error) = crate::bridge::create_session(&session_id) {
             eprintln!("phase1: create_session failed: {error}");
@@ -672,11 +677,11 @@ impl Runner {
             crate::state::save(&self.store);
         }
         let prompt = self.store.borrow().tasks.get(task).and_then(|task| {
-                task.turns.iter().rev().find_map(|turn| match turn {
-                    crate::model::Turn::User { text, .. } => Some(text.clone()),
-                    _ => None,
-                })
-            });
+            task.turns.iter().rev().find_map(|turn| match turn {
+                crate::model::Turn::User { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+        });
         if !crate::dsh_agent::enabled() {
             if let Some(prompt) = prompt {
                 let _ = crate::bridge::begin_turn(&prompt);
@@ -742,30 +747,24 @@ impl Runner {
         } else {
             self.permissions.clone()
         };
-        let handle =
-            match self
-                .runtime
-                .start(
-                    self.source.clone(),
-                    agent_text,
-                    sink,
-                    permissions,
-                    workspace.clone(),
-                    Some(route.clone()),
-                )
-            {
-                Ok(handle) => handle,
-                Err(message) => {
-                    if std::env::var_os("EB_DEBUG").is_some() {
-                        eprintln!("agent: start failed: {message}");
-                    }
-                    self.store
-                        .borrow_mut()
-                        .apply_agent_event(task, AgentEvent::Failed { message });
-                    self.refresher.request();
-                    return;
+        let handle = match self.runtime.start(
+            self.source.clone(),
+            agent_text,
+            sink,
+            permissions,
+            workspace.clone(),
+            Some(route.clone()),
+        ) {
+            Ok(handle) => handle,
+            Err(message) => {
+                if std::env::var_os("EB_DEBUG").is_some() {
+                    eprintln!("agent: start failed: {message}");
                 }
-            };
+                self.apply_event(task, AgentEvent::Failed { message });
+                self.refresher.request();
+                return;
+            }
+        };
         if let Some(task_ref) = self.store.borrow_mut().tasks.get_mut(task) {
             task_ref.last_route = Some(route.clone());
         }
@@ -802,7 +801,11 @@ impl Runner {
         let mut notices = Vec::new();
         for event in crate::schedule::tick(crate::schedule::unix_now(), &snaps) {
             match event {
-                crate::schedule::Tick::RunPrompt { title, prompt, scope } => {
+                crate::schedule::Tick::RunPrompt {
+                    title,
+                    prompt,
+                    scope,
+                } => {
                     eprintln!("scheduler: running '{title}' (scope={scope})");
                     if prompt.is_empty() {
                         continue;
@@ -837,9 +840,7 @@ impl Runner {
                 }
                 crate::schedule::Tick::PlanReady { title, items } => {
                     eprintln!("scheduler: plan '{title}' ready ({items} items)");
-                    notices.push(format!(
-                        "Daily plan \"{title}\" is ready ({items} items)."
-                    ));
+                    notices.push(format!("Daily plan \"{title}\" is ready ({items} items)."));
                 }
                 crate::schedule::Tick::PlanExpired { title } => {
                     eprintln!("scheduler: plan '{title}' timed out");
@@ -859,9 +860,12 @@ impl Runner {
     pub fn pump_dispatches(self: &Rc<Self>) {
         let mut created = false;
         for item in crate::schedule::dispatch_queue() {
-            let exists = self.store.borrow().tasks.iter().any(|task| {
-                task.plan_item_id.as_deref() == Some(item.item_id.as_str())
-            });
+            let exists = self
+                .store
+                .borrow()
+                .tasks
+                .iter()
+                .any(|task| task.plan_item_id.as_deref() == Some(item.item_id.as_str()));
             if exists {
                 continue;
             }
@@ -1141,6 +1145,17 @@ impl Runner {
         !self.active.borrow().is_empty()
     }
 
+    /// Apply one agent event. A written file drops the Read-preview session
+    /// so the panel shows that file instead of the web view.
+    fn apply_event(&self, task: usize, event: AgentEvent) -> bool {
+        let drop_read = matches!(event, AgentEvent::Artifact { .. });
+        let applied = self.store.borrow_mut().apply_agent_event(task, event);
+        if drop_read {
+            crate::preview_web_server::clear_stack();
+        }
+        applied
+    }
+
     fn supersede_task(&self, task: usize) {
         let stale: Vec<Active> = {
             let mut slot = self.active.borrow_mut();
@@ -1156,7 +1171,7 @@ impl Runner {
             stale
         };
         for active in stale {
-            self.store.borrow_mut().apply_agent_event(
+            self.apply_event(
                 task,
                 AgentEvent::Failed {
                     message: "Cancelled".to_string(),
@@ -1221,21 +1236,14 @@ impl Runner {
                             if std::env::var_os("EB_DEBUG").is_some() {
                                 eprintln!("agent: task {task} event {event:?}");
                             }
-                            let done = matches!(
-                                event,
-                                AgentEvent::Finished | AgentEvent::Failed { .. }
-                            );
+                            let done =
+                                matches!(event, AgentEvent::Finished | AgentEvent::Failed { .. });
                             // WorkBuddy surfaces every file the agent writes in
                             // the artifact panel. Do the same: when a block
                             // names a written file, read it and pop the panel.
-                            self.store
-                                .borrow_mut()
-                                .apply_agent_event(task, event.clone());
+                            self.apply_event(task, event.clone());
                             if let Some(artifact) = self.written_file_artifact(task, &event) {
-                                self.store.borrow_mut().apply_agent_event(
-                                    task,
-                                    AgentEvent::Artifact { artifact },
-                                );
+                                self.apply_event(task, AgentEvent::Artifact { artifact });
                             }
                             if !done && mirrored {
                                 let text = self
@@ -1273,7 +1281,7 @@ impl Runner {
                         }
                         Err(AgentStreamError::Empty | AgentStreamError::Timeout) => break,
                         Err(AgentStreamError::Closed) => {
-                            self.store.borrow_mut().apply_agent_event(
+                            self.apply_event(
                                 task,
                                 AgentEvent::Failed {
                                     message: "agent stream closed".to_string(),
@@ -1382,7 +1390,7 @@ impl Runner {
                         // Exercise the streamed-thought render path (the same
                         // shape ACP's agent_thought_chunk produces).
                         if let Some(active) = runner.active.borrow().last() {
-                            runner.store.borrow_mut().apply_agent_event(
+                            runner.apply_event(
                                 active.task,
                                 eb_api::AgentEvent::Thought {
                                     text: "Considering the edit… ".into(),
@@ -1406,23 +1414,21 @@ impl Runner {
                         };
                         if let Some(active) = runner.active.borrow().last() {
                             let task = active.task;
-                            runner.store.borrow_mut().apply_agent_event(task, fake_block.clone());
+                            runner.apply_event(task, fake_block.clone());
                             // Same interception the drain applies to real
                             // agents: the written file pops the panel open.
-                            if let Some(artifact) =
-                                runner.written_file_artifact(task, &fake_block)
+                            if let Some(artifact) = runner.written_file_artifact(task, &fake_block)
                             {
-                                runner.store.borrow_mut().apply_agent_event(
-                                    task,
-                                    eb_api::AgentEvent::Artifact { artifact },
-                                );
+                                runner.apply_event(task, eb_api::AgentEvent::Artifact { artifact });
                             }
                         }
                     }
                     let applied = if let Some(active) = runner.active.borrow().last() {
-                        runner.store.borrow_mut().apply_agent_event(
+                        runner.apply_event(
                             active.task,
-                            eb_api::AgentEvent::Delta { text: " tick".into() },
+                            eb_api::AgentEvent::Delta {
+                                text: " tick".into(),
+                            },
                         )
                     } else {
                         false
@@ -1465,32 +1471,50 @@ fn collect_blocks(
                 }
                 answer.push_str(text);
             }
-            crate::model::Block::Tool { primary, detail, .. } => {
+            crate::model::Block::Tool {
+                primary, detail, ..
+            } => {
                 tools.push((
                     primary.clone(),
                     detail.clone().unwrap_or_default(),
                     String::new(),
                 ));
             }
-            crate::model::Block::Exec { command, output, exit_code } => {
+            crate::model::Block::Exec {
+                command,
+                output,
+                exit_code,
+            } => {
                 tools.push((
                     "exec".into(),
                     serde_json::json!({ "command": command }).to_string(),
                     serde_json::json!({ "output": output, "exitCode": exit_code }).to_string(),
                 ));
             }
-            crate::model::Block::Diff { path, added, removed, lines } => {
+            crate::model::Block::Diff {
+                path,
+                added,
+                removed,
+                lines,
+            } => {
                 let lines: Vec<_> = lines
                     .iter()
                     .map(|line| match line {
-                        crate::model::DiffLine::Add(text) => serde_json::json!({ "kind": "add", "text": text }),
-                        crate::model::DiffLine::Remove(text) => serde_json::json!({ "kind": "remove", "text": text }),
-                        crate::model::DiffLine::Context(text) => serde_json::json!({ "kind": "context", "text": text }),
+                        crate::model::DiffLine::Add(text) => {
+                            serde_json::json!({ "kind": "add", "text": text })
+                        }
+                        crate::model::DiffLine::Remove(text) => {
+                            serde_json::json!({ "kind": "remove", "text": text })
+                        }
+                        crate::model::DiffLine::Context(text) => {
+                            serde_json::json!({ "kind": "context", "text": text })
+                        }
                     })
                     .collect();
                 tools.push((
                     "diff".into(),
-                    serde_json::json!({ "path": path, "added": added, "removed": removed }).to_string(),
+                    serde_json::json!({ "path": path, "added": added, "removed": removed })
+                        .to_string(),
                     serde_json::json!({ "lines": lines }).to_string(),
                 ));
             }
@@ -1546,9 +1570,19 @@ mod tests {
     #[test]
     fn stateful_routes_only_migrate_across_agents() {
         // Same agent, its own session keeps the context.
-        assert!(!needs_migrated_context("acp:opencode", true, Some("acp:opencode"), true));
+        assert!(!needs_migrated_context(
+            "acp:opencode",
+            true,
+            Some("acp:opencode"),
+            true
+        ));
         // The conversation moved to another agent: carry it.
-        assert!(needs_migrated_context("acp:grok", true, Some("acp:opencode"), true));
+        assert!(needs_migrated_context(
+            "acp:grok",
+            true,
+            Some("acp:opencode"),
+            true
+        ));
         assert!(needs_migrated_context("acp:opencode", true, None, true));
     }
 
@@ -1557,7 +1591,10 @@ mod tests {
             title: "demo".into(),
             meta: String::new(),
             turns: vec![
-                crate::model::Turn::User { text: "first question".into(), time: "now".into() },
+                crate::model::Turn::User {
+                    text: "first question".into(),
+                    time: "now".into(),
+                },
                 crate::model::Turn::Agent {
                     name: "ACP".into(),
                     status: Some("Finished".into()),
@@ -1565,7 +1602,10 @@ mod tests {
                     streaming: false,
                     time: None,
                 },
-                crate::model::Turn::User { text: "current question".into(), time: "now".into() },
+                crate::model::Turn::User {
+                    text: "current question".into(),
+                    time: "now".into(),
+                },
                 crate::model::Turn::Agent {
                     name: "EvoBuddy".into(),
                     status: None,
@@ -1630,7 +1670,11 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("did not acknowledge"), "{error}");
-        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
 
         let (tx, rx) = mpsc::sync_channel(1);
         tx.send(Ok(Box::new(eb_api::NoopHandle) as Box<dyn AnswerHandle>))
@@ -1682,99 +1726,103 @@ mod tests {
     }
 }
 
+use super::*;
 
-    use super::*;
+/// A Diff block naming a written file must surface that file's content as
+/// the artifact WorkBuddy-style: the panel pops open with the source.
+#[test]
+fn written_files_surface_as_artifacts() {
+    let dir = std::env::temp_dir().join("evobuddy-artifact-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("quine.c");
+    std::fs::write(&file, "#include <stdio.h>\nint main(){}\n").unwrap();
 
-    /// A Diff block naming a written file must surface that file's content as
-    /// the artifact WorkBuddy-style: the panel pops open with the source.
-    #[test]
-    fn written_files_surface_as_artifacts() {
-        let dir = std::env::temp_dir().join("evobuddy-artifact-test");
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("quine.c");
-        std::fs::write(&file, "#include <stdio.h>\nint main(){}\n").unwrap();
+    let block = crate::model::Block::Diff {
+        path: file.display().to_string(),
+        added: 2,
+        removed: 0,
+        lines: Vec::new(),
+    };
+    let paths = collect_written_paths(&block);
+    assert_eq!(paths, vec![file.display().to_string()]);
 
-        let block = crate::model::Block::Diff {
-            path: file.display().to_string(),
-            added: 2,
-            removed: 0,
-            lines: Vec::new(),
-        };
-        let paths = collect_written_paths(&block);
-        assert_eq!(paths, vec![file.display().to_string()]);
+    let artifact = resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")])
+        .expect("written file resolves");
+    assert_eq!(artifact.name, "quine.c");
+    assert!(artifact.code.contains("#include <stdio.h>"));
+}
 
-        let artifact = resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")])
-            .expect("written file resolves");
-        assert_eq!(artifact.name, "quine.c");
-        assert!(artifact.code.contains("#include <stdio.h>"));
-    }
-
-    #[test]
-    fn tool_rows_with_paths_surface_too() {
-        let block = crate::model::Block::Tool {
-            status: "Ran".into(),
-            primary: "Write /tmp/evobuddy-tool-path/example.txt".into(),
-            detail: None,
-            path: None,
-        };
-        assert_eq!(
-            collect_written_paths(&block),
-            vec!["/tmp/evobuddy-tool-path/example.txt".to_string()]
-        );
-        // A path with spaces used to be dropped outright; now the whole
-        // remainder is a candidate and existence decides.
-        let spaced = std::env::temp_dir()
-            .join("evobuddy tool path")
-            .join("example.txt")
-            .display()
-            .to_string();
-        let block = crate::model::Block::Tool {
-            status: "Ran".into(),
-            primary: format!("Write {spaced}"),
-            detail: None,
-            path: None,
-        };
-        assert_eq!(
-            collect_written_paths(&block),
-            vec![
-                spaced.split(' ').next().unwrap().to_string(),
-                spaced.clone(),
-            ]
-        );
-        let dir = std::env::temp_dir().join("evobuddy tool path");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("example.txt"), "spaced").unwrap();
-        let artifact = resolve_file_artifact(&collect_written_paths(&block), &[std::path::PathBuf::from(".")])
-            .expect("spaced path resolves");
-        assert_eq!(artifact.name, "example.txt");
-        assert_eq!(artifact.code, "spaced");
-        // A trailing note after the path still resolves via the first token.
-        let plain = std::env::temp_dir()
-            .join("evobuddy-note")
-            .join("x.txt")
-            .display()
-            .to_string();
-        let dir = std::env::temp_dir().join("evobuddy-note");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("x.txt"), "noted").unwrap();
-        let block = crate::model::Block::Tool {
-            status: "Ran".into(),
-            primary: format!("Write {plain} created"),
-            detail: None,
-            path: None,
-        };
-        let artifact = resolve_file_artifact(&collect_written_paths(&block), &[std::path::PathBuf::from(".")])
-            .expect("noted path resolves");
-        assert_eq!(artifact.code, "noted");
-        // relative paths resolve against the given bases
-        let block = crate::model::Block::Diff {
-            path: "src/main.rs".into(),
-            added: 1,
-            removed: 0,
-            lines: Vec::new(),
-        };
-        let paths = collect_written_paths(&block);
-        // cargo test runs with the package root as cwd
-        assert!(resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")]).is_some());
-    }
-
+#[test]
+fn tool_rows_with_paths_surface_too() {
+    let block = crate::model::Block::Tool {
+        status: "Ran".into(),
+        primary: "Write /tmp/evobuddy-tool-path/example.txt".into(),
+        detail: None,
+        path: None,
+    };
+    assert_eq!(
+        collect_written_paths(&block),
+        vec!["/tmp/evobuddy-tool-path/example.txt".to_string()]
+    );
+    // A path with spaces used to be dropped outright; now the whole
+    // remainder is a candidate and existence decides.
+    let spaced = std::env::temp_dir()
+        .join("evobuddy tool path")
+        .join("example.txt")
+        .display()
+        .to_string();
+    let block = crate::model::Block::Tool {
+        status: "Ran".into(),
+        primary: format!("Write {spaced}"),
+        detail: None,
+        path: None,
+    };
+    assert_eq!(
+        collect_written_paths(&block),
+        vec![
+            spaced.split(' ').next().unwrap().to_string(),
+            spaced.clone(),
+        ]
+    );
+    let dir = std::env::temp_dir().join("evobuddy tool path");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("example.txt"), "spaced").unwrap();
+    let artifact = resolve_file_artifact(
+        &collect_written_paths(&block),
+        &[std::path::PathBuf::from(".")],
+    )
+    .expect("spaced path resolves");
+    assert_eq!(artifact.name, "example.txt");
+    assert_eq!(artifact.code, "spaced");
+    // A trailing note after the path still resolves via the first token.
+    let plain = std::env::temp_dir()
+        .join("evobuddy-note")
+        .join("x.txt")
+        .display()
+        .to_string();
+    let dir = std::env::temp_dir().join("evobuddy-note");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x.txt"), "noted").unwrap();
+    let block = crate::model::Block::Tool {
+        status: "Ran".into(),
+        primary: format!("Write {plain} created"),
+        detail: None,
+        path: None,
+    };
+    let artifact = resolve_file_artifact(
+        &collect_written_paths(&block),
+        &[std::path::PathBuf::from(".")],
+    )
+    .expect("noted path resolves");
+    assert_eq!(artifact.code, "noted");
+    // relative paths resolve against the given bases
+    let block = crate::model::Block::Diff {
+        path: "src/main.rs".into(),
+        added: 1,
+        removed: 0,
+        lines: Vec::new(),
+    };
+    let paths = collect_written_paths(&block);
+    // cargo test runs with the package root as cwd
+    assert!(resolve_file_artifact(&paths, &[std::path::PathBuf::from(".")]).is_some());
+}

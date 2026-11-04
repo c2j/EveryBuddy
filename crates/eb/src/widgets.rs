@@ -139,14 +139,12 @@ pub fn spinner(size: i32) -> gtk::DrawingArea {
         gtk::glib::Propagation::Proceed
     });
     let weak = area.downgrade();
-    gtk::glib::timeout_add_local(Duration::from_millis(40), move || {
-        match weak.upgrade() {
-            Some(widget) => {
-                widget.queue_draw();
-                gtk::glib::ControlFlow::Continue
-            }
-            None => gtk::glib::ControlFlow::Break,
+    gtk::glib::timeout_add_local(Duration::from_millis(40), move || match weak.upgrade() {
+        Some(widget) => {
+            widget.queue_draw();
+            gtk::glib::ControlFlow::Continue
         }
+        None => gtk::glib::ControlFlow::Break,
     });
     area
 }
@@ -185,6 +183,11 @@ pub fn hide_from_show_all<W: IsA<gtk::Widget>>(widget: &W) {
 /// iterating safe.
 pub fn clear<C: IsA<gtk::Container>>(container: &C) {
     for child in container.children() {
+        // The preview host is created once. Removing it would force the next
+        // Read to embed a new one; hiding it is the shell's job.
+        if child.widget_name().as_str() == "eb-preview-host" {
+            continue;
+        }
         container.remove(&child);
     }
 }

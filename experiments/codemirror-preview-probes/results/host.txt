@@ -1,0 +1,43 @@
+## preview server
+HAZARD preview-starve CONFIRMED held connection blocks the next response (write_queued=true, read=Resource temporarily unavailable (os error 35))
+HAZARD preview-silent-bind CONFIRMED second bind of 127.0.0.1:56354 failed (Address already in use (os error 48)); production drops this with else { return }
+HAZARD preview-no-auth CONFIRMED local client read the body with no token
+HAZARD preview-single-read CONFIRMED the loop answered from the first read, before the body: HTTP/1.1 200 OK  | Content-Type: text/plain  | Content-Length: 20  | Connection: close  |   | path=/event bytes=57
+
+## sources
+HAZARD preview-server-shape CONFIRMED production server is one thread, one 2048-byte read, fixed port, bind error returned
+HAZARD theme-geometry CONFIRMED theme_view is validation-only, loads a URL, steals focus, and has no size-allocate or configure-event handler
+HAZARD objc-cargo-line CONFIRMED eb names WKSnapshotConfiguration and block2 and does not turn default features off
+HAZARD ui-spec-no-web CONFIRMED ui-spec §2 still forbids shipping a web engine
+HAZARD gutter-and-selftest CONFIRMED line numbers are a TextTag named eb-gutter-fg; eb-code-gutter is not in crates; observe_detail reports no code view without eb-code-scroll
+HAZARD preview-cap CONFIRMED the click path reads up to 512 KiB on the caller before storing the whole string in tool_preview
+HAZARD bundle-ld-path CONFIRMED run.sh points LD_LIBRARY_PATH at the bundle lib and execs the app with that environment; the build image installs GTK and not WebKit
+HAZARD gdk-backend-callsite CONFIRMED main.rs never sets GDK_BACKEND before gtk::Application::new
+HAZARD close-tab CONFIRMED closing one artifact tab edits task.artifacts and does not clear tool_preview
+
+## state
+
+running 1 test
+test model::tests::read_preview_is_a_separate_pile_from_written_files ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+
+## gdk macos
+before_init GDK_BACKEND=(unset)
+after_init type=GdkQuartzDisplay name=chendemacbook-air.local GDK_BACKEND=(unset)
+after_setenv type=GdkQuartzDisplay name=chendemacbook-air.local GDK_BACKEND=x11
+--- GDK_BACKEND=x11 before init ---
+before_init GDK_BACKEND=x11
+gtk_init_check FAILED
+
+## objc
+registry+https://github.com/rust-lang/crates.io-index#objc2-web-kit@0.3.2
+WKUserContentController=True
+WKScriptMessageHandler=True
+WKSnapshotConfiguration=True
+WKWebView=True
+HAZARD objc-feature-missing REFUTED current eb dependency enables WKUserContentController via default features
+no-defaults:
+src/main.rs:2:28: error[E0433]: cannot find `WKUserContentController` in `objc2_web_kit`: could not find `WKUserContentController` in `objc2_web_kit`
+HAZARD objc-without-defaults CONFIRMED dropping default features hides WKUserContentController

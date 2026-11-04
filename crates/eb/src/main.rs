@@ -19,6 +19,11 @@
 //! | `host`                | the rutis mount: plugins in, contributions out     |
 //! | `shell`               | assembly, signal wiring, state -> widget refresh   |
 //! | `selftest`            | the `EB_SELFTEST` smoke test and the PNG renderer  |
+//! | `preview_session`     | the only Read-preview document stack               |
+//! | `preview_web_server`  | CodeMirror preview on its own loopback port        |
+//! | `preview_host`        | present, move, and wake the platform web view      |
+//! | `preview_panel`       | macOS web view anchored to the artifact body       |
+//! | `preview_web`         | Windows WebView2 child of the artifact body        |
 //!
 //! The content itself — nav rows, dropdown menus, notices, scenario chips, the
 //! placeholder answers — is contributed by the plugin crates under
@@ -29,37 +34,42 @@
 //! `gap`; colours live in CSS because they are what the token pipeline produces.
 
 mod agent;
+mod agents;
 mod bridge;
 mod catalog;
-mod schedule;
-mod schedule_ui;
-mod plugin_panel;
-mod preview_server;
 mod composer;
 mod conversation;
+mod custom_model;
 mod detail;
 mod dsh_agent;
 mod host;
-mod markdown;
-mod tools;
 mod icons;
-mod agents;
-mod custom_model;
+mod markdown;
 mod model;
-mod router;
 mod models;
+mod plugin_panel;
+mod preview_host;
+mod preview_panel;
+mod preview_server;
+mod preview_session;
+mod preview_web;
+mod preview_web_server;
+mod router;
+mod schedule;
+mod schedule_ui;
 mod selftest;
 mod settings;
-#[cfg(target_os = "macos")]
-mod theme_view;
 mod shell;
 mod sidebar;
 mod spec;
 mod state;
-mod workspace;
-mod workspace_ui;
+#[cfg(target_os = "macos")]
+mod theme_view;
+mod tools;
 mod welcome;
 mod widgets;
+mod workspace;
+mod workspace_ui;
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -103,10 +113,8 @@ fn main() {
     // Point that at a temp directory before the first poll so a harness run
     // cannot append a plan to the user's real queue.
     if std::env::var_os("EB_SCHEDULE_SMOKE").is_some() {
-        let dir = std::env::temp_dir().join(format!(
-            "evobuddy-schedule-smoke-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("evobuddy-schedule-smoke-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         std::env::set_var("EB_STATE", dir.join("tasks.json"));
     }
@@ -141,7 +149,12 @@ fn main() {
 /// start. `start()` only waits 300ms so the GTK main thread never freezes,
 /// and a first launch can exceed that; without the retry the whole launch
 /// would run without the previous transcript attached.
-fn retry_resume(views: &Rc<crate::shell::Views>, store: &model::Store, session_id: &str, attempts: u32) {
+fn retry_resume(
+    views: &Rc<crate::shell::Views>,
+    store: &model::Store,
+    session_id: &str,
+    attempts: u32,
+) {
     bridge::ensure();
     match bridge::resume_session(session_id) {
         Ok(()) => {
@@ -260,7 +273,10 @@ fn acp_probe(requested: &str) -> i32 {
             Some(agent) => agent,
             None => {
                 let ids: Vec<&str> = agents::all().iter().map(|agent| agent.id()).collect();
-                eprintln!("acp-probe: unknown agent '{other}' (try: {})", ids.join(" "));
+                eprintln!(
+                    "acp-probe: unknown agent '{other}' (try: {})",
+                    ids.join(" ")
+                );
                 return 2;
             }
         },
@@ -273,7 +289,11 @@ fn acp_probe(requested: &str) -> i32 {
         args.join(" ")
     );
     if !program.is_file() {
-        eprintln!("acp-probe: {} failed: {} is not an executable file", choice.id(), program.display());
+        eprintln!(
+            "acp-probe: {} failed: {} is not an executable file",
+            choice.id(),
+            program.display()
+        );
         return 1;
     }
     let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -281,7 +301,11 @@ fn acp_probe(requested: &str) -> i32 {
     match agent.probe(&workspace) {
         Ok(probe) => {
             println!("acp-probe: {} ok name={}", choice.id(), probe.agent_name);
-            println!("acp-probe: {} capabilities={}", choice.id(), probe.capabilities);
+            println!(
+                "acp-probe: {} capabilities={}",
+                choice.id(),
+                probe.capabilities
+            );
             0
         }
         Err(error) => {
@@ -354,7 +378,8 @@ fn ensure_gtk_im_modules() {}
 /// managers and docks take a running window's icon from the app, not from the
 /// desktop entry, so an AppImage or an unpacked bundle (Kylin's dock among
 /// them) would otherwise show a generic gear.
-const APP_ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/appicon.png"));
+const APP_ICON_PNG: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/appicon.png"));
 
 /// Running as an AppImage, the bundled desktop entry and icons sit inside
 /// the squashfs and are invisible to the desktop environment's app index:
@@ -377,8 +402,7 @@ fn integrate_desktop_entry() {
         .map(std::path::PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| std::path::PathBuf::from(home).join(".local/share"))
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".local/share"))
         })
     else {
         report("no XDG_DATA_HOME or HOME, skipped");
@@ -387,7 +411,11 @@ fn integrate_desktop_entry() {
     let apps = data_home.join("applications");
     let icons = data_home.join("icons/hicolor/256x256/apps");
     if std::fs::create_dir_all(&apps).is_err() || std::fs::create_dir_all(&icons).is_err() {
-        report(&format!("cannot create {} or {}", apps.display(), icons.display()));
+        report(&format!(
+            "cannot create {} or {}",
+            apps.display(),
+            icons.display()
+        ));
         return;
     }
     let icon_path = icons.join(format!("{APP_ID}.png"));
@@ -410,7 +438,9 @@ fn integrate_desktop_entry() {
                 return;
             }
         }
-        let _ = std::process::Command::new("update-desktop-database").arg(&apps).output();
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(&apps)
+            .output();
     } else {
         report(&format!("already installed {}", entry_path.display()));
     }
@@ -470,7 +500,7 @@ fn load_app_icon() {
 fn apply_macos_dock_icon() {
     use objc2::AnyThread;
     use objc2_app_kit::{NSApplication, NSImage};
-    use objc2_foundation::{NSData, MainThreadMarker};
+    use objc2_foundation::{MainThreadMarker, NSData};
 
     let Some(marker) = MainThreadMarker::new() else {
         return;
@@ -556,20 +586,28 @@ fn build_ui(application: &gtk::Application) {
             app.route = model::Route::Task(0);
             app.nav = None;
             app.model = crate::router::menu_index(
-                app.tasks.first().and_then(|task| task.agent_route.as_deref()),
+                app.tasks
+                    .first()
+                    .and_then(|task| task.agent_route.as_deref()),
             );
             app.workspace = app
                 .tasks
                 .first()
                 .and_then(|task| task.workspace_id.as_deref())
-                .and_then(|id| app.workspaces.iter().position(|workspace| workspace.id == id))
+                .and_then(|id| {
+                    app.workspaces
+                        .iter()
+                        .position(|workspace| workspace.id == id)
+                })
                 .map(|position| position + 2)
                 .unwrap_or(0);
         }
         drop(app);
         let cleaned = {
             let mut app = store.borrow_mut();
-            let model::App { workspaces, tasks, .. } = &mut *app;
+            let model::App {
+                workspaces, tasks, ..
+            } = &mut *app;
             let removed = workspace::cleanup_temporary(workspaces, tasks);
             if removed > 0 {
                 app.workspace = 0;
@@ -770,8 +808,7 @@ fn build_ui(application: &gtk::Application) {
     // ACP harness: submit and leave the window open so a delayed screenshot
     // (`EB_SHOT_AFTER_MS`) can catch the real stream after it settles.
     if std::env::var_os("EB_ACP_DEMO").is_some() {
-        let prompt = std::env::var("EB_ACP_PROMPT")
-            .unwrap_or_else(|_| DEMO_PROMPT.to_string());
+        let prompt = std::env::var("EB_ACP_PROMPT").unwrap_or_else(|_| DEMO_PROMPT.to_string());
         views.agent.submit(prompt);
         views.refresh(&store);
     }
@@ -811,7 +848,9 @@ fn build_ui(application: &gtk::Application) {
         views.agent.submit(DEMO_PROMPT.to_string());
         let second_views = views.clone();
         gtk::glib::timeout_add_local_once(Duration::from_millis(250), move || {
-            second_views.agent.submit_as_new("second task prompt".to_string());
+            second_views
+                .agent
+                .submit_as_new("second task prompt".to_string());
         });
         let poll_views = views.clone();
         let poll_store = store.clone();
@@ -916,7 +955,8 @@ fn build_ui(application: &gtk::Application) {
                         eprintln!("follow-test: FAIL the stream ended before the scroll");
                         std::process::exit(1);
                     }
-                    adjustment.set_value((adjustment.upper() - adjustment.page_size() - 300.0).max(0.0));
+                    adjustment
+                        .set_value((adjustment.upper() - adjustment.page_size() - 300.0).max(0.0));
                     let below = adjustment.upper() - adjustment.value() - adjustment.page_size();
                     if pinned.get() || below < 100.0 {
                         eprintln!(
@@ -1104,7 +1144,9 @@ fn build_ui(application: &gtk::Application) {
                             "the first flick left the reader {drift}px off their line \
                              ({first}+{mounted} -> {}+{}, the view is {:.0}px down the content \
                              it just grew)",
-                            loaded.0, loaded.1, adjustment.value()
+                            loaded.0,
+                            loaded.1,
+                            adjustment.value()
                         ));
                     }
                     drifts.set((drift, 0));
@@ -1206,7 +1248,9 @@ fn build_ui(application: &gtk::Application) {
             let (frame_w, frame_h) = views.window.size();
             let alloc = views.window.allocation();
             if alloc.width() != frame_w || alloc.height() != frame_h {
-                views.window.size_allocate(&gtk::gdk::Rectangle::new(0, 0, frame_w, frame_h));
+                views
+                    .window
+                    .size_allocate(&gtk::gdk::Rectangle::new(0, 0, frame_w, frame_h));
             }
             let fail = |message: String| -> ! {
                 eprintln!("resize-test: FAIL {message}");
@@ -1415,9 +1459,7 @@ fn build_ui(application: &gtk::Application) {
                 spinner: bool,
                 unread: bool,
             }
-            fn children_of(
-                widget: &impl gtk::glib::object::IsA<gtk::Widget>,
-            ) -> Vec<gtk::Widget> {
+            fn children_of(widget: &impl gtk::glib::object::IsA<gtk::Widget>) -> Vec<gtk::Widget> {
                 widget
                     .as_ref()
                     .downcast_ref::<gtk::Container>()
@@ -1448,11 +1490,7 @@ fn build_ui(application: &gtk::Application) {
                     .unwrap_or_else(|| button.clone());
                 children_of(&line)
                     .into_iter()
-                    .filter(|child| {
-                        mark_classes
-                            .iter()
-                            .any(|name| has_class(child, name))
-                    })
+                    .filter(|child| mark_classes.iter().any(|name| has_class(child, name)))
                     .collect()
             };
             let mut rows: Vec<(String, Slot)> = Vec::new();
@@ -1643,7 +1681,10 @@ fn build_ui(application: &gtk::Application) {
             match phase.get() {
                 0 if since.get() >= 600 => {
                     if store.borrow().tasks.is_empty() {
-                        fail("needs a saved conversation with something to scroll (set EB_STATE)".into());
+                        fail(
+                            "needs a saved conversation with something to scroll (set EB_STATE)"
+                                .into(),
+                        );
                     }
                     (*views.open_task)(0);
                     phase.set(1);
@@ -1672,8 +1713,8 @@ fn build_ui(application: &gtk::Application) {
                     // uses - delivers to the widget and skips that filter, which
                     // is how the padding test stayed green while the user's wheel
                     // did nothing. Assert the mask, not just the behaviour.
-                    let want = gtk::gdk::EventMask::SCROLL_MASK
-                        | gtk::gdk::EventMask::SMOOTH_SCROLL_MASK;
+                    let want =
+                        gtk::gdk::EventMask::SCROLL_MASK | gtk::gdk::EventMask::SMOOTH_SCROLL_MASK;
                     for (label, hits) in [
                         ("the pane catcher", &views.conversation.transcript_hits),
                         ("the page catcher", &views.conversation.page_hits),
@@ -1824,10 +1865,7 @@ fn build_ui(application: &gtk::Application) {
             // Lateness of this tick is how long the main loop was busy: the
             // refresh a switch triggers runs inline on the same thread.
             let target = 450 + done as u64 * 120;
-            let late = started
-                .elapsed()
-                .as_millis()
-                .saturating_sub(target as u128) as u64;
+            let late = started.elapsed().as_millis().saturating_sub(target as u128) as u64;
             worst = worst.max(late);
             let count = store.borrow().tasks.len();
             let ready = count >= if seeded { 3 } else { 6 };
@@ -2042,7 +2080,9 @@ fn build_ui(application: &gtk::Application) {
             let (first, second) = (samples[0], samples[1]);
             let mut problems: Vec<String> = Vec::new();
             if first > Duration::from_secs(5) {
-                problems.push(format!("the first turn took {first:?} against a silent bridge"));
+                problems.push(format!(
+                    "the first turn took {first:?} against a silent bridge"
+                ));
             }
             if second > Duration::from_secs(3) || second > first {
                 problems.push(format!(
@@ -2137,7 +2177,10 @@ mod linux_integration_tests {
     fn the_entry_matches_the_bundled_one_and_quotes_exec() {
         let entry = desktop_entry("/opt/AppImages/evobuddy 0.7.AppImage");
         assert!(entry.starts_with("[Desktop Entry]"), "{entry}");
-        assert!(entry.contains("Exec=\"/opt/AppImages/evobuddy 0.7.AppImage\""), "{entry}");
+        assert!(
+            entry.contains("Exec=\"/opt/AppImages/evobuddy 0.7.AppImage\""),
+            "{entry}"
+        );
         assert!(entry.contains("Icon=com.evobuddy.app"), "{entry}");
         assert!(entry.contains("StartupWMClass=com.evobuddy.app"), "{entry}");
         // Idempotent content: a second call yields the same bytes, which the

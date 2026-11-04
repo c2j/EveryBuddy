@@ -46,6 +46,18 @@ pub struct Artifact {
     pub code: String,
 }
 
+/// How a Read preview is shown.
+///
+/// `Native` is the text view. `WebView` is the system web view on a platform
+/// where that host exists. `StickyNative` stays on the text view after that
+/// host fails. The documents themselves live in the preview session, not here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewMode {
+    Native,
+    WebView,
+    StickyNative,
+}
+
 /// A named, persistent working environment that owns zero or more tasks and
 /// provides the root in which their agents run. Paths are an implementation
 /// detail of the workspace, never its identity.
@@ -219,7 +231,9 @@ pub enum Block {
     },
     /// An ACP/agent plan. Product capture does not cover a plan card, so this
     /// is intentionally a light, host-rendered list.
-    Plan { entries: Vec<PlanEntry> },
+    Plan {
+        entries: Vec<PlanEntry>,
+    },
     Table {
         headers: Vec<String>,
         rows: Vec<Vec<String>>,
@@ -249,6 +263,8 @@ pub struct App {
     pub tool_preview: Option<Artifact>,
     /// The task the preview belongs to, so a task switch drops it.
     pub tool_preview_task: Option<usize>,
+    /// Read-preview mode. The host sets `WebView` where a web view landed.
+    pub preview_mode: PreviewMode,
     /// Sidebar task filter: 0 All Status, 1 Working, 2 Completed, 3 Failed,
     /// 4 Pending, 5 Planning.
     pub filter_status: usize,
@@ -301,6 +317,7 @@ impl App {
             artifact_select: None,
             tool_preview: None,
             tool_preview_task: None,
+            preview_mode: PreviewMode::Native,
             filter_status: 0,
             filter_time: 0,
             detail_maximised: false,
@@ -546,9 +563,7 @@ impl App {
             // when further files arrive (WorkBuddy behaves the same). Only the
             // open task pops the panel; a background task's files surface when
             // the user switches to it (`open_task` re-shows from `artifact`).
-            if !self.artifact_dismissed
-                && matches!(self.route, Route::Task(i) if i == index)
-            {
+            if !self.artifact_dismissed && matches!(self.route, Route::Task(i) if i == index) {
                 self.detail_visible = true;
             }
             return true;
@@ -636,10 +651,7 @@ impl App {
     /// Take the open task's pending tool decision, if any, handing the
     /// responder back so the answer reaches the waiting worker.
     pub fn take_pending_permission(&mut self, index: usize) -> Option<PendingPermission> {
-        self.tasks
-            .get_mut(index)?
-            .pending_permission
-            .take()
+        self.tasks.get_mut(index)?.pending_permission.take()
     }
 
     /// Record a completed user + agent turn. Kept for callers/tests that do not
@@ -681,7 +693,11 @@ pub fn unix_now() -> u64 {
 }
 
 fn summarize(text: &str) -> String {
-    let first = text.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+    let first = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+        .trim();
     let mut title: String = first.chars().take(60).collect();
     if first.chars().count() > 60 {
         title.push('…');
@@ -722,8 +738,18 @@ mod tests {
     fn thought_events_merge_into_one_block() {
         let mut app = App::new();
         let index = app.begin_task("hello").unwrap();
-        app.apply_agent_event(index, AgentEvent::Thought { text: "Thinking: ".into() });
-        app.apply_agent_event(index, AgentEvent::Thought { text: "greet.".into() });
+        app.apply_agent_event(
+            index,
+            AgentEvent::Thought {
+                text: "Thinking: ".into(),
+            },
+        );
+        app.apply_agent_event(
+            index,
+            AgentEvent::Thought {
+                text: "greet.".into(),
+            },
+        );
         app.apply_agent_event(index, AgentEvent::Delta { text: "Hi!".into() });
         let blocks = match &app.tasks[index].turns[1] {
             Turn::Agent { blocks, .. } => blocks,
@@ -744,7 +770,12 @@ mod tests {
     fn a_thought_streams_open_and_folds_when_thinking_ends() {
         let mut app = App::new();
         let index = app.begin_task("hello").unwrap();
-        app.apply_agent_event(index, AgentEvent::Thought { text: "one ".into() });
+        app.apply_agent_event(
+            index,
+            AgentEvent::Thought {
+                text: "one ".into(),
+            },
+        );
         app.apply_agent_event(index, AgentEvent::Thought { text: "two".into() });
         let blocks = agent_blocks(&app, index);
         assert!(matches!(
@@ -767,11 +798,19 @@ mod tests {
                 },
             },
         );
-        app.apply_agent_event(index, AgentEvent::Thought { text: "again".into() });
+        app.apply_agent_event(
+            index,
+            AgentEvent::Thought {
+                text: "again".into(),
+            },
+        );
         let blocks = agent_blocks(&app, index);
         assert!(matches!(
             &blocks[0],
-            Block::Thought { collapsed: true, .. }
+            Block::Thought {
+                collapsed: true,
+                ..
+            }
         ));
         assert!(matches!(
             &blocks[2],
@@ -809,8 +848,18 @@ mod tests {
             }
         ));
 
-        app.apply_agent_event(index, AgentEvent::Started { name: "Test".into() });
-        app.apply_agent_event(index, AgentEvent::Delta { text: "one ".into() });
+        app.apply_agent_event(
+            index,
+            AgentEvent::Started {
+                name: "Test".into(),
+            },
+        );
+        app.apply_agent_event(
+            index,
+            AgentEvent::Delta {
+                text: "one ".into(),
+            },
+        );
         app.apply_agent_event(index, AgentEvent::Delta { text: "two".into() });
         app.apply_agent_event(
             index,
@@ -854,7 +903,10 @@ mod tests {
     fn a_running_task_shows_the_sidebar_spinner_only_while_streaming() {
         let mut app = App::new();
         let index = app.begin_task("hello").unwrap();
-        assert!(task_is_running(&app.tasks[index]), "begun, not yet answered");
+        assert!(
+            task_is_running(&app.tasks[index]),
+            "begun, not yet answered"
+        );
         app.apply_agent_event(index, AgentEvent::Delta { text: "hi".into() });
         assert!(task_is_running(&app.tasks[index]), "mid-stream");
         app.apply_agent_event(index, AgentEvent::Finished);
@@ -867,7 +919,10 @@ mod tests {
                 message: "Cancelled".into(),
             },
         );
-        assert!(!task_is_running(&app.tasks[second]), "cancelled is terminal");
+        assert!(
+            !task_is_running(&app.tasks[second]),
+            "cancelled is terminal"
+        );
     }
 
     #[test]
@@ -892,7 +947,10 @@ mod tests {
             "the file is still recorded on its own task"
         );
         app.open_task(first);
-        assert!(app.detail_visible, "switching to the task shows its artifact");
+        assert!(
+            app.detail_visible,
+            "switching to the task shows its artifact"
+        );
     }
 
     /// The tab strip accumulates one entry per written file; a rewrite moves
@@ -978,11 +1036,66 @@ mod tests {
         assert!(app.tasks.is_empty());
     }
 
+    /// The CodeMirror preview design treats `tool_preview` and `task.artifacts`
+    /// as one stack with one set of clear rules. They are not.
+    #[test]
+    fn read_preview_is_a_separate_pile_from_written_files() {
+        let mut app = App::new();
+        let first = app.begin_task("read notes").unwrap();
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        app.detail_visible = true;
+
+        app.apply_agent_event(
+            first,
+            AgentEvent::Artifact {
+                artifact: Artifact {
+                    name: "out.rs".into(),
+                    code: "fn main() {}".into(),
+                },
+            },
+        );
+        assert!(app.tool_preview.is_none());
+        assert!(app.tool_preview_task.is_none());
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+        assert_eq!(app.tasks[first].artifacts[0].name, "out.rs");
+
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        let second = app.begin_task("another").unwrap();
+        assert!(matches!(app.route, Route::Task(index) if index == second));
+        assert!(app.tool_preview.is_some());
+        assert_eq!(app.tool_preview_task, Some(first));
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+
+        app.open_task(first);
+        assert!(app.tool_preview.is_none());
+        assert_eq!(app.tool_preview_task, None);
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+
+        app.tool_preview = Some(Artifact {
+            name: "notes.md".into(),
+            code: "preview".into(),
+        });
+        app.tool_preview_task = Some(first);
+        app.new_task();
+        assert!(app.tool_preview.is_none());
+        assert_eq!(app.tasks[first].artifacts.len(), 1);
+    }
+
     #[test]
     fn a_background_task_stays_behind_the_open_one() {
         let mut app = App::new();
         let open = app.begin_task("hello").unwrap();
-        let queued = app.begin_background_task("Fix login", "repair the test").unwrap();
+        let queued = app
+            .begin_background_task("Fix login", "repair the test")
+            .unwrap();
         assert!(matches!(app.route, Route::Task(index) if index == open));
         assert!(app.tasks[queued].dispatch_queued);
         assert!(app.tasks[queued].unread);
@@ -1157,8 +1270,7 @@ pub const FILTER_STATUS_LABELS: [&str; 6] = [
     "Pending",
     "Planning",
 ];
-pub const FILTER_TIME_LABELS: [&str; 4] =
-    ["All Time", "Today", "Last 7 days", "Last 30 days"];
+pub const FILTER_TIME_LABELS: [&str; 4] = ["All Time", "Today", "Last 7 days", "Last 30 days"];
 
 /// The sidebar status filter's five coarse states, derived from a task's
 /// turns — no extra bookkeeping, so restored history filters the same way.
@@ -1177,17 +1289,15 @@ pub enum TaskStatus {
 /// - a terminal turn whose processing status starts with "Failed" is Failed;
 /// - any other streaming turn is Working, any other settled turn Completed.
 pub fn task_status(task: &Task) -> TaskStatus {
-    let Some((status, blocks, streaming)) =
-        task.turns.iter().rev().find_map(|turn| match turn {
-            Turn::Agent {
-                status,
-                blocks,
-                streaming,
-                ..
-            } => Some((status, blocks, *streaming)),
-            Turn::User { .. } => None,
-        })
-    else {
+    let Some((status, blocks, streaming)) = task.turns.iter().rev().find_map(|turn| match turn {
+        Turn::Agent {
+            status,
+            blocks,
+            streaming,
+            ..
+        } => Some((status, blocks, *streaming)),
+        Turn::User { .. } => None,
+    }) else {
         return TaskStatus::Completed;
     };
 

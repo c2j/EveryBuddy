@@ -1083,10 +1083,16 @@ button.eb-group-header {
   background-color: @bg_card;
 }
 
-/* Header: 579x64, `padding: 0 16px`, 4px gap. */
+/* Header: 579x64, `padding: 0 16px`, 4px gap.
+   Web preview hides the native tabs, so the same row shrinks to the 32px
+   icon buttons. Horizontal padding stays 16px and the icons do not jump. */
 .eb-detail-header {
   min-height: 64px;
   padding: 0 16px;
+}
+
+.eb-detail-header.eb-detail-header-compact {
+  min-height: 40px;
 }
 
 /* Active tab: 240x32, bg #f2f2f2, radius 8px, `padding: 0 8px`, 4px gap,

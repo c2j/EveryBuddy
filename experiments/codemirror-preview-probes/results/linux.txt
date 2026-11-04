@@ -1,0 +1,60 @@
+image=PRETTY_NAME="Debian GNU/Linux 10 (buster)" arch=aarch64
+HAZARD webkit-pkgconfig CONFIRMED pkg-config webkit2gtk-4.0 is absent in the bundle build image
+Desired=Unknown/Install/Remove/Purge/Hold
+un  libwebkit2gtk-3.0-25 <none>       <none>       (no description available)
+installed_webkit_packages=none
+--- apt-cache webkit ---
+libwebkit2gtk-4.0-dev:
+  Installed: (none)
+  Candidate: 2.38.6-0+deb10u1
+  Version table:
+     2.38.6-0+deb10u1 500
+        500 http://archive.debian.org/debian-security buster/updates/main arm64 Packages
+     2.36.4-1~deb10u1 500
+        500 http://archive.debian.org/debian buster/main arm64 Packages
+HAZARD webkit-version CONFIRMED build image has no WebKitGTK installed; Debian 10 archive candidate is 2.38.6-0+deb10u1
+socket_header=32:#ifdef GDK_WINDOWING_X11
+gdkconfig=#define GDK_WINDOWING_X11 #define GDK_WINDOWING_BROADWAY #define GDK_WINDOWING_WAYLAND 
+--- gdk backend, set after init ---
+before_init GDK_BACKEND=(unset)
+after_init type=GdkX11Display name=:99 GDK_BACKEND=(unset)
+after_setenv type=GdkX11Display name=:99 GDK_BACKEND=wayland
+--- gdk backend, wayland requested before init ---
+HAZARD gdk-backend-early CONFIRMED GDK_BACKEND=wayland before init cannot open a display here
+before_init GDK_BACKEND=wayland
+gtk_init_check FAILED
+--- xembed ---
+display_type=GdkX11Display
+plug_id_before_realize=2097155
+plug_id_after_realize=2097155
+plain_toplevel_xid=2097159
+plain_xid_equals_plug_id=0
+add_id_plug_id plug_window=non-null added=2
+add_id_0 plug_window=null added=0
+add_id_plain_xid begin
+
+(xembed:579): Gtk-WARNING **: 03:56:22.579: ../../../../gtk/gtksocket.c:1063: Can't add non-GtkPlug to GtkSocket
+**
+Gdk:ERROR:../../../../../gdk/x11/gdkdisplay-x11.c:2870:gdk_x11_display_error_trap_pop_internal: assertion failed: (trap->end_sequence == 0)
+Aborted
+--- ld library path ---
+ldd_without_override=libgtk-3.so.0 => /usr/lib/aarch64-linux-gnu/libgtk-3.so.0
+victim_without_override status=0
+victim_start
+victim_gtk_ok type=GdkX11Display
+ldd_with_bundle=libgtk-3.so.0 => ./bundle/lib/libgtk-3.so.0
+victim_with_bundle_ld_path status=127
+STUB_LIBGTK_LOADED
+victim_start
+./victim: symbol lookup error: ./victim: undefined symbol: gtk_init_check
+child_inherits status=127
+STUB_LIBGTK_LOADED
+victim_start
+./victim: symbol lookup error: ./victim: undefined symbol: gtk_init_check
+child_unsets status=0
+victim_start
+victim_gtk_ok type=GdkX11Display
+HAZARD gdk-backend-late CONFIRMED display stayed GdkX11Display after g_setenv(GDK_BACKEND, wayland)
+HAZARD xembed-plug-id CONFIRMED gtk_plug_get_id returns a live id, that id is not a toplevel XID, add_id(0) does not embed, add_id(plug id) does
+HAZARD xembed-plain-xid CONFIRMED GtkSocket refuses a normal toplevel XID
+HAZARD ldpath-inherit CONFIRMED a child that keeps LD_LIBRARY_PATH loads the bundle libgtk and fails; unsetting it loads the system GTK

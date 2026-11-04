@@ -14,21 +14,22 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gtk::prelude::*;
 
-use eb_api::contrib::Contribs;
-use eb_api::AnswerSource;
 use crate::agent::{AgentRuntime, Runner};
 use crate::composer::{self, Composer, Picker, Variant};
 use crate::conversation::{self, Conversation};
 use crate::detail::{self, Detail};
-use crate::model::{App, Route, Scene, Store, Turn};
+use crate::model::{App, PreviewMode, Route, Scene, Store, Turn};
 use crate::sidebar::{self, Sidebar, TaskRow};
 use crate::spec;
-use crate::widgets::*;
 use crate::welcome::{self, Welcome};
+use crate::widgets::*;
+use eb_api::contrib::Contribs;
+use eb_api::AnswerSource;
 
 /// Widgets worth measuring in the smoke test, addressed by CSS class.
 pub type Probes = Vec<(&'static str, gtk::Widget)>;
@@ -152,6 +153,221 @@ struct Unbuilt {
     reveal: gtk::Button,
 }
 
+/// Record a Read click. Native and sticky-native write `tool_preview`.
+/// WebView registers the file on the shared preview session and does not
+/// read the bytes on this thread. A failed bind or register reads once for
+/// the native fallback.
+pub(crate) fn store_tool_read(
+    app: &mut App,
+    task: usize,
+    path: &std::path::Path,
+    name: String,
+    text: &crate::preview_web_server::PreviewText,
+) {
+    match app.preview_mode {
+        PreviewMode::WebView => store_webview_read(app, task, path, name, Some(text)),
+        PreviewMode::Native | PreviewMode::StickyNative => {
+            remember_native_preview(app, task, name, text);
+            app.artifact_dismissed = false;
+            app.detail_visible = true;
+        }
+    }
+}
+
+/// WebView Read. `prepared` is only the fallback text. The success path
+/// registers and returns; the server thread reads the file.
+fn store_webview_read(
+    app: &mut App,
+    task: usize,
+    path: &std::path::Path,
+    name: String,
+    prepared: Option<&crate::preview_web_server::PreviewText>,
+) {
+    let registered = crate::preview_web_server::with_shared(|web| web.register(path));
+    let registered_ok = matches!(registered, Some(Ok(_)))
+        && crate::preview_web_server::session_view_shared().is_some();
+    if !registered_ok {
+        let fallback = match prepared {
+            Some(text) => text.clone(),
+            None => match crate::preview_web_server::read_preview(
+                path,
+                crate::preview_web_server::PREVIEW_CAP,
+            ) {
+                Ok(text) => text,
+                Err(crate::preview_web_server::ReadPreviewError::NotUtf8) => {
+                    eprintln!(
+                        "[evobuddy] tool row: {} is not UTF-8 text",
+                        path.display()
+                    );
+                    return;
+                }
+                Err(crate::preview_web_server::ReadPreviewError::Io(error)) => {
+                    eprintln!(
+                        "[evobuddy] tool row: cannot read {}: {error}",
+                        path.display()
+                    );
+                    return;
+                }
+            },
+        };
+        remember_native_preview(app, task, name, &fallback);
+        let reason = if matches!(registered, Some(Ok(_))) {
+            "preview session was unavailable; showing the native view"
+        } else {
+            "preview server did not register the file; showing the native view"
+        };
+        crate::preview_host::fall_back_to_native(app, reason);
+    }
+    app.artifact_dismissed = false;
+    app.detail_visible = true;
+}
+
+fn remember_native_preview(
+    app: &mut App,
+    task: usize,
+    name: String,
+    text: &crate::preview_web_server::PreviewText,
+) {
+    app.tool_preview = Some(crate::model::Artifact {
+        name,
+        code: crate::preview_host::native_preview_code(text.as_str(), text.truncated),
+    });
+    app.tool_preview_task = Some(task);
+}
+
+pub(crate) fn detail_should_open(
+    detail_visible: bool,
+    has_artifact: bool,
+    mode: PreviewMode,
+    on_task: bool,
+    session_has_docs: bool,
+    tool_preview_for_task: bool,
+) -> bool {
+    detail_visible
+        && (has_artifact
+            || match mode {
+                PreviewMode::WebView => on_task && session_has_docs,
+                PreviewMode::Native | PreviewMode::StickyNative => tool_preview_for_task,
+            })
+}
+
+/// `EB_PREVIEW=native` forces the text view on every platform.
+///
+/// Unset, macOS uses the embedded WKWebView and Windows uses WebView2 when
+/// the runtime is present. Linux stays on the text view: the WebKitGTK 2.28
+/// XEmbed probe did not pass, so no helper is shipped.
+pub(crate) fn preview_defaults_to_webview() -> bool {
+    webview_default_for(
+        cfg!(any(target_os = "macos", target_os = "windows")),
+        std::env::var("EB_PREVIEW").ok().as_deref(),
+    )
+}
+
+pub(crate) fn webview_default_for(host_landed: bool, eb_preview: Option<&str>) -> bool {
+    if eb_preview == Some("native") {
+        return false;
+    }
+    host_landed
+}
+
+thread_local! {
+    static PREVIEW_APPLY: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+fn install_preview_bridge(store: Store, refresher: Refresher) {
+    PREVIEW_APPLY.with(|slot| {
+        *slot.borrow_mut() = Some(Rc::new(move || apply_preview_events(&store, &refresher)));
+    });
+    // `idle_add_local_once` panics off the main thread. The server thread
+    // schedules `idle_add_once` instead. The flag is cleared before the apply
+    // so a notify that arrives during the apply schedules another wake.
+    static WAKE: AtomicBool = AtomicBool::new(false);
+    crate::preview_web_server::set_shared_notifier(Arc::new(|| {
+        if WAKE.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        gtk::glib::idle_add_once(|| {
+            WAKE.store(false, Ordering::Release);
+            PREVIEW_APPLY.with(|slot| {
+                if let Some(apply) = slot.borrow().as_ref().cloned() {
+                    apply();
+                }
+            });
+        });
+    }));
+}
+
+fn apply_preview_events(store: &Store, refresher: &Refresher) {
+    let Some(events) = crate::preview_web_server::with_shared(|web| web.drain_events()) else {
+        return;
+    };
+    let view = crate::preview_web_server::session_view_shared();
+    {
+        let mut app = store.borrow_mut();
+        for event in &events {
+            match event {
+                crate::preview_web_server::PreviewEvent::Close => {
+                    app.tool_preview = None;
+                    app.tool_preview_task = None;
+                    app.artifact_dismissed = true;
+                    app.detail_visible = false;
+                }
+                crate::preview_web_server::PreviewEvent::CloseTab { .. }
+                    if view.as_ref().is_none_or(|view| view.docs.is_empty()) =>
+                {
+                    app.detail_visible = false;
+                }
+                crate::preview_web_server::PreviewEvent::Error { message } => {
+                    crate::preview_host::fall_back_to_native(
+                        &mut app,
+                        &format!("preview page error: {message}"),
+                    );
+                }
+                crate::preview_web_server::PreviewEvent::Ready
+                | crate::preview_web_server::PreviewEvent::SelectTab { .. }
+                | crate::preview_web_server::PreviewEvent::CloseTab { .. } => {}
+            }
+        }
+    }
+    if let Some(settings) = gtk::Settings::default() {
+        crate::preview_web_server::set_theme_dark_shared(
+            settings.is_gtk_application_prefer_dark_theme(),
+        );
+    }
+    refresher.request();
+}
+
+/// One shot for the process. The clock starts when the panel is shown, not
+/// on the first `/preview`. Fifteen seconds leaves room for a cold WebView2
+/// process before the page posts `ready`. A miss stays on the text view.
+fn arm_ready_timeout(store: Store, refresher: Refresher) {
+    static ARMED: AtomicBool = AtomicBool::new(false);
+    if ARMED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if crate::preview_web_server::session_view_shared().is_some_and(|view| view.ready) {
+        return;
+    }
+    gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(15), move || {
+        if crate::preview_web_server::session_view_shared().is_some_and(|view| view.ready) {
+            return;
+        }
+        let mut app = store.borrow_mut();
+        if app.preview_mode != PreviewMode::WebView
+            || !crate::preview_web_server::session_view_shared()
+                .is_some_and(|view| !view.docs.is_empty())
+        {
+            return;
+        }
+        crate::preview_host::fall_back_to_native(
+            &mut app,
+            "preview page was not ready after 15s; showing the native view",
+        );
+        drop(app);
+        refresher.request();
+    });
+}
+
 pub fn build(
     application: &gtk::Application,
     store: &Store,
@@ -159,8 +375,29 @@ pub fn build(
     answer: Arc<dyn AnswerSource>,
     agent_runtime: Arc<AgentRuntime>,
 ) -> (Views, Probes) {
-    let app = store.borrow();
+    if preview_defaults_to_webview() {
+        store.borrow_mut().preview_mode = PreviewMode::WebView;
+    }
     let refresher = Refresher::new();
+    if store.borrow().preview_mode == PreviewMode::WebView {
+        install_preview_bridge(store.clone(), refresher.clone());
+        let store_for_fallback = store.clone();
+        let refresher_for_fallback = refresher.clone();
+        crate::preview_host::set_late_fallback(Rc::new(move || {
+            let Some(reason) = crate::preview_host::take_fallback() else {
+                return;
+            };
+            {
+                let mut app = store_for_fallback.borrow_mut();
+                if app.preview_mode != PreviewMode::WebView {
+                    return;
+                }
+                crate::preview_host::fall_back_to_native(&mut app, &reason);
+            }
+            refresher_for_fallback.request();
+        }));
+    }
+    let app = store.borrow();
     let mut probes = Probes::new();
 
     let window = gtk::ApplicationWindow::new(application);
@@ -176,6 +413,9 @@ pub fn build(
     let nav = act1(store, &refresher, move |app, index: usize| {
         let route = routes.get(index).copied().unwrap_or("");
         app.select_nav(index, route);
+        if index == 0 {
+            crate::preview_web_server::clear_stack();
+        }
     });
     let open_task = {
         let store = store.clone();
@@ -183,15 +423,24 @@ pub fn build(
         Rc::new(move |index: usize| {
             let mut app = store.borrow_mut();
             app.open_task(index);
+            crate::preview_web_server::clear_stack();
             app.model = crate::router::menu_index(
-                app.tasks.get(index).and_then(|task| task.agent_route.as_deref()),
+                app.tasks
+                    .get(index)
+                    .and_then(|task| task.agent_route.as_deref()),
             );
             drop(app);
             refresher.request();
         }) as Rc<dyn Fn(usize)>
     };
     let scene = act1(store, &refresher, |app, scene: Scene| app.set_scene(scene));
-    let agent = Runner::new(store.clone(), refresher.clone(), answer, agent_runtime, window.clone());
+    let agent = Runner::new(
+        store.clone(),
+        refresher.clone(),
+        answer,
+        agent_runtime,
+        window.clone(),
+    );
     let submit = {
         let agent = agent.clone();
         Rc::new(move |text: String| {
@@ -277,7 +526,9 @@ pub fn build(
             // Unassigning can leave an empty Temporary workspace behind.
             let removed = {
                 let mut app = store.borrow_mut();
-                let crate::model::App { workspaces, tasks, .. } = &mut *app;
+                let crate::model::App {
+                    workspaces, tasks, ..
+                } = &mut *app;
                 let removed = crate::workspace::cleanup_temporary(workspaces, tasks);
                 if removed > 0 && app.workspace > 1 {
                     app.workspace = 0;
@@ -303,6 +554,7 @@ pub fn build(
         // A stale Read preview must not resurface the panel on the next paint.
         app.tool_preview = None;
         app.tool_preview_task = None;
+        crate::preview_web_server::clear_stack();
     });
     let hide_detail: Rc<dyn Fn()> = {
         let base = hide_detail_base.clone();
@@ -331,7 +583,9 @@ pub fn build(
         let Route::Task(task) = app.route.clone() else {
             return;
         };
-        let Some(entry) = app.tasks.get_mut(task) else { return };
+        let Some(entry) = app.tasks.get_mut(task) else {
+            return;
+        };
         if index >= entry.artifacts.len() {
             return;
         }
@@ -401,9 +655,8 @@ pub fn build(
             entry.set_margin_top(10);
             entry.set_margin_start(12);
             entry.set_margin_end(12);
-            let entry_icon = |name: &str| {
-                crate::icons::image(name, 16).and_then(|widget| widget.pixbuf())
-            };
+            let entry_icon =
+                |name: &str| crate::icons::image(name, 16).and_then(|widget| widget.pixbuf());
             let clear_icon = entry_icon("close");
             if let Some(icon) = entry_icon("search") {
                 entry.set_icon_from_pixbuf(gtk::EntryIconPosition::Primary, Some(&icon));
@@ -448,10 +701,7 @@ pub fn build(
             crate::widgets::class(&results, "eb-search-results");
             column.pack_start(&results, false, false, 0);
 
-            let hints = text(
-                "↑↓ Navigate   ↵ Open   ESC Close",
-                "eb-search-hints",
-            );
+            let hints = text("↑↓ Navigate   ↵ Open   ESC Close", "eb-search-hints");
             hints.set_halign(gtk::Align::Center);
             hints.set_margin_top(8);
             hints.set_margin_bottom(8);
@@ -471,9 +721,8 @@ pub fn build(
                     let query = entry.text().to_lowercase();
                     let tab = tab_state.get();
                     let app = store.borrow();
-                    let matches = |text: &str| {
-                        !query.is_empty() && text.to_lowercase().contains(&query)
-                    };
+                    let matches =
+                        |text: &str| !query.is_empty() && text.to_lowercase().contains(&query);
                     let turn_text = |turn: &eb_api::model::Turn| match turn {
                         eb_api::model::Turn::User { text, .. } => text.clone(),
                         eb_api::model::Turn::Agent { blocks, .. } => blocks
@@ -489,10 +738,7 @@ pub fn build(
                     if tab == 0 || tab == 1 {
                         for (index, task) in app.tasks.iter().enumerate() {
                             if matches(&task.title)
-                                || task
-                                    .turns
-                                    .iter()
-                                    .any(|turn| matches(&turn_text(turn)))
+                                || task.turns.iter().any(|turn| matches(&turn_text(turn)))
                             {
                                 rows.push((task.title.clone(), index));
                             }
@@ -530,8 +776,7 @@ pub fn build(
                         let refresher = refresher.clone();
                         row.connect_clicked(move |_| {
                             if index != usize::MAX {
-                                store.borrow_mut().route =
-                                    eb_api::model::Route::Task(index);
+                                store.borrow_mut().route = eb_api::model::Route::Task(index);
                                 refresher.request();
                             }
                         });
@@ -580,7 +825,6 @@ pub fn build(
         let folded = app.workspace_folded.entry(id).or_insert(false);
         *folded = !*folded;
     });
-
 
     // ---- composers ------------------------------------------------------
     // Built once and never rebuilt: a rebuild would discard typed text. Two
@@ -706,7 +950,11 @@ pub fn build(
     note(&mut probes, "eb-segmented", &welcome.segmented);
     note(&mut probes, "eb-chips", &welcome.chips);
     note(&mut probes, "eb-composer-card", &welcome_composer.card);
-    note(&mut probes, "eb-composer-toolbar", &welcome_composer.toolbar);
+    note(
+        &mut probes,
+        "eb-composer-toolbar",
+        &welcome_composer.toolbar,
+    );
     note(&mut probes, "eb-composer-footer", &welcome.footer);
     note(&mut probes, "eb-notice", &welcome.notice);
 
@@ -720,6 +968,7 @@ pub fn build(
                 // A card click shows the written files, not a Read preview.
                 app.tool_preview = None;
                 app.tool_preview_task = None;
+                crate::preview_web_server::clear_stack();
                 let has = match &app.route {
                     crate::model::Route::Task(index) => app
                         .tasks
@@ -746,6 +995,7 @@ pub fn build(
                 // A card click shows the written files, not a Read preview.
                 app.tool_preview = None;
                 app.tool_preview_task = None;
+                crate::preview_web_server::clear_stack();
                 let has = match &app.route {
                     crate::model::Route::Task(index) => app
                         .tasks
@@ -815,8 +1065,7 @@ pub fn build(
                 Rc::new(move |decision| {
                     let route = store.borrow().route.clone();
                     if let Route::Task(index) = route {
-                        if let Some(pending) = store.borrow_mut().take_pending_permission(index)
-                        {
+                        if let Some(pending) = store.borrow_mut().take_pending_permission(index) {
                             let _ = pending.responder.respond(decision.clone());
                         }
                     }
@@ -868,37 +1117,32 @@ pub fn build(
                         eprintln!("[evobuddy] tool row: cannot resolve {raw}");
                         return;
                     };
-                    // The viewer trims what it shows, but reading is capped so
-                    // a click on a huge file cannot stall the UI thread.
-                    const PREVIEW_CAP: u64 = 512 * 1024;
-                    let content = match std::fs::File::open(&path) {
-                        Ok(file) => {
-                            use std::io::Read;
-                            let mut buffer = String::new();
-                            let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-                            let mut capped = file.take(PREVIEW_CAP);
-                            if capped.read_to_string(&mut buffer).is_err() {
-                                eprintln!("[evobuddy] tool row: {raw} is not UTF-8 text");
-                                return;
-                            }
-                            if size > PREVIEW_CAP {
-                                buffer.push_str("\n… (truncated at 512 KiB)");
-                            }
-                            buffer
-                        }
-                        Err(error) => {
-                            eprintln!("[evobuddy] tool row: cannot read {raw}: {error}");
-                            return;
-                        }
-                    };
                     let name = path
                         .file_name()
                         .map(|name| name.to_string_lossy().to_string())
                         .unwrap_or_else(|| raw.clone());
-                    app.tool_preview = Some(crate::model::Artifact { name, code: content });
-                    app.tool_preview_task = Some(index);
-                    app.artifact_dismissed = false;
-                    app.detail_visible = true;
+                    if app.preview_mode == PreviewMode::WebView {
+                        // Register only. The server thread reads the bytes.
+                        store_webview_read(&mut app, index, &path, name, None);
+                    } else {
+                        // Capped on the caller. `read_preview` cuts on a character
+                        // boundary and rejects bytes that are not UTF-8.
+                        let text = match crate::preview_web_server::read_preview(
+                            &path,
+                            crate::preview_web_server::PREVIEW_CAP,
+                        ) {
+                            Ok(text) => text,
+                            Err(crate::preview_web_server::ReadPreviewError::NotUtf8) => {
+                                eprintln!("[evobuddy] tool row: {raw} is not UTF-8 text");
+                                return;
+                            }
+                            Err(crate::preview_web_server::ReadPreviewError::Io(error)) => {
+                                eprintln!("[evobuddy] tool row: cannot read {raw}: {error}");
+                                return;
+                            }
+                        };
+                        store_tool_read(&mut app, index, &path, name, &text);
+                    }
                     drop(app);
                     refresher.request();
                 })
@@ -921,8 +1165,12 @@ pub fn build(
         Rc::new(move |plugin_id: &'static str| {
             #[cfg(target_os = "macos")]
             {
-                let Some(anchor) = anchor.borrow().clone() else { return };
-                let Some(url) = crate::plugin_panel::url(plugin_id) else { return };
+                let Some(anchor) = anchor.borrow().clone() else {
+                    return;
+                };
+                let Some(url) = crate::plugin_panel::url(plugin_id) else {
+                    return;
+                };
                 if let Some(root) = feedback_root.borrow().clone() {
                     root.set_size_request(520, -1);
                 }
@@ -938,13 +1186,16 @@ pub fn build(
                 crate::bridge::ensure();
                 crate::preview_server::ensure();
                 let anchor = anchor.clone();
-                gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-                    if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
-                        crate::theme_view::open_panel(url, anchor.upcast_ref());
-                    } else {
-                        crate::theme_view::open_embedded(url, anchor.upcast_ref());
-                    }
-                });
+                gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(500),
+                    move || {
+                        if std::env::var_os("EB_PANEL_OVERLAY").is_some() {
+                            crate::theme_view::open_panel(url, anchor.upcast_ref());
+                        } else {
+                            crate::theme_view::open_embedded(url, anchor.upcast_ref());
+                        }
+                    },
+                );
             }
         })
     };
@@ -957,6 +1208,11 @@ pub fn build(
         },
         contribs,
     );
+    detail.body.connect_size_allocate(|body, _allocation| {
+        // A present that ran before this body had a size left no host.
+        crate::preview_host::retry_present(body.upcast_ref());
+        crate::preview_host::reposition();
+    });
     *feedback_anchor.borrow_mut() = Some(detail.body.clone());
     *feedback_root.borrow_mut() = Some(detail.root.clone());
     note(&mut probes, "eb-detail", &detail.root);
@@ -1040,7 +1296,11 @@ pub fn build(
 /// 1440x868 window there hangs off the screen and clips the composer.
 fn session_timestamp(session_id: &str) -> Option<u64> {
     let raw = session_id.rsplit('-').next()?.parse::<u64>().ok()?;
-    Some(if raw > 1_000_000_000_000 { raw / 1_000 } else { raw })
+    Some(if raw > 1_000_000_000_000 {
+        raw / 1_000
+    } else {
+        raw
+    })
 }
 
 /// The sidebar clock, mirrored from `formatSidebarConversationTime` in the
@@ -1108,8 +1368,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     } / 400;
     let year_of_era = shifted_year - era * 400;
     let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let day_of_era =
-        year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
 }
 
@@ -1119,7 +1378,10 @@ fn fit_to_workarea(window: &gtk::ApplicationWindow) {
     // width (the sash positions derive from the window width).
     let override_size = || -> Option<(i32, i32)> {
         let width = std::env::var("EB_WINDOW_WIDTH").ok()?.parse::<i32>().ok()?;
-        let height = std::env::var("EB_WINDOW_HEIGHT").ok()?.parse::<i32>().ok()?;
+        let height = std::env::var("EB_WINDOW_HEIGHT")
+            .ok()?
+            .parse::<i32>()
+            .ok()?;
         Some((width, height))
     };
     let (width, height) = override_size().unwrap_or_else(|| {
@@ -1127,8 +1389,8 @@ fn fit_to_workarea(window: &gtk::ApplicationWindow) {
             .and_then(|display| display.primary_monitor().or_else(|| display.monitor(0)))
             .map(|monitor| monitor.workarea());
         match area {
-            Some(area) if area.width() >= spec::WINDOW_WIDTH
-                && area.height() >= spec::WINDOW_HEIGHT =>
+            Some(area)
+                if area.width() >= spec::WINDOW_WIDTH && area.height() >= spec::WINDOW_HEIGHT =>
             {
                 (spec::WINDOW_WIDTH, spec::WINDOW_HEIGHT)
             }
@@ -1186,7 +1448,8 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
     //     outright and repaints one event late. The repaint itself is
     //     idle-deferred, so `refresh` reads the window after GTK has recorded
     //     the new size.
-    // Configure events also fire on moves; only a width change counts.
+    // Configure events also fire on moves. Only a width change repaints the
+    // sash. The preview panel follows every event, including a move.
     let last_width = std::cell::Cell::new(0i32);
     views.window.connect_configure_event({
         let refresher = views.refresher.clone();
@@ -1195,8 +1458,24 @@ pub fn finish(views: &Rc<Views>, store: &Store) {
             if last_width.replace(width) != width {
                 refresher.request();
             }
+            crate::preview_host::reposition();
             false
         }
+    });
+    // The preview is a subview of this window. `follow` installs the filter
+    // that hands clicks inside it to WebKit.
+    views.window.connect_realize(|window| {
+        crate::preview_host::follow(window.upcast_ref());
+    });
+    // Hide the web view while the main window is minimized.
+    // Settings windows are not watched.
+    views.window.connect_window_state_event(|_window, event| {
+        crate::preview_host::set_suspended(
+            event
+                .new_window_state()
+                .contains(gtk::gdk::WindowState::ICONIFIED),
+        );
+        gtk::glib::Propagation::Proceed
     });
 
     // The shortcuts the captured tooltips advertise: ⌘F expands the
@@ -1298,7 +1577,7 @@ impl Views {
         // The one-shot tab pick from a clicked artifact card, taken before the
         // state borrow below pins the store.
         let artifact_select = store.borrow_mut().artifact_select.take();
-        let app = store.borrow();
+        let mut app = store.borrow();
         if std::env::var_os("EB_DEBUG").is_some() {
             eprintln!("refresh: begin tasks={}", app.tasks.len());
         }
@@ -1321,7 +1600,8 @@ impl Views {
         self.chat_composer.set_streaming(streaming);
 
         // ---- selection classes ------------------------------------------
-        paint(&self.sidebar.nav, app.nav, "eb-nav-active");        let scene = match app.scene {
+        paint(&self.sidebar.nav, app.nav, "eb-nav-active");
+        let scene = match app.scene {
             Scene::Work => 0,
             Scene::Code => 1,
         };
@@ -1353,9 +1633,7 @@ impl Views {
                 index => app
                     .workspaces
                     .get(index.saturating_sub(2))
-                    .map(|workspace| {
-                        (index, crate::workspace::display_name(workspace))
-                    })
+                    .map(|workspace| (index, crate::workspace::display_name(workspace)))
                     .unwrap_or((0, "Auto workspace".to_string())),
             },
         };
@@ -1385,7 +1663,12 @@ impl Views {
             .enumerate()
             .rev()
             .filter(|(_, task)| {
-                eb_api::model::task_matches_filters(task, app.filter_status, app.filter_time, now_secs)
+                eb_api::model::task_matches_filters(
+                    task,
+                    app.filter_status,
+                    app.filter_time,
+                    now_secs,
+                )
             })
             .map(|(index, task)| TaskRow {
                 title: task.title.clone(),
@@ -1453,8 +1736,7 @@ impl Views {
         // `painted_task` only tracks which frames are attached, so coming back
         // from the landing page has to be spotted here: the frames are the
         // same ones, and the user still expects the newest message.
-        let was_conversation =
-            self.stack.visible_child_name().as_deref() == Some("conversation");
+        let was_conversation = self.stack.visible_child_name().as_deref() == Some("conversation");
         match &app.route {
             Route::Unbuilt(name) => {
                 self.unbuilt_title.set_text(name);
@@ -1474,9 +1756,12 @@ impl Views {
                 } else {
                     gtk::Align::Center
                 });
-                self.unbuilt_body.set_margin_start(if specialized { 24 } else { 0 });
-                self.unbuilt_body.set_margin_end(if specialized { 24 } else { 0 });
-                self.unbuilt_body.set_margin_top(if specialized { 16 } else { 0 });
+                self.unbuilt_body
+                    .set_margin_start(if specialized { 24 } else { 0 });
+                self.unbuilt_body
+                    .set_margin_end(if specialized { 24 } else { 0 });
+                self.unbuilt_body
+                    .set_margin_top(if specialized { 16 } else { 0 });
                 if *name == "Experts · Skills · Connectors" {
                     fill_catalog(&self.unbuilt_info, &self.refresher, store);
                 } else if *name == "Scheduled" {
@@ -1560,12 +1845,69 @@ impl Views {
             Route::Task(index) => Some(*index),
             _ => None,
         };
-        let preview = app
+        let has_artifact = artifact.is_some();
+        let session_has_docs = || {
+            crate::preview_web_server::session_view_shared()
+                .is_some_and(|view| !view.docs.is_empty())
+        };
+        let mut preview = app
             .tool_preview
             .clone()
             .filter(|_| app.tool_preview_task == current_task);
-        let open = app.detail_visible && (artifact.is_some() || preview.is_some());
-        if open {
+        let mut has_docs = session_has_docs();
+        let mut open = detail_should_open(
+            app.detail_visible,
+            has_artifact,
+            app.preview_mode,
+            current_task.is_some(),
+            has_docs,
+            preview.is_some(),
+        );
+        let was_open = self.detail.root.is_visible();
+        if open && !was_open {
+            // present() reads the body allocation. A hidden panel reports
+            // 0×0 and returns without creating the host. Show it first;
+            // size-allocate retries if this show has not allocated yet.
+            self.detail.root.set_visible(true);
+        }
+        let mut show_webview = open && app.preview_mode == PreviewMode::WebView && has_docs;
+        if show_webview {
+            detail::detach_native_body(&self.detail);
+            if let Some(reason) = crate::preview_host::take_fallback() {
+                drop(app);
+                {
+                    let mut app = store.borrow_mut();
+                    crate::preview_host::fall_back_to_native(&mut app, &reason);
+                }
+                app = store.borrow();
+                show_webview = false;
+                preview = app
+                    .tool_preview
+                    .clone()
+                    .filter(|_| app.tool_preview_task == current_task);
+                has_docs = session_has_docs();
+                open = detail_should_open(
+                    app.detail_visible,
+                    has_artifact,
+                    app.preview_mode,
+                    current_task.is_some(),
+                    has_docs,
+                    preview.is_some(),
+                );
+            } else {
+                if let Some(settings) = gtk::Settings::default() {
+                    crate::preview_web_server::set_theme_dark_shared(
+                        settings.is_gtk_application_prefer_dark_theme(),
+                    );
+                }
+                arm_ready_timeout(store.clone(), self.refresher.clone());
+                crate::preview_host::wake();
+            }
+        }
+        if show_webview {
+            // The host was presented above. The native editor stays detached.
+        } else if open {
+            detail::show_native_chrome(&self.detail);
             // The tab strip shows every file the task has written; the
             // newest one arrives selected. A preview replaces the strip with
             // just the one file the user asked for.
@@ -1581,7 +1923,15 @@ impl Views {
                     _ => &[][..],
                 };
                 if files.is_empty() {
-                    artifact.into_iter().cloned().collect()
+                    match &app.route {
+                        Route::Task(index) => app
+                            .tasks
+                            .get(*index)
+                            .and_then(|task| task.artifact.clone())
+                            .into_iter()
+                            .collect(),
+                        _ => Vec::new(),
+                    }
                 } else {
                     files.to_vec()
                 }
@@ -1592,8 +1942,12 @@ impl Views {
             if let Some(index) = artifact_select {
                 detail::select(&self.detail, index);
             }
+            // `fill` ends in `show_all`, which would reveal a host hidden
+            // earlier. Hide it after the native editor is in place.
+            detail::show_host(&self.detail, false);
+        } else {
+            detail::show_host(&self.detail, false);
         }
-        let was_open = self.detail.root.is_visible();
         self.detail.root.set_visible(open);
         if open && !was_open {
             // The panel just uncovered a region of the toplevel window. On
@@ -1624,7 +1978,11 @@ impl Views {
         // sash and the message margins agree: at a 1082px window the sash really
         // lands on 750, and centring the messages for 804 let the bubbles spill
         // past the divider into the panel.
-        let panel_floor = if open { self.detail.root.preferred_width().0 } else { 0 };
+        let panel_floor = if open {
+            self.detail.root.preferred_width().0
+        } else {
+            0
+        };
         detail_ms = Some(detail_started.elapsed().as_secs_f64() * 1000.0);
         let sash = outer_sash(width, sidebar, open, app.detail_maximised, panel_floor);
 
@@ -1635,7 +1993,13 @@ impl Views {
         // reposition that matters, because the configure-event repaint sees an
         // unchanged key. So an unallocated width positions but never latches.
         let settled = self.window.is_realized() && self.window.size().0 > 1;
-        let layout = (app.sidebar_visible, open, app.detail_maximised, width, panel_floor);
+        let layout = (
+            app.sidebar_visible,
+            open,
+            app.detail_maximised,
+            width,
+            panel_floor,
+        );
         if settled && self.laid_out.get() != Some(layout) || !settled {
             self.inner.set_position(sidebar);
             self.outer.set_position(sash);
@@ -1672,8 +2036,12 @@ impl Views {
         // (`min_content_width`, 1) and never the child's.
         let pane_width = sash - sidebar;
         let message_width = adaptive_message_width(pane_width, open);
-        self.conversation.scroll.set_max_content_width(message_width);
-        self.conversation.messages.set_size_request(message_width, -1);
+        self.conversation
+            .scroll
+            .set_max_content_width(message_width);
+        self.conversation
+            .messages
+            .set_size_request(message_width, -1);
         // The composer tracks the message column so a wide layout does not
         // leave the input card stranded at its own fixed width. The 80 is
         // the closed card's own padding band (832 area vs 752 column).
@@ -1726,13 +2094,7 @@ fn adaptive_message_width(pane_width: i32, panel_open: bool) -> i32 {
 /// collapse (a 1100px window used to leave the message list 1px wide).
 /// Below that the panel keeps its own content minimum so its header buttons
 /// stay reachable (§10-31).
-fn outer_sash(
-    width: i32,
-    sidebar: i32,
-    open: bool,
-    maximised: bool,
-    panel_floor: i32,
-) -> i32 {
+fn outer_sash(width: i32, sidebar: i32, open: bool, maximised: bool, panel_floor: i32) -> i32 {
     if !open {
         width
     } else if maximised {
@@ -1742,8 +2104,7 @@ fn outer_sash(
     } else {
         let conversation_floor = sidebar + spec::MESSAGE_WIDTH + 24;
         let sash = (width - spec::ARTIFACT_PANEL_WIDTH).max(conversation_floor);
-        let panel_room =
-            (width - panel_floor).max(sidebar + spec::CONVERSATION_MIN_WIDTH);
+        let panel_room = (width - panel_floor).max(sidebar + spec::CONVERSATION_MIN_WIDTH);
         sash.min(panel_room)
     }
 }
@@ -1868,13 +2229,24 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     container.set_hexpand(true);
     let (tab, query, filter) = {
         let app = store.borrow();
-        (app.catalog_tab, app.catalog_query.clone(), app.catalog_filter)
+        (
+            app.catalog_tab,
+            app.catalog_query.clone(),
+            app.catalog_filter,
+        )
     };
 
     let header = hbox(10);
     for (index, label) in ["Experts", "Skills", "Connectors"].iter().enumerate() {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == tab { "eb-catalog-tab-active" } else { "eb-catalog-tab" });
+        class(
+            &button,
+            if index == tab {
+                "eb-catalog-tab-active"
+            } else {
+                "eb-catalog-tab"
+            },
+        );
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -1925,7 +2297,10 @@ fn fill_catalog(container: &gtk::Box, refresher: &Refresher, store: &Store) {
         let refresher_for_add = refresher.clone();
         add.connect_clicked(move |_| open_add_skill(&store_for_add, &refresher_for_add));
         header.pack_end(&add, false, false, 0);
-        let installed = gtk::Label::new(Some(&format!("Installed ({})", crate::catalog::skills().len())));
+        let installed = gtk::Label::new(Some(&format!(
+            "Installed ({})",
+            crate::catalog::skills().len()
+        )));
         class(&installed, "eb-catalog-count");
         header.pack_end(&installed, false, false, 0);
     }
@@ -1961,11 +2336,29 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
     ];
     let section = hbox(10);
     let experts_tab = gtk::Button::with_label("Experts");
-    class(&experts_tab, if teams { "eb-catalog-tab" } else { "eb-catalog-tab-active" });
+    class(
+        &experts_tab,
+        if teams {
+            "eb-catalog-tab"
+        } else {
+            "eb-catalog-tab-active"
+        },
+    );
     let teams_tab = gtk::Button::with_label("Expert Teams");
-    class(&teams_tab, if teams { "eb-catalog-tab-active" } else { "eb-catalog-tab" });
+    class(
+        &teams_tab,
+        if teams {
+            "eb-catalog-tab-active"
+        } else {
+            "eb-catalog-tab"
+        },
+    );
     for (active, set) in [(false, false), (true, true)] {
-        let button = if active { teams_tab.clone() } else { experts_tab.clone() };
+        let button = if active {
+            teams_tab.clone()
+        } else {
+            experts_tab.clone()
+        };
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -1981,7 +2374,14 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
     let sort_box = hbox(6);
     for (index, label) in ["Recommended", "Hottest", "Newest"].iter().enumerate() {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == sort { "eb-chip-active" } else { "eb-chip" });
+        class(
+            &button,
+            if index == sort {
+                "eb-chip-active"
+            } else {
+                "eb-chip"
+            },
+        );
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -2045,7 +2445,14 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
     let chips = hbox(6);
     for (index, label) in categories.iter().enumerate() {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == category { "eb-chip-active" } else { "eb-chip" });
+        class(
+            &button,
+            if index == category {
+                "eb-chip-active"
+            } else {
+                "eb-chip"
+            },
+        );
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -2061,7 +2468,13 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
         .iter()
         .filter(|expert| {
             let matches_category = category == 0 || expert.category == categories[category];
-            let haystack = format!("{} {} {}", expert.name, expert.description, expert.tags.join(" ")).to_ascii_lowercase();
+            let haystack = format!(
+                "{} {} {}",
+                expert.name,
+                expert.description,
+                expert.tags.join(" ")
+            )
+            .to_ascii_lowercase();
             matches_category && (query.is_empty() || haystack.contains(&query))
         })
         .collect();
@@ -2124,7 +2537,10 @@ fn fill_experts(container: &gtk::Box, store: &Store, refresher: &Refresher, quer
 }
 
 fn open_expert_detail(name: &str, store: &Store, refresher: &Refresher) {
-    let Some(expert) = crate::catalog::expert_cards().iter().find(|expert| expert.name == name) else {
+    let Some(expert) = crate::catalog::expert_cards()
+        .iter()
+        .find(|expert| expert.name == name)
+    else {
         return;
     };
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
@@ -2188,7 +2604,12 @@ fn open_expert_detail(name: &str, store: &Store, refresher: &Refresher) {
         tags.pack_start(&label, false, false, 0);
     }
     root.pack_start(&tags, false, false, 0);
-    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+    root.pack_start(
+        &gtk::Separator::new(gtk::Orientation::Horizontal),
+        false,
+        false,
+        0,
+    );
 
     let stats = hbox(12);
     for (value, label) in [
@@ -2206,7 +2627,12 @@ fn open_expert_detail(name: &str, store: &Store, refresher: &Refresher) {
         stats.pack_start(&column, true, true, 0);
     }
     root.pack_start(&stats, false, false, 0);
-    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+    root.pack_start(
+        &gtk::Separator::new(gtk::Orientation::Horizontal),
+        false,
+        false,
+        0,
+    );
 
     let help = gtk::Label::new(Some("Expert can help with"));
     help.set_xalign(0.0);
@@ -2263,8 +2689,13 @@ fn fill_skills(
     let skills: Vec<_> = crate::catalog::skills()
         .into_iter()
         .filter(|skill| {
-            let text = format!("{} {} {}", skill.name, skill.description, skill.triggers.join(" "))
-                .to_ascii_lowercase();
+            let text = format!(
+                "{} {} {}",
+                skill.name,
+                skill.description,
+                skill.triggers.join(" ")
+            )
+            .to_ascii_lowercase();
             let matches_query = query.is_empty() || text.contains(&query);
             let matches_filter = match filter {
                 1 => skill.source == "builtin",
@@ -2278,7 +2709,14 @@ fn fill_skills(
     let chips = hbox(6);
     for (index, label) in ["All", "Built-in", "User", "Enabled"].iter().enumerate() {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == filter { "eb-chip-active" } else { "eb-chip" });
+        class(
+            &button,
+            if index == filter {
+                "eb-chip-active"
+            } else {
+                "eb-chip"
+            },
+        );
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -2289,8 +2727,16 @@ fn fill_skills(
     }
     container.pack_start(&chips, false, false, 0);
 
-    let featured: Vec<_> = skills.iter().filter(|skill| skill.source == "builtin").cloned().collect();
-    let recommended: Vec<_> = skills.iter().filter(|skill| skill.source != "builtin").cloned().collect();
+    let featured: Vec<_> = skills
+        .iter()
+        .filter(|skill| skill.source == "builtin")
+        .cloned()
+        .collect();
+    let recommended: Vec<_> = skills
+        .iter()
+        .filter(|skill| skill.source != "builtin")
+        .cloned()
+        .collect();
     if !featured.is_empty() {
         let label = gtk::Label::new(Some("Featured"));
         label.set_xalign(0.0);
@@ -2320,7 +2766,13 @@ fn skill_grid(skills: &[crate::catalog::Skill], store: &Store, refresher: &Refre
     grid.set_row_spacing(12);
     grid.set_column_homogeneous(true);
     for (index, skill) in skills.iter().enumerate() {
-        grid.attach(&skill_card(skill, store, refresher), (index % 3) as i32, (index / 3) as i32, 1, 1);
+        grid.attach(
+            &skill_card(skill, store, refresher),
+            (index % 3) as i32,
+            (index / 3) as i32,
+            1,
+            1,
+        );
     }
     grid
 }
@@ -2328,12 +2780,20 @@ fn skill_grid(skills: &[crate::catalog::Skill], store: &Store, refresher: &Refre
 fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refresher) -> gtk::Box {
     let card = vbox(4);
     class(&card, "eb-skill-card");
-    let badge = gtk::Label::new(Some(if skill.source == "builtin" { "BUILT-IN" } else { "USER" }));
+    let badge = gtk::Label::new(Some(if skill.source == "builtin" {
+        "BUILT-IN"
+    } else {
+        "USER"
+    }));
     badge.set_xalign(0.0);
     class(&badge, "eb-skill-badge");
     card.pack_start(&badge, false, false, 0);
     let head = hbox(8);
-    let icon = gtk::Label::new(Some(if skill.source == "builtin" { "◆" } else { "✦" }));
+    let icon = gtk::Label::new(Some(if skill.source == "builtin" {
+        "◆"
+    } else {
+        "✦"
+    }));
     class(&icon, "eb-skill-icon");
     head.pack_start(&icon, false, false, 0);
     let title = gtk::Label::new(Some(&skill.name));
@@ -2361,7 +2821,11 @@ fn skill_card(skill: &crate::catalog::Skill, store: &Store, refresher: &Refreshe
     let meta = format!(
         "{} · {} · {} trigger{}",
         skill.source,
-        if skill.enabled { "installed" } else { "available" },
+        if skill.enabled {
+            "installed"
+        } else {
+            "available"
+        },
         skill.triggers.len(),
         if skill.triggers.len() == 1 { "" } else { "s" }
     );
@@ -2436,9 +2900,20 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
         class(&name, "eb-skill-title");
         head.pack_start(&name, true, true, 0);
         if let Some(entry) = entries.iter().find(|entry| &entry.name == card_name) {
-            let status = if entry.error.is_some() { "Invalid" } else { "Configured" };
+            let status = if entry.error.is_some() {
+                "Invalid"
+            } else {
+                "Configured"
+            };
             let done = gtk::Label::new(Some(status));
-            class(&done, if entry.error.is_some() { "eb-skill-error" } else { "eb-skill-source" });
+            class(
+                &done,
+                if entry.error.is_some() {
+                    "eb-skill-error"
+                } else {
+                    "eb-skill-source"
+                },
+            );
             head.pack_end(&done, false, false, 0);
             let test = gtk::Button::with_label("Test");
             let store = store.clone();
@@ -2449,8 +2924,7 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
                 // four (http). Running it here would stop the window painting
                 // for that whole time, so the probe runs on a worker thread and
                 // reports back through this panel's short poll.
-                store.borrow_mut().connector_test =
-                    Some((name.clone(), "testing…".to_string()));
+                store.borrow_mut().connector_test = Some((name.clone(), "testing…".to_string()));
                 refresher.request();
                 let outcome: Arc<std::sync::Mutex<Option<(String, String)>>> =
                     Arc::new(std::sync::Mutex::new(None));
@@ -2465,9 +2939,7 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
                                 .find(|entry| entry.name == probed)
                                 .map(|entry| match entry.test() {
                                     Ok(message) => (probed.clone(), message),
-                                    Err(message) => {
-                                        (probed.clone(), format!("failed: {message}"))
-                                    }
+                                    Err(message) => (probed.clone(), format!("failed: {message}")),
                                 })
                                 .unwrap_or_else(|| {
                                     (probed.clone(), "failed: connector is not configured".into())
@@ -2490,8 +2962,10 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
                         return gtk::glib::ControlFlow::Break;
                     }
                     if started.elapsed() > std::time::Duration::from_secs(30) {
-                        app.connector_test =
-                            Some((poll_name.clone(), "failed: test is still running".to_string()));
+                        app.connector_test = Some((
+                            poll_name.clone(),
+                            "failed: test is still running".to_string(),
+                        ));
                         drop(app);
                         poll_refresher.request();
                         return gtk::glib::ControlFlow::Break;
@@ -2520,7 +2994,14 @@ fn fill_connectors(container: &gtk::Box, store: &Store, refresher: &Refresher, q
                 let result = gtk::Label::new(Some(message));
                 result.set_xalign(0.0);
                 result.set_line_wrap(true);
-                class(&result, if message.starts_with("failed") { "eb-skill-error" } else { "eb-skill-stats" });
+                class(
+                    &result,
+                    if message.starts_with("failed") {
+                        "eb-skill-error"
+                    } else {
+                        "eb-skill-stats"
+                    },
+                );
                 item.pack_start(&result, false, false, 0);
             }
         }
@@ -2568,7 +3049,11 @@ fn open_skill_detail(skill: crate::catalog::Skill, store: &Store, refresher: &Re
     title.set_xalign(0.0);
     class(&title, "eb-skill-detail-title");
     title_box.pack_start(&title, false, false, 0);
-    let install = gtk::Button::with_label(if skill.enabled { "Installed" } else { "Install" });
+    let install = gtk::Button::with_label(if skill.enabled {
+        "Installed"
+    } else {
+        "Install"
+    });
     install.set_halign(gtk::Align::Start);
     class(&install, "eb-add-skill");
     let store_for_install = store.clone();
@@ -2596,7 +3081,12 @@ fn open_skill_detail(skill: crate::catalog::Skill, store: &Store, refresher: &Re
     description.set_line_wrap(true);
     class(&description, "eb-skill-detail-description");
     root.pack_start(&description, false, false, 0);
-    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+    root.pack_start(
+        &gtk::Separator::new(gtk::Orientation::Horizontal),
+        false,
+        false,
+        0,
+    );
 
     let stats = hbox(12);
     for (value, label) in [
@@ -2615,7 +3105,12 @@ fn open_skill_detail(skill: crate::catalog::Skill, store: &Store, refresher: &Re
         stats.pack_start(&column, true, true, 0);
     }
     root.pack_start(&stats, false, false, 0);
-    root.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+    root.pack_start(
+        &gtk::Separator::new(gtk::Orientation::Horizontal),
+        false,
+        false,
+        0,
+    );
 
     let try_header = gtk::Label::new(Some("Try it like this"));
     try_header.set_xalign(0.0);
@@ -2782,9 +3277,19 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
         refresher_for_search.request();
     });
     sidebar.pack_start(&search, false, false, 0);
-    for (index, label) in ["Recent", "Local artifacts", "My Materials"].iter().enumerate() {
+    for (index, label) in ["Recent", "Local artifacts", "My Materials"]
+        .iter()
+        .enumerate()
+    {
         let button = gtk::Button::with_label(label);
-        class(&button, if index == section { "eb-library-nav-active" } else { "eb-library-nav" });
+        class(
+            &button,
+            if index == section {
+                "eb-library-nav-active"
+            } else {
+                "eb-library-nav"
+            },
+        );
         let store = store.clone();
         let refresher = refresher.clone();
         button.connect_clicked(move |_| {
@@ -2812,7 +3317,12 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
     }
     main.pack_start(&tabs, false, false, 0);
     let header = hbox(0);
-    for (label, width) in [("Name", 360), ("Owner", 180), ("Location", 180), ("Recent visit", 140)] {
+    for (label, width) in [
+        ("Name", 360),
+        ("Owner", 180),
+        ("Location", 180),
+        ("Recent visit", 140),
+    ] {
         let label = gtk::Label::new(Some(label));
         label.set_xalign(0.0);
         label.set_size_request(width, -1);
@@ -2820,21 +3330,24 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
         header.pack_start(&label, false, false, 0);
     }
     main.pack_start(&header, false, false, 0);
-    main.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+    main.pack_start(
+        &gtk::Separator::new(gtk::Orientation::Horizontal),
+        false,
+        false,
+        0,
+    );
 
     let tasks = store.borrow();
     let mut added = 0;
     for task in &tasks.tasks {
-        let workspace = task.workspace_id.as_deref().and_then(|id| {
-            tasks.workspaces.iter().find(|workspace| workspace.id == id)
-        });
+        let workspace = task
+            .workspace_id
+            .as_deref()
+            .and_then(|id| tasks.workspaces.iter().find(|workspace| workspace.id == id));
         let (name, location) = if let Some(artifact) = &task.artifact {
             (artifact.name.clone(), "Local artifacts")
         } else if let Some(workspace) = workspace {
-            (
-                crate::workspace::display_name(workspace),
-                "My Materials",
-            )
+            (crate::workspace::display_name(workspace), "My Materials")
         } else {
             continue;
         };
@@ -2865,7 +3378,12 @@ fn fill_library(container: &gtk::Box, refresher: &Refresher, store: &Store) {
             line.pack_start(&label, false, false, 0);
         }
         main.pack_start(&line, false, false, 0);
-        main.pack_start(&gtk::Separator::new(gtk::Orientation::Horizontal), false, false, 0);
+        main.pack_start(
+            &gtk::Separator::new(gtk::Orientation::Horizontal),
+            false,
+            false,
+            0,
+        );
         added += 1;
     }
     if added == 0 {
@@ -2902,6 +3420,212 @@ mod tests {
     }
 
     use super::*;
+    use crate::model::PreviewMode;
+    use crate::preview_web_server::PreviewText;
+
+    #[test]
+    fn webview_is_the_default_only_where_a_host_landed() {
+        assert!(webview_default_for(true, None));
+        assert!(webview_default_for(true, Some("webview")));
+        assert!(!webview_default_for(true, Some("native")));
+        assert!(!webview_default_for(false, None));
+        assert!(!webview_default_for(false, Some("webview")));
+    }
+
+    fn sample(bytes: &str, truncated: bool) -> PreviewText {
+        PreviewText {
+            bytes: bytes.as_bytes().to_vec(),
+            truncated,
+        }
+    }
+
+    #[test]
+    fn native_read_writes_tool_preview_with_the_five_mib_notice() {
+        let mut app = App::new();
+        let task = app.begin_task("read notes").unwrap();
+        store_tool_read(
+            &mut app,
+            task,
+            std::path::Path::new("notes.md"),
+            "notes.md".into(),
+            &sample("hello", true),
+        );
+        let preview = app.tool_preview.expect("native read writes tool_preview");
+        assert_eq!(preview.name, "notes.md");
+        assert_eq!(preview.code, "hello\n… (truncated at 5 MiB)");
+        assert_eq!(app.tool_preview_task, Some(task));
+        assert!(app.detail_visible);
+        assert!(!app.artifact_dismissed);
+        assert_eq!(app.preview_mode, PreviewMode::Native);
+    }
+
+    #[test]
+    fn webview_read_reuses_the_preview_id_and_skips_tool_preview() {
+        let dir = std::env::temp_dir().join(format!("eb-tool-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lib.rs");
+        std::fs::write(&path, "fn old() {}").unwrap();
+
+        let mut app = App::new();
+        app.preview_mode = PreviewMode::WebView;
+        let task = app.begin_task("read code").unwrap();
+        crate::preview_web_server::clear_stack();
+        store_tool_read(
+            &mut app,
+            task,
+            &path,
+            "lib.rs".into(),
+            &sample("fn old() {}", false),
+        );
+        let view = crate::preview_web_server::session_view_shared().expect("session");
+        let id = view.docs[0].id;
+        assert!(app.tool_preview.is_none());
+        assert!(app.tool_preview_task.is_none());
+
+        std::fs::write(&path, "fn new() {}").unwrap();
+        store_tool_read(
+            &mut app,
+            task,
+            &path,
+            "lib.rs".into(),
+            &sample("fn new() {}", false),
+        );
+        let view = crate::preview_web_server::session_view_shared().expect("session");
+        assert_eq!(view.docs.len(), 1);
+        assert_eq!(view.docs[0].id, id);
+        assert_eq!(view.active, Some(id));
+        assert!(app.tool_preview.is_none());
+        assert_eq!(app.preview_mode, PreviewMode::WebView);
+        assert_eq!(
+            view.docs[0].file_id,
+            crate::preview_web_server::file_identity(&std::fs::File::open(&path).unwrap()).unwrap()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sticky_native_still_writes_tool_preview() {
+        let mut app = App::new();
+        app.preview_mode = PreviewMode::StickyNative;
+        let task = app.begin_task("read").unwrap();
+        store_tool_read(
+            &mut app,
+            task,
+            std::path::Path::new("a.txt"),
+            "a.txt".into(),
+            &sample("body", false),
+        );
+        assert_eq!(app.tool_preview.unwrap().code, "body");
+    }
+
+    #[test]
+    fn the_open_predicate_follows_the_mode() {
+        assert!(detail_should_open(
+            true,
+            false,
+            PreviewMode::WebView,
+            true,
+            true,
+            false
+        ));
+        assert!(!detail_should_open(
+            true,
+            false,
+            PreviewMode::WebView,
+            true,
+            false,
+            true
+        ));
+        assert!(!detail_should_open(
+            true,
+            false,
+            PreviewMode::WebView,
+            false,
+            true,
+            false
+        ));
+        assert!(detail_should_open(
+            true,
+            true,
+            PreviewMode::WebView,
+            true,
+            false,
+            false
+        ));
+        assert!(detail_should_open(
+            true,
+            false,
+            PreviewMode::Native,
+            true,
+            false,
+            true
+        ));
+        assert!(!detail_should_open(
+            true,
+            false,
+            PreviewMode::Native,
+            true,
+            true,
+            false
+        ));
+        assert!(detail_should_open(
+            true,
+            false,
+            PreviewMode::StickyNative,
+            true,
+            true,
+            true
+        ));
+        assert!(!detail_should_open(
+            false,
+            true,
+            PreviewMode::WebView,
+            true,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn sticky_fallback_uses_the_cache_and_refuses_a_different_file() {
+        use crate::preview_host::sticky_fallback_text;
+        use crate::preview_web_server::{FileId, ReadPreviewError};
+
+        let id = FileId { dev: 1, ino: 1 };
+        assert_eq!(
+            sticky_fallback_text(Some(("hello".into(), true)), None, id, None),
+            "hello\n… (truncated at 5 MiB)"
+        );
+        assert_eq!(
+            sticky_fallback_text(None, Some(Ok(sample("body", false))), id, Some(id)),
+            "body"
+        );
+        let changed = sticky_fallback_text(
+            None,
+            Some(Ok(sample("other", false))),
+            id,
+            Some(FileId { dev: 2, ino: 2 }),
+        );
+        assert_eq!(changed, "The file changed on disk and was not shown.");
+        assert!(!changed.contains("other"));
+        assert_eq!(
+            sticky_fallback_text(None, Some(Err(ReadPreviewError::NotUtf8)), id, None,),
+            "This file is not UTF-8 text."
+        );
+        assert_eq!(
+            sticky_fallback_text(
+                None,
+                Some(Err(ReadPreviewError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "gone",
+                )))),
+                id,
+                None,
+            ),
+            "This file is no longer available."
+        );
+    }
 
     /// The 1440 baseline is a captured number (ui-spec §4.4) and must not move;
     /// the narrow-window floors are the invented rule recorded in §10-31.
@@ -2916,7 +3640,11 @@ mod tests {
         assert_eq!(sash(1440), 860, "captured baseline: sash 860, panel 580");
         assert_eq!(sash(1136), 804, "the conversation keeps its 500+24 floor");
         assert_eq!(sash(1100), 768, "then the panel keeps its content minimum");
-        assert_eq!(sash(1082), 750, "the number GtkPaned was clamping to anyway");
+        assert_eq!(
+            sash(1082),
+            750,
+            "the number GtkPaned was clamping to anyway"
+        );
         assert_eq!(sash(900), 568);
         assert_eq!(
             sash(800),
@@ -2970,6 +3698,10 @@ mod tests {
         assert_eq!(day(2026, 10, 28) - day(2026, 10, 21), 7);
         assert_eq!(day(2024, 3, 1) - day(2024, 2, 28), 2, "2024 is a leap year");
         assert_eq!(day(2023, 3, 1) - day(2023, 2, 28), 1);
-        assert_eq!(day(2026, 1, 1) - day(2025, 12, 31), 1, "no gap at a year end");
+        assert_eq!(
+            day(2026, 1, 1) - day(2025, 12, 31),
+            1,
+            "no gap at a year end"
+        );
     }
 }

@@ -7,6 +7,7 @@ Run from the repository root; the output is deterministic.
 import json
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = {
@@ -24,6 +25,19 @@ SYSTEM = [
 ]
 
 
+def npm_packages():
+    """Direct dependencies of the preview page, at the locked versions."""
+    lock_path = ROOT / "experiments" / "preview-webview" / "package-lock.json"
+    lock = json.loads(lock_path.read_text())
+    root = lock["packages"][""]
+    names = sorted(root.get("dependencies", {}))
+    found = []
+    for name in names:
+        entry = lock["packages"][f"node_modules/{name}"]
+        found.append((name, entry["version"], entry.get("license") or "NOASSERTION"))
+    return found
+
+
 def main():
     meta = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--format-version", "1"], cwd=ROOT
@@ -39,6 +53,7 @@ def main():
         seen.add(key)
         packages.append(package)
     packages.sort(key=lambda p: (p["name"], p["version"]))
+    npm = npm_packages()
 
     components = [{
         "type": "application",
@@ -57,6 +72,20 @@ def main():
             "version": package["version"],
             "licenses": [{"expression": licenses}],
             "purl": f"pkg:cargo/{package['name']}@{package['version']}",
+        })
+    for name, version, license_expr in npm:
+        purl = f"pkg:npm/{quote(name, safe='/')}@{version}"
+        components.append({
+            "type": "library",
+            "bom-ref": purl,
+            "name": name,
+            "version": version,
+            "licenses": [{"expression": license_expr}],
+            "purl": purl,
+            "description": (
+                "Bundled into experiments/preview-webview/bundle.js. "
+                "esbuild strips legal comments; this entry is the notice."
+            ),
         })
     for name, version, license_expr, url in SYSTEM:
         components.append({
@@ -108,6 +137,20 @@ def main():
         lines.append(
             f"| `{package['name']}` | {package['version']} | {package.get('license') or 'NOASSERTION'} |"
         )
+    lines += [
+        "",
+        "## Preview page (CodeMirror, bundled)",
+        "",
+        "These packages are compiled into `experiments/preview-webview/bundle.js`.",
+        "The bundle build sets `legalComments: none`, so the license notice lives",
+        "here. esbuild is only the bundler and is not shipped. Transitive",
+        "packages are MIT as well; the direct dependencies are:",
+        "",
+        "| Component | Version | License expression |",
+        "|---|---|---|",
+    ]
+    for name, version, license_expr in npm:
+        lines.append(f"| `{name}` | {version} | {license_expr} |")
     lines += [
         "",
         "## GTK stack (dynamically linked)",

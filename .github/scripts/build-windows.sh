@@ -68,6 +68,21 @@ while [ "${#frontier[@]}" -gt 0 ]; do
     frontier=("${next[@]}")
 done
 
+# gnu imports WebView2Loader.dll. webview2-com-sys 0.39.1 ships it under
+# x64/ and its build.rs copies that file to OUT_DIR/x64/. It is not a MinGW
+# DLL under $prefix, so the walk above does not see it. This is the loader,
+# not the Evergreen runtime.
+loader=""
+out_root="target/$target/release/build"
+if [ -d "$out_root" ]; then
+    loader=$(find "$out_root" -path '*/webview2-com-sys-*/out/x64/WebView2Loader.dll' -print | sort | head -n 1)
+fi
+if [ -z "$loader" ]; then
+    echo "WebView2Loader.dll was not in webview2-com-sys OUT_DIR/x64. The gnu binary imports it." >&2
+    exit 1
+fi
+cp -f "$loader" "$stage/WebView2Loader.dll"
+
 cat > "$stage/README.txt" <<EOF
 EvoBuddy $version (windows-x86_64)
 ==================================
@@ -79,6 +94,11 @@ Uses the GTK 3 DLLs in this folder. Unlike the Linux bundle, GTK's data files
 are NOT included yet, so this build expects the MSYS2 installation those DLLs
 came from (or a machine where GTK has been installed some other way). It is
 unverified: see .github/scripts/build-windows.sh.
+
+WebView2Loader.dll in this folder is the loader from the webview2-com-sys
+crate (x64/WebView2Loader.dll, copied out of that crate's OUT_DIR). It is
+not the Evergreen WebView2 Runtime. The runtime still has to be installed
+on the machine.
 
 Requires Windows 10 or newer, as built.
 
