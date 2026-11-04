@@ -132,11 +132,19 @@ pub fn attach(views: &Rc<Views>, probes: &Probes, application: &gtk::Application
                     return;
                 }
                 if let Some(dir) = std::env::var_os("EB_SCHEDULE_SHOTS") {
-                    start_schedule_shots(&views, &application, std::path::PathBuf::from(dir.to_string_lossy().into_owned()));
+                    start_schedule_shots(
+                        &views,
+                        &application,
+                        std::path::PathBuf::from(dir.to_string_lossy().into_owned()),
+                    );
                     return;
                 }
                 if let Some(dir) = std::env::var_os("EB_SCHEDULE_FLOW") {
-                    start_schedule_flow(&views, &application, std::path::PathBuf::from(dir.to_string_lossy().into_owned()));
+                    start_schedule_flow(
+                        &views,
+                        &application,
+                        std::path::PathBuf::from(dir.to_string_lossy().into_owned()),
+                    );
                     return;
                 }
                 if click_requested() {
@@ -292,7 +300,12 @@ fn expected_click(label: &str) -> &'static [&'static str] {
         "artifact expand (back)" => &["detail visible=true"],
         "artifact card" => {
             if seeded {
-                &["detail visible=true", "tabs=2", "file=\"notes.md\"", "cards=2"]
+                &[
+                    "detail visible=true",
+                    "tabs=2",
+                    "file=\"notes.md\"",
+                    "cards=2",
+                ]
             } else {
                 // Without the seed the open task may still be streaming, and
                 // cards only settle under a completed answer; the panel state
@@ -361,6 +374,7 @@ fn assert_click_observation(label: &str, observed: &str) {
     let missing: Vec<&str> = expected
         .iter()
         .copied()
+        .filter(|needle| native_editor_needle_applies(observed, needle))
         .filter(|needle| !observed.contains(needle))
         .collect();
     if missing.is_empty() {
@@ -469,41 +483,74 @@ fn start_schedule_shots(
         }),
         FlowStep::Act("tasks", {
             let shot_main = shot_main.clone();
-            Box::new(move || { shot_main("1-tasks.png"); Ok(true) })
+            Box::new(move || {
+                shot_main("1-tasks.png");
+                Ok(true)
+            })
         }),
-        FlowStep::Act("to-approvals", Box::new(|| Ok(click_labeled_prefix("Approvals (")))),
+        FlowStep::Act(
+            "to-approvals",
+            Box::new(|| Ok(click_labeled_prefix("Approvals ("))),
+        ),
         FlowStep::Act("approvals", {
             let shot_main = shot_main.clone();
-            Box::new(move || { shot_main("2-approvals.png"); Ok(true) })
+            Box::new(move || {
+                shot_main("2-approvals.png");
+                Ok(true)
+            })
         }),
         FlowStep::Act("to-records", Box::new(|| Ok(click_labeled("Records")))),
         FlowStep::Act("records", {
             let shot_main = shot_main.clone();
-            Box::new(move || { shot_main("3-records.png"); Ok(true) })
+            Box::new(move || {
+                shot_main("3-records.png");
+                Ok(true)
+            })
         }),
         FlowStep::Act("back-to-tasks", Box::new(|| Ok(click_labeled("Tasks")))),
-        FlowStep::Act("open-daily-plan", Box::new(|| Ok(click_labeled("Daily plan")))),
+        FlowStep::Act(
+            "open-daily-plan",
+            Box::new(|| Ok(click_labeled("Daily plan"))),
+        ),
         FlowStep::Act("plan-dialog", {
             let shot_dialog = shot_dialog.clone();
-            Box::new(move || { shot_dialog("Daily plan", "4-plan-dialog.png"); Ok(true) })
+            Box::new(move || {
+                shot_dialog("Daily plan", "4-plan-dialog.png");
+                Ok(true)
+            })
         }),
         FlowStep::Act("close-plan", Box::new(|| Ok(click_labeled("Cancel")))),
         FlowStep::Act("open-new", Box::new(|| Ok(click_labeled("+ New")))),
         FlowStep::Act("new-dialog", {
             let shot_dialog = shot_dialog.clone();
-            Box::new(move || { shot_dialog("New Scheduled Task", "5-new-dialog.png"); Ok(true) })
+            Box::new(move || {
+                shot_dialog("New Scheduled Task", "5-new-dialog.png");
+                Ok(true)
+            })
         }),
-        FlowStep::Act("tile-periodic-click", Box::new(|| Ok(click_labeled("Periodic")))),
+        FlowStep::Act(
+            "tile-periodic-click",
+            Box::new(|| Ok(click_labeled("Periodic"))),
+        ),
         FlowStep::WaitMs(300),
         FlowStep::Act("tile-periodic", {
             let shot_dialog = shot_dialog.clone();
-            Box::new(move || { shot_dialog("New Scheduled Task", "6-tile-periodic.png"); Ok(true) })
+            Box::new(move || {
+                shot_dialog("New Scheduled Task", "6-tile-periodic.png");
+                Ok(true)
+            })
         }),
-        FlowStep::Act("tile-interval-click", Box::new(|| Ok(click_labeled("Interval")))),
+        FlowStep::Act(
+            "tile-interval-click",
+            Box::new(|| Ok(click_labeled("Interval"))),
+        ),
         FlowStep::WaitMs(300),
         FlowStep::Act("tile-interval", {
             let shot_dialog = shot_dialog.clone();
-            Box::new(move || { shot_dialog("New Scheduled Task", "7-tile-interval.png"); Ok(true) })
+            Box::new(move || {
+                shot_dialog("New Scheduled Task", "7-tile-interval.png");
+                Ok(true)
+            })
         }),
         FlowStep::Act("tile-plan-click", {
             Box::new(|| Ok(click_labeled("Plan · approve · dispatch")))
@@ -511,7 +558,10 @@ fn start_schedule_shots(
         FlowStep::WaitMs(300),
         FlowStep::Act("tile-plan", {
             let shot_dialog = shot_dialog.clone();
-            Box::new(move || { shot_dialog("New Scheduled Task", "8-tile-plan.png"); Ok(true) })
+            Box::new(move || {
+                shot_dialog("New Scheduled Task", "8-tile-plan.png");
+                Ok(true)
+            })
         }),
         FlowStep::Act("close-new", Box::new(|| Ok(click_labeled("Cancel")))),
     ];
@@ -529,7 +579,14 @@ fn start_schedule_shots(
     let views = views.clone();
     let application = application.clone();
     gtk::glib::idle_add_local_once(move || {
-        drive_shots(views, application, dir, Rc::new(steps), Rc::new(Cell::new(0)), done);
+        drive_shots(
+            views,
+            application,
+            dir,
+            Rc::new(steps),
+            Rc::new(Cell::new(0)),
+            done,
+        );
     });
 }
 
@@ -556,13 +613,10 @@ fn drive_shots(
             let index = index.clone();
             let dir = dir.clone();
             let done = done.clone();
-            gtk::glib::timeout_add_local_once(
-                std::time::Duration::from_millis(*ms),
-                move || {
-                    index.set(position + 1);
-                    drive_shots(views, application, dir, steps, index, done);
-                },
-            );
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(*ms), move || {
+                index.set(position + 1);
+                drive_shots(views, application, dir, steps, index, done);
+            });
             return;
         }
         FlowStep::Act(label, run) => match run() {
@@ -784,14 +838,11 @@ fn drive_flow(
             let retries = retries.clone();
             let dir = dir.clone();
             let done = done.clone();
-            gtk::glib::timeout_add_local_once(
-                std::time::Duration::from_millis(*ms),
-                move || {
-                    index.set(position + 1);
-                    retries.set(0);
-                    drive_flow(views, application, dir, steps, index, retries, done);
-                },
-            );
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(*ms), move || {
+                index.set(position + 1);
+                retries.set(0);
+                drive_flow(views, application, dir, steps, index, retries, done);
+            });
             return;
         }
         FlowStep::Act(label, run) => match run() {
@@ -917,14 +968,17 @@ fn smoke_dialog() -> Result<(), String> {
 /// Fill the open Daily plan dialog; when `shot` is given, capture the filled
 /// dialog before saving.
 fn fill_daily_plan_dialog(shot: Option<&str>) -> Result<(), String> {
-    let Some(dialog) = gtk::Window::list_toplevels().into_iter().find_map(|widget| {
-        let window = widget.downcast::<gtk::Window>().ok()?;
-        if window.title().as_deref() == Some("Daily plan") && window.is_visible() {
-            Some(window)
-        } else {
-            None
-        }
-    }) else {
+    let Some(dialog) = gtk::Window::list_toplevels()
+        .into_iter()
+        .find_map(|widget| {
+            let window = widget.downcast::<gtk::Window>().ok()?;
+            if window.title().as_deref() == Some("Daily plan") && window.is_visible() {
+                Some(window)
+            } else {
+                None
+            }
+        })
+    else {
         return Err("daily plan dialog did not open".into());
     };
     let mut entries = Vec::new();
@@ -1100,7 +1154,10 @@ fn start_click_audit(views: &Rc<Views>, application: &gtk::Application) {
     let views = views.clone();
     let application = application.clone();
     gtk::glib::idle_add_local_once(move || {
-        println!("click: after present(): window active={}", views.window.is_active());
+        println!(
+            "click: after present(): window active={}",
+            views.window.is_active()
+        );
         drive(views, Rc::new(steps), Rc::new(Cell::new(0)), application);
     });
 }
@@ -1128,7 +1185,11 @@ fn drive(
         return;
     }
     let step = &steps[position];
-    let (label, activate, observe) = (step.label.clone(), step.activate.clone(), step.observe.clone());
+    let (label, activate, observe) = (
+        step.label.clone(),
+        step.activate.clone(),
+        step.observe.clone(),
+    );
     activate(&views);
 
     let views = views.clone();
@@ -1208,7 +1269,10 @@ fn popover_state(views: &Views) -> String {
     views.window.size_allocate(&views.window.allocation());
 
     let toplevels = gtk::Window::list_toplevels();
-    let visible = toplevels.iter().filter(|window| window.is_visible()).count();
+    let visible = toplevels
+        .iter()
+        .filter(|window| window.is_visible())
+        .count();
     // A hidden toplevel is exactly the kind of thing that only shows up as a
     // count otherwise; name every window so the audit line explains itself.
     let names = toplevels
@@ -1275,6 +1339,42 @@ fn observe_segment(views: &Views) -> String {
     format!("active segments: {marked:?}")
 }
 
+/// One detail-panel observation line.
+///
+/// `host_webview` is set only when the process default is the web view and
+/// neither the code scroller nor the file label is on screen. The native
+/// editor's `file=` and `code scroll` needles do not apply to that line.
+/// A file label that is still there keeps the native line, so the artifact
+/// audit (which paints `GtkTextView`) does not lose `file=`.
+fn detail_observation(
+    visible: bool,
+    position: i32,
+    tabs: usize,
+    file: Option<&str>,
+    code: Option<&str>,
+    host_webview: bool,
+) -> String {
+    if host_webview && file.is_none() && code.is_none() {
+        return format!(
+            "detail visible={visible} maximised-pos={position} tabs={tabs} host=webview"
+        );
+    }
+    let file = file.unwrap_or("");
+    let code = code.unwrap_or("no code view");
+    format!("detail visible={visible} maximised-pos={position} tabs={tabs} file={file:?} ({code})")
+}
+
+/// `file=` and `code scroll` describe the native editor. They are skipped when
+/// the observation says the web host is showing and those widgets are absent.
+fn native_editor_needle_applies(observed: &str, needle: &str) -> bool {
+    if observed.contains("host=webview")
+        && (needle.starts_with("file=") || needle.contains("code scroll"))
+    {
+        return false;
+    }
+    true
+}
+
 fn observe_detail(views: &Views) -> String {
     // The code view is a non-wrapping `GtkTextView` inside a scroller whose
     // natural width is deliberately not propagated, so the only way to tell
@@ -1291,8 +1391,7 @@ fn observe_detail(views: &Views) -> String {
                 horizontal.page_size(),
                 horizontal.upper()
             )
-        })
-        .unwrap_or_else(|| "no code view".into());
+        });
     // The toolbar's file label names the tab whose contents are on screen.
     let file = widgets(views)
         .into_iter()
@@ -1302,16 +1401,19 @@ fn observe_detail(views: &Views) -> String {
                 .downcast::<gtk::Label>()
                 .ok()
                 .map(|label| label.text().to_string())
-        })
-        .unwrap_or_default();
-    format!(
-        "detail visible={} maximised-pos={} tabs={} file={file:?} ({code})",
+        });
+    let host_webview =
+        crate::shell::preview_defaults_to_webview() && code.is_none() && file.is_none();
+    detail_observation(
         views.detail.root.is_visible(),
         views.outer.position(),
         widgets(views)
             .into_iter()
             .filter(|widget| widget.style_context().has_class("eb-tab"))
-            .count()
+            .count(),
+        file.as_deref(),
+        code.as_deref(),
+        host_webview,
     )
 }
 
@@ -1333,7 +1435,11 @@ fn task_row_state(views: &Views) -> String {
                 chain.push(format!(
                     "{}:{}",
                     current.type_().name(),
-                    if current.is_visible() { "shown" } else { "hidden" }
+                    if current.is_visible() {
+                        "shown"
+                    } else {
+                        "hidden"
+                    }
                 ));
                 node = current.parent();
             }
@@ -1613,9 +1719,7 @@ fn build_steps() -> Vec<Step> {
                 click(&button, &views.window);
             }
         }),
-        observe: Rc::new(|views| {
-            format!("{} {}", observe_route(views), observe_detail(views))
-        }),
+        observe: Rc::new(|views| format!("{} {}", observe_route(views), observe_detail(views))),
     });
     // The always-present topbar toggle: closes the panel the row above just
     // reopened (seeded); on the unseeded one-file-less task it is a no-op.
@@ -1658,9 +1762,7 @@ fn build_steps() -> Vec<Step> {
                 click(&button, &views.window);
             }
         }),
-        observe: Rc::new(|views| {
-            format!("chat composer={:?}", text_of(&views.chat_composer.view))
-        }),
+        observe: Rc::new(|views| format!("chat composer={:?}", text_of(&views.chat_composer.view))),
     });
     steps.push(Step {
         label: "regenerate answer".into(),
@@ -1970,13 +2072,13 @@ fn text_of(view: &gtk::TextView) -> String {
 /// input method is attached to.
 fn find_editor(root: &gtk::Widget) -> Option<gtk::TextView> {
     if let Ok(view) = root.clone().downcast::<gtk::TextView>() {
-        return view
-            .style_context()
-            .has_class("eb-editor")
-            .then_some(view);
+        return view.style_context().has_class("eb-editor").then_some(view);
     }
     let container = root.clone().downcast::<gtk::Container>().ok()?;
-    container.children().into_iter().find_map(|child| find_editor(&child))
+    container
+        .children()
+        .into_iter()
+        .find_map(|child| find_editor(&child))
 }
 
 fn check(ok: bool, message: String, failures: &mut usize) {
@@ -2015,8 +2117,8 @@ fn assert_geometry(
     // window reports a larger screen (macOS menu bar/dock, for example).
     // Accept a smaller allocation as clamped; only an oversize window is a
     // real layout regression.
-    let clamped = allocation.width() < spec::WINDOW_WIDTH
-        || allocation.height() < spec::WINDOW_HEIGHT;
+    let clamped =
+        allocation.width() < spec::WINDOW_WIDTH || allocation.height() < spec::WINDOW_HEIGHT;
     check(
         !small_screen
             || clamped
@@ -2181,7 +2283,10 @@ fn report(window: &gtk::ApplicationWindow, views: &Views, probes: &[(String, gtk
             ("outer", views.outer.clone().upcast::<gtk::Widget>()),
             ("inner", views.inner.clone().upcast::<gtk::Widget>()),
             ("stack", views.stack.clone().upcast::<gtk::Widget>()),
-            ("sidebar", views.sidebar.root.clone().upcast::<gtk::Widget>()),
+            (
+                "sidebar",
+                views.sidebar.root.clone().upcast::<gtk::Widget>(),
+            ),
             (
                 "welcome",
                 views.welcome.root.clone().upcast::<gtk::Widget>(),
@@ -2255,7 +2360,8 @@ pub(crate) fn snapshot(views: &Views, path: &str) {
         return;
     }
 
-    let surface = match gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, width, height) {
+    let surface = match gtk::cairo::ImageSurface::create(gtk::cairo::Format::ARgb32, width, height)
+    {
         Ok(surface) => surface,
         Err(error) => {
             eprintln!("shot: cannot create surface: {error}");
@@ -2337,5 +2443,47 @@ mod assertion_tests {
         assert_click_observation("chip[0]", "composer=\"definitely not the chip text\"");
         assert_eq!(CLICK_FAILURES.load(Ordering::SeqCst), before + 1);
         std::env::remove_var("EB_CLICK_ASSERT");
+    }
+
+    #[test]
+    fn webview_host_observation_keeps_the_panel_needles() {
+        let observed = detail_observation(true, 12, 2, None, None, true);
+        assert!(observed.contains("host=webview"));
+        assert!(!observed.contains("file="));
+        assert!(!native_editor_needle_applies(&observed, "file=\"demo.py\""));
+        assert!(!native_editor_needle_applies(
+            &observed,
+            "code scroll 1 of 2 wide"
+        ));
+        assert!(native_editor_needle_applies(
+            &observed,
+            "detail visible=true"
+        ));
+        assert!(native_editor_needle_applies(&observed, "tabs=2"));
+
+        let native = detail_observation(
+            true,
+            12,
+            2,
+            Some("demo.py"),
+            Some("code scroll 10 of 20 wide"),
+            false,
+        );
+        assert!(native.contains("file=\"demo.py\""));
+        assert!(native.contains("code scroll 10 of 20 wide"));
+        assert!(!native.contains("host=webview"));
+        assert!(native_editor_needle_applies(&native, "file=\"demo.py\""));
+
+        // The host flag does not hide a file label that is still on screen.
+        let still_native = detail_observation(
+            true,
+            0,
+            1,
+            Some("notes.md"),
+            Some("code scroll 1 of 2 wide"),
+            true,
+        );
+        assert!(still_native.contains("file=\"notes.md\""));
+        assert!(!still_native.contains("host=webview"));
     }
 }

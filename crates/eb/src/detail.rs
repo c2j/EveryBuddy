@@ -44,6 +44,10 @@ pub struct Detail {
     pub tabs: gtk::Box,
     /// Repopulated on every refresh.
     pub body: gtk::Box,
+    /// The scroller around `tabs`. Hidden while the page owns the tab strip.
+    tabs_scroll: gtk::ScrolledWindow,
+    /// The header `+`. Hidden with the native tab strip.
+    add: gtk::Button,
     /// The files behind the tab strip and which one is shown. Tab clicks
     /// mutate `selected` and rebuild through the same `rebuild` the refresh
     /// uses, so the panel needs no round-trip through the store.
@@ -72,17 +76,29 @@ fn rebuild(view: &Rc<RefCell<ArtifactView>>) {
     clear(&body);
     let (selected, names) = {
         let view = view.borrow();
-        (view.selected, view.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>())
+        (
+            view.selected,
+            view.files
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>(),
+        )
     };
     let tab_close = view.borrow().tab_close.clone();
     let tab_close = view.borrow().tab_close.clone();
     for (index, name) in names.iter().enumerate() {
-        tabs.pack_start(&tab(name, index == selected, tab_close.clone(), view, index), false, false, 0);
+        tabs.pack_start(
+            &tab(name, index == selected, tab_close.clone(), view, index),
+            false,
+            false,
+            0,
+        );
     }
     {
+        let view_for_copy = Rc::clone(view);
         let view = view.borrow();
         if let Some(file) = view.files.get(selected) {
-            body.pack_start(&toolbar(&file.name, &file.code), false, false, 0);
+            body.pack_start(&toolbar(&file.name, &view_for_copy), false, false, 0);
             body.pack_start(&code(&file.code), true, true, 0);
         }
     }
@@ -172,11 +188,27 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     body.set_vexpand(true);
     root.pack_start(&body, true, true, 0);
 
+    // Windows embeds WebView2 in this area. It is created once, skipped by
+    // `clear`, and hidden rather than destroyed. macOS does not pack a host
+    // widget: the web view is a subview of the window. Linux stays native.
+    #[cfg(windows)]
+    {
+        let anchor = gtk::DrawingArea::new();
+        anchor.set_widget_name("eb-preview-host");
+        anchor.set_hexpand(true);
+        anchor.set_vexpand(true);
+        hide_from_show_all(&anchor);
+        body.pack_start(&anchor, true, true, 0);
+        crate::preview_host::attach(anchor);
+    }
+
     Detail {
         root,
         header,
         tabs: tabs.clone(),
         body: body.clone(),
+        tabs_scroll,
+        add,
         view: Rc::new(RefCell::new(ArtifactView {
             tabs,
             body,
@@ -213,10 +245,7 @@ pub fn fill(detail: &Detail, files: &[Artifact]) {
             .last()
             .map(|file| file.name.as_str())
             .unwrap_or("")
-            != files
-                .last()
-                .map(|file| file.name.as_str())
-                .unwrap_or("");
+            != files.last().map(|file| file.name.as_str()).unwrap_or("");
         view.files = files.to_vec();
         if newest_changed {
             // A fresh file takes the stage; a tab closed away falls back to
@@ -228,6 +257,78 @@ pub fn fill(detail: &Detail, files: &[Artifact]) {
     }
     rebuild(&detail.view);
     detail.view.borrow_mut().built = Some(key);
+}
+
+/// Drop the native editor and show the preview host.
+///
+/// `built` is cleared so the next native `fill` cannot reuse the previous
+/// content key. The host widget, when one is packed into `body`, stays.
+pub fn detach_native_body(detail: &Detail) {
+    detail.view.borrow_mut().built = None;
+    let body = detail.body.clone();
+    for child in body.children() {
+        if child.widget_name().as_str() == "eb-preview-host" {
+            continue;
+        }
+        let context = child.style_context();
+        if context.has_class("eb-detail-toolbar") || context.has_class("eb-code-scroll") {
+            body.remove(&child);
+        }
+    }
+    conceal(&detail.tabs_scroll);
+    conceal(&detail.add);
+    // The page draws the document tabs, so this row is only the four icon
+    // buttons. Drop the 64px tab-strip height or they float in an empty band
+    // above the page's own bar.
+    class(&detail.header, "eb-detail-header-compact");
+    show_host(detail, true);
+}
+
+/// Put the native tab strip and `+` back before `fill`.
+pub fn show_native_chrome(detail: &Detail) {
+    detail
+        .header
+        .style_context()
+        .remove_class("eb-detail-header-compact");
+    reveal(&detail.tabs_scroll);
+    reveal(&detail.add);
+}
+
+/// Show or hide the host.
+///
+/// On macOS the host is a web view aligned to `body`. On Windows it is the
+/// `eb-preview-host` drawing area packed into `body`. Linux has no web host.
+pub fn show_host(detail: &Detail, visible: bool) {
+    for child in detail.body.children() {
+        if child.widget_name().as_str() != "eb-preview-host" {
+            continue;
+        }
+        if visible {
+            child.set_no_show_all(false);
+            child.show_all();
+        } else {
+            conceal(&child);
+        }
+    }
+    if visible {
+        crate::preview_host::present(detail.body.upcast_ref());
+    } else {
+        crate::preview_host::dismiss();
+    }
+}
+
+fn conceal(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.clone().upcast::<gtk::Widget>();
+    if widget.is_no_show_all() && !widget.is_visible() {
+        return;
+    }
+    hide_from_show_all(&widget);
+}
+
+fn reveal(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.clone().upcast::<gtk::Widget>();
+    widget.set_no_show_all(false);
+    widget.show_all();
 }
 
 /// Select one of the panel's tabs — used when a conversation artifact card is
@@ -311,7 +412,7 @@ fn tab(
 /// Measured: 579x72. The real client shows the file name, a copy action and a
 /// small tool cluster; only the name and copy are reproduced, since the rest of
 /// the cluster's meaning was not captured.
-fn toolbar(name: &str, code: &str) -> gtk::Box {
+fn toolbar(name: &str, view: &Rc<RefCell<ArtifactView>>) -> gtk::Box {
     let bar = hbox(8);
     class(&bar, "eb-detail-toolbar");
 
@@ -321,8 +422,17 @@ fn toolbar(name: &str, code: &str) -> gtk::Box {
     bar.pack_start(&label, false, false, 0);
 
     let copy = icon_button("⧉", "eb-icon-mini", "Copy file contents");
-    let code = code.to_string();
+    // Read the file on screen at click time. The WebView removes this bar;
+    // its copy is the editor selection, which came from `/file`.
+    let view = Rc::clone(view);
     copy.connect_clicked(move |button| {
+        let code = {
+            let view = view.borrow();
+            view.files
+                .get(view.selected)
+                .map(|file| file.code.clone())
+                .unwrap_or_default()
+        };
         let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
         clipboard.set_text(&code);
         clipboard.store();
@@ -367,7 +477,9 @@ fn code(source: &str) -> gtk::ScrolledWindow {
     let buffer = crate::widgets::buffer_of(&source_view);
     let gray = gtk::TextTag::new(Some("eb-gutter-fg"));
     gray.set_foreground(Some("rgba(0,0,0,0.3)"));
-    let table = buffer.tag_table().expect("the view's buffer has a tag table");
+    let table = buffer
+        .tag_table()
+        .expect("the view's buffer has a tag table");
     table.add(&gray);
     let tabs_tag = gtk::TextTag::new(Some("eb-gutter-tabs"));
     let mut tabs = gtk::pango::TabArray::new(1, false);

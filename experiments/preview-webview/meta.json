@@ -1,0 +1,716 @@
+{
+  "inputs": {
+    "node_modules/@marijn/find-cluster-break/src/index.js": {
+      "bytes": 4270,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/state/dist/index.js": {
+      "bytes": 147400,
+      "imports": [
+        {
+          "path": "node_modules/@marijn/find-cluster-break/src/index.js",
+          "kind": "import-statement",
+          "original": "@marijn/find-cluster-break"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/style-mod/src/style-mod.js": {
+      "bytes": 7042,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/w3c-keyname/index.js": {
+      "bytes": 2630,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/crelt/index.js": {
+      "bytes": 951,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/view/dist/index.js": {
+      "bytes": 495588,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/style-mod/src/style-mod.js",
+          "kind": "import-statement",
+          "original": "style-mod"
+        },
+        {
+          "path": "node_modules/w3c-keyname/index.js",
+          "kind": "import-statement",
+          "original": "w3c-keyname"
+        },
+        {
+          "path": "node_modules/crelt/index.js",
+          "kind": "import-statement",
+          "original": "crelt"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/common/dist/index.js": {
+      "bytes": 84581,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@lezer/highlight/dist/index.js": {
+      "bytes": 29921,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/streamparser/dist/index.js": {
+      "bytes": 5120,
+      "imports": [],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/language/dist/index.js": {
+      "bytes": 97134,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        },
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        },
+        {
+          "path": "node_modules/style-mod/src/style-mod.js",
+          "kind": "import-statement",
+          "original": "style-mod"
+        },
+        {
+          "path": "node_modules/@codemirror/streamparser/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/streamparser"
+        },
+        {
+          "path": "node_modules/@codemirror/streamparser/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/streamparser"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/commands/dist/index.js": {
+      "bytes": 84624,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/search/dist/index.js": {
+      "bytes": 48927,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/crelt/index.js",
+          "kind": "import-statement",
+          "original": "crelt"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/theme-one-dark/dist/index.js": {
+      "bytes": 4777,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/lr/dist/index.js": {
+      "bytes": 73047,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/javascript/dist/index.js": {
+      "bytes": 80799,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/autocomplete/dist/index.js": {
+      "bytes": 90056,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-javascript/dist/index.js": {
+      "bytes": 20788,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/javascript/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/javascript"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/autocomplete/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/autocomplete"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/json/dist/index.js": {
+      "bytes": 1981,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-json/dist/index.js": {
+      "bytes": 1876,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/json/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/json"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/html/dist/index.js": {
+      "bytes": 20875,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/css/dist/index.js": {
+      "bytes": 19834,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-css/dist/index.js": {
+      "bytes": 15969,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/css/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/css"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-html/dist/index.js": {
+      "bytes": 26142,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/html/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/html"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-css/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-css"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-javascript/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-javascript"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/python/dist/index.js": {
+      "bytes": 43981,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-python/dist/index.js": {
+      "bytes": 13319,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/python/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/python"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        },
+        {
+          "path": "node_modules/@codemirror/autocomplete/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/autocomplete"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/markdown/dist/index.js": {
+      "bytes": 88679,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-markdown/dist/index.js": {
+      "bytes": 21741,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@codemirror/autocomplete/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/autocomplete"
+        },
+        {
+          "path": "node_modules/@lezer/markdown/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/markdown"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-html/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-html"
+        },
+        {
+          "path": "node_modules/@lezer/common/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/common"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@lezer/rust/dist/index.js": {
+      "bytes": 85361,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/lr/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/lr"
+        },
+        {
+          "path": "node_modules/@lezer/highlight/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/highlight"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/lang-rust/dist/index.js": {
+      "bytes": 1459,
+      "imports": [
+        {
+          "path": "node_modules/@lezer/rust/dist/index.js",
+          "kind": "import-statement",
+          "original": "@lezer/rust"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@codemirror/legacy-modes/mode/toml.js": {
+      "bytes": 2256,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/main.js": {
+      "bytes": 7241,
+      "imports": [
+        {
+          "path": "node_modules/@codemirror/state/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/state"
+        },
+        {
+          "path": "node_modules/@codemirror/view/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/view"
+        },
+        {
+          "path": "node_modules/@codemirror/commands/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/commands"
+        },
+        {
+          "path": "node_modules/@codemirror/search/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/search"
+        },
+        {
+          "path": "node_modules/@codemirror/language/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/language"
+        },
+        {
+          "path": "node_modules/@codemirror/theme-one-dark/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/theme-one-dark"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-javascript/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-javascript"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-json/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-json"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-html/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-html"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-css/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-css"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-python/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-python"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-markdown/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-markdown"
+        },
+        {
+          "path": "node_modules/@codemirror/lang-rust/dist/index.js",
+          "kind": "import-statement",
+          "original": "@codemirror/lang-rust"
+        },
+        {
+          "path": "node_modules/@codemirror/legacy-modes/mode/toml.js",
+          "kind": "import-statement",
+          "original": "@codemirror/legacy-modes/mode/toml"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "bundle.js": {
+      "imports": [],
+      "exports": [],
+      "entryPoint": "src/main.js",
+      "inputs": {
+        "node_modules/@marijn/find-cluster-break/src/index.js": {
+          "bytesInOutput": 3714
+        },
+        "node_modules/@codemirror/state/dist/index.js": {
+          "bytesInOutput": 120533
+        },
+        "node_modules/style-mod/src/style-mod.js": {
+          "bytesInOutput": 5519
+        },
+        "node_modules/w3c-keyname/index.js": {
+          "bytesInOutput": 2408
+        },
+        "node_modules/crelt/index.js": {
+          "bytesInOutput": 1019
+        },
+        "node_modules/@codemirror/view/dist/index.js": {
+          "bytesInOutput": 363696
+        },
+        "node_modules/@lezer/common/dist/index.js": {
+          "bytesInOutput": 69663
+        },
+        "node_modules/@lezer/highlight/dist/index.js": {
+          "bytesInOutput": 21287
+        },
+        "node_modules/@codemirror/streamparser/dist/index.js": {
+          "bytesInOutput": 4528
+        },
+        "node_modules/@codemirror/language/dist/index.js": {
+          "bytesInOutput": 54838
+        },
+        "node_modules/@codemirror/commands/dist/index.js": {
+          "bytesInOutput": 50320
+        },
+        "node_modules/@codemirror/search/dist/index.js": {
+          "bytesInOutput": 37871
+        },
+        "node_modules/@codemirror/theme-one-dark/dist/index.js": {
+          "bytesInOutput": 4091
+        },
+        "node_modules/@lezer/lr/dist/index.js": {
+          "bytesInOutput": 59441
+        },
+        "node_modules/@lezer/javascript/dist/index.js": {
+          "bytesInOutput": 81030
+        },
+        "node_modules/@codemirror/autocomplete/dist/index.js": {
+          "bytesInOutput": 16828
+        },
+        "node_modules/@codemirror/lang-javascript/dist/index.js": {
+          "bytesInOutput": 12311
+        },
+        "node_modules/@lezer/json/dist/index.js": {
+          "bytesInOutput": 1863
+        },
+        "node_modules/@codemirror/lang-json/dist/index.js": {
+          "bytesInOutput": 635
+        },
+        "node_modules/@lezer/html/dist/index.js": {
+          "bytesInOutput": 21001
+        },
+        "node_modules/@lezer/css/dist/index.js": {
+          "bytesInOutput": 20003
+        },
+        "node_modules/@codemirror/lang-css/dist/index.js": {
+          "bytesInOutput": 17550
+        },
+        "node_modules/@codemirror/lang-html/dist/index.js": {
+          "bytesInOutput": 24841
+        },
+        "node_modules/@lezer/python/dist/index.js": {
+          "bytesInOutput": 44597
+        },
+        "node_modules/@codemirror/lang-python/dist/index.js": {
+          "bytesInOutput": 12565
+        },
+        "node_modules/@lezer/markdown/dist/index.js": {
+          "bytesInOutput": 74854
+        },
+        "node_modules/@codemirror/lang-markdown/dist/index.js": {
+          "bytesInOutput": 17645
+        },
+        "node_modules/@lezer/rust/dist/index.js": {
+          "bytesInOutput": 85705
+        },
+        "node_modules/@codemirror/lang-rust/dist/index.js": {
+          "bytesInOutput": 1023
+        },
+        "node_modules/@codemirror/legacy-modes/mode/toml.js": {
+          "bytesInOutput": 2229
+        },
+        "src/main.js": {
+          "bytesInOutput": 6666
+        }
+      },
+      "bytes": 1241841
+    }
+  }
+}

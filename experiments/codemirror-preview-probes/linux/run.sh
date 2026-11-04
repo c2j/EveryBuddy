@@ -38,6 +38,7 @@ log "--- apt-cache webkit ---"
 apt-cache policy libwebkit2gtk-4.0-dev | tee -a "$out" || log "apt-cache webkit failed"
 candidate=$(apt-cache policy libwebkit2gtk-4.0-dev | awk '/Candidate:/ {print $2}')
 log "HAZARD webkit-version CONFIRMED build image has no WebKitGTK installed; Debian 10 archive candidate is ${candidate:-unknown}"
+log "NOTE target desktop WebKitGTK is 2.28 (webkit2gtk-4.0 / libsoup2). The archive candidate is not the acceptance version."
 log "socket_header=$(grep -n GDK_WINDOWING_X11 /usr/include/gtk-3.0/gtk/gtksocket.h | head -n 1)"
 log "gdkconfig=$(grep GDK_WINDOWING /usr/include/gtk-3.0/gdk/gdkconfig.h | tr '\n' ' ')"
 

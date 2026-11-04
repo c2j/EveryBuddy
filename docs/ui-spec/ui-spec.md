@@ -1,6 +1,6 @@
 # EvoBuddy UI 规格 v0.4
 
-本文件是 WorkBuddy 桌面端主工作区的**复刻规格**：把观察到的设计系统、布局、组件与动效固化成可实现的契约。技术路线已定为 **GTK 3 原生（gtk-rs）**，本文件以该路线为准。
+本文件是 WorkBuddy 桌面端主工作区的**复刻规格**：把观察到的设计系统、布局、组件与动效固化成可实现的契约。外壳技术路线已定为 **GTK 3 原生（gtk-rs）**，本文件以该路线为准。Artifact 预览在 macOS 与 Windows 上使用系统 WebView，不把引擎打进发行包。
 
 - 状态：**v0.4，已覆盖"主工作区"的欢迎态与会话态（任务/对话/结果面板三栏）**。§4.3、§4.4 的几何均为 **CDP 实测**，两个状态都已按实测重建并逐项校验
 - 命名：包名 `evobuddy`、可执行文件名 `evobuddy`、界面显示名 **EvoBuddy**（工作目录名 `EveryBuddy` 是历史遗留，不代表产品名）
@@ -43,13 +43,25 @@
 > 采集方式：只读解包到临时目录 + 只读 CDP（`DOMSnapshot` / `CSS.getComputedStyleForNode`）。原始 App 未做任何修改；抓取含个人工作区内容的产物只写入临时目录，不入仓库。
 
 
-## 2. 技术路线（已定）：GTK 3 原生（gtk-rs）
+## 2. 技术路线（已定）：GTK 3 外壳（gtk-rs）
 
-**决定**：用 **GTK 3 + gtk-rs** 实现，不引入任何自带 Web 引擎。
+**决定**：外壳用 **GTK 3 + gtk-rs** 实现。不打包 Chromium，也不把 WebKit 或 WebView2 打进发行包。
 
-理由：三条硬约束（macOS / Windows 7-8.1 / Linux glibc ≥ 2.28 且必须完全自包含）把 Web 引擎路线基本排除——WebView2 在 Win7 止步于 runtime 109，系统 WebKitGTK 在目标 Linux 上过旧，自带 Chromium 又受 Win7 的 109 天花板限制。
+Artifact 预览是结果面板正文里的一块区域，按平台使用系统组件：
 
-| 平台 | 引擎 | 说明 |
+| 平台 | 预览 | 说明 |
+|---|---|---|
+| macOS | 嵌在 GTK 窗口内容视图里的 WKWebView | 对齐结果面板正文，随窗口移动，不另开窗口。`EB_PREVIEW=native` 强制回到 `GtkTextView` |
+| Windows | WebView2，父窗口是结果面板里的 `GtkDrawingArea` | 运行时缺失时回到 `GtkTextView`，并在 stderr 提示安装 Evergreen Bootstrapper。同样接受 `EB_PREVIEW=native`。真机 HWND 嵌套与 gnu 链接尚未在本仓库核对 |
+| Linux | `GtkTextView` | 目标桌面的 WebKitGTK 2.28 上，XEmbed 验收没有通过，不交付 helper。预览保持原生文本视图 |
+
+未设置 `EB_PREVIEW` 时，macOS 与 Windows 默认走 WebView，Linux 默认走原生文本视图。其它取值跟随该平台默认；只有 `native` 在所有平台上强制文本视图。
+
+`EB_SELFTEST` 在 WebView 模式、且代码区和文件名标签都不在控件树上时，观察行写 `host=webview`，不再要求 `file=` 与 `code scroll`。原生模式和粘性回退仍断言这两项。
+
+理由（外壳）：三条硬约束（macOS / Windows 7-8.1 / Linux glibc ≥ 2.28 且必须完全自包含）排除自带 Web 引擎——WebView2 在 Win7 止步于 runtime 109，系统 WebKitGTK 在目标 Linux 上锁在 2.28，自带 Chromium 又受 Win7 的 109 天花板限制。Linux 发行包不带 `libwebkit2gtk`。glibc 2.28 是打包下限，与 WebKitGTK 2.28 是两件分开的约束。
+
+| 平台 | 外壳 | 说明 |
 |---|---|---|
 | macOS | GTK 3（Homebrew `gtk+3` 3.24.x） | **已实测**：CJK 输入、字体、渲染、CSS 加载均正常 |
 | Windows | GTK 3（MSYS2 构建） | **未实测且存疑**：README「Prebuilt binaries」记着 MSYS2 自 2024-05 起不再支持 Win7/8.0，因此"没有可维护的 GTK 3 运行时"；这与本表原先"无 Win7 门槛"的说法直接冲突。二者必有一错，只有真机实测能定（缺口 23）。注意构建环境与目标机是两件事：MinGW-w64 产物未必受 MSYS2 运行时约束，但 GLib 新版可能已调用 Win8+ API。 |
@@ -643,7 +655,7 @@ diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组�
 
 **已完成（本轮）**
 
-- 技术路线定为 **GTK 3 原生**（§2）；包名 `evobuddy`、显示名 **EvoBuddy**。
+- 技术路线定为 **GTK 3 原生外壳**（§2）；包名 `evobuddy`、显示名 **EvoBuddy**。Artifact 预览在 macOS / Windows 使用系统 WebView，Linux 保持 `GtkTextView`。
 - token 全量预计算：85 处 `color-mix()`、全部 `var()` 链展开（§3.3）；GTK 产物 `tokens-light.css`（1043 条 `@define-color`）、`tokens-dark.css`、`tokens.resolved.json`（§3.4）。
 - **欢迎态真实 DOM + 计算样式已采集**（CDP，端口 9333，只读；`capture_dom.js` / `query_layout.js`）。§4.3 几何全部实测，§5.1 是可定位的类名清单。
 - **会话态连续录制已采集**（`watch_dom.js`，21 帧，含两个 popover 帧）。§4.4 的三栏几何全部实测；§5.2 的类名清单直接由 `dom-snapshot.json` 汇总，不再靠 CSS 名推断；早期基于 `main-content-core.css` 的 `message-*` / `assistant-message-*` 命名已判定为旧版命名（§5.2）。
@@ -668,7 +680,7 @@ diff / exec / table 渲染器、752/500 宽度切换、`cr-collapse` 工具组�
 8. **i18n 文案清单**未提取（`zh-cn-*.js` / `zh-tw-*.js` 分片，可作为屏幕/状态枚举的权威来源）。
 9. **z-index 层级表**未提取。
 10. **工具调用只做了折叠态** —— 5.8.4 已补采 `cr-collapse` 展开/完成/折叠、`cr-tool-diff`（all-add 与 mixed）、`cr-tool-exec` 长输出、`cr-table-block`、`cr-context-usage` popover、`cr-agent__processing-status`；数值与类名见 §5.3，fixture 见 `docs/ui-spec/fixtures/blocks/captured-5.8.4.json`。**M2.2 已实现** diff / exec / table 三种块、752/500 宽度切换、`cr-collapse` 工具组与 usage 环；usage popover 的五类分解仍待事件流补充，结果面板正文仍是近似重建。`cr-status-chips` 在 5.8.4 本次采集中未出现，标为未采集。
-11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。
+11. **Linux 完全自包含：已验证；macOS 同（v0.3.0 起，双架构 .app）** —— 见 §2.1：C 探针与本程序都在裸 glibc 2.28 上跑通，自带 GTK 3.24.5 + schema + 图标 + 字体，几何与 macOS 一致（唯一差异是文本宽度）。产物已成形：`dist/evobuddy-<版本>-linux-<arch>.tar.gz`（内含 `run`、`install.sh`、desktop entry、图标、SHA-256）与单文件 `dist/evobuddy-<版本>-linux-<arch>.AppImage`（同样带 SHA-256），脚本在 `packaging/linux/`。macOS 侧 `packaging/macos/` 产出 `evobuddy-<版本>-macos-<arch>.tar.gz`（内含自包含 `EvoBuddy.app`，arm64/x86_64，验证方式是藏起 Homebrew 真跑，见 §2.1 与 packaging/macos/README.md）。剩余：ibus 输入法（缺口 22）。发行包仍然不带 Web 引擎，也不带 `libwebkit2gtk`；Linux 预览保持 `GtkTextView`。
 12. **CI 已切到 `evobuddy`，并强制验证自包含（已完成）** —— `.github/scripts/build-linux.sh` 已删除：Linux 任务改为直接调用 `packaging/linux/package.sh` + `verify.sh`，开发者与 CI 走同一条路径；且在**裸 Debian 10 容器里真跑一次**（含 `EB_SELFTEST=1` 几何自检与 `install.sh`），所以"自包含"是每次打 tag 都被强制，而不是靠记性。CI 还会先用 `bash -n` / `dash -n` 检查脚本语法——`install.sh` 上一次语法错误正是直到裸机测试才暴露。Windows 任务只做了二元切换，原因见缺口 24。`notebook` demo bin 仍留在 `Cargo.toml` 里，但已不作为产物发布。
 
 **已在 GitHub 上跑通（v0.2.0，run 39022034107）**：四个任务全绿，两台 runner（ubuntu-24.04 x86_64 / ubuntu-24.04-arm aarch64）都在**裸 Debian 10.13**（无 gtk/pango/cairo/fontconfig 包、**0 个字体文件**）里跑通了各自的产物：`css: parsed 72598 bytes`、`window 1440x868 (want 1440x868)`、`sash sidebar x=280`、66 个已解析库中 6 个来自宿主（全是 glibc 家族）、最大符号 `GLIBC_2.28`，且 `install.sh` 实跑通过。产物 30M / 29M，已连同 SHA-256 与 Windows zip 发布在 release 里。

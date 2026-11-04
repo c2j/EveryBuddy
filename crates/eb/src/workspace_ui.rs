@@ -3,9 +3,9 @@
 use gtk::prelude::*;
 
 use crate::model::{Store, WorkspaceState};
-use crate::widgets::{class, text};
-use crate::sidebar::WorkspaceAction;
 use crate::shell::Refresher;
+use crate::sidebar::WorkspaceAction;
+use crate::widgets::{class, text};
 
 /// WorkBuddy-style "+ New Workspace": ask for a name, create
 /// `<default storage path>/<name>`, and select it.
@@ -429,9 +429,11 @@ fn delete_task(
         gtk::DialogFlags::MODAL | gtk::DialogFlags::DESTROY_WITH_PARENT,
         gtk::MessageType::Warning,
         gtk::ButtonsType::None,
-        &format!("Delete task “{title}”?
+        &format!(
+            "Delete task “{title}”?
 
-Its conversation turns are removed. A workspace left without tasks is cleaned up."),
+Its conversation turns are removed. A workspace left without tasks is cleaned up."
+        ),
     );
     dialog.add_button("Cancel", gtk::ResponseType::Cancel);
     dialog.add_button("Delete", gtk::ResponseType::Accept);
@@ -458,7 +460,9 @@ Its conversation turns are removed. A workspace left without tasks is cleaned up
             }
             _ => {}
         }
-        let crate::model::App { workspaces, tasks, .. } = &mut *app;
+        let crate::model::App {
+            workspaces, tasks, ..
+        } = &mut *app;
         crate::workspace::cleanup_temporary(workspaces, tasks);
     }
     crate::state::save(store);
@@ -475,9 +479,14 @@ pub fn run(
     match action {
         WorkspaceAction::NewTask => {
             let mut app = store.borrow_mut();
-            if let Some(position) = app.workspaces.iter().position(|workspace| workspace.id == id) {
+            if let Some(position) = app
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.id == id)
+            {
                 app.workspace = position + 2;
                 app.new_task();
+                crate::preview_web_server::clear_stack();
             }
             drop(app);
             refresher.request();
@@ -504,18 +513,18 @@ pub fn run(
     }
 }
 
-fn rename(
-    window: &gtk::ApplicationWindow,
-    store: &Store,
-    refresher: &Refresher,
-    id: &str,
-) {
+fn rename(window: &gtk::ApplicationWindow, store: &Store, refresher: &Refresher, id: &str) {
     let Some((current, temporary)) = ({
         let app = store.borrow();
         app.workspaces
             .iter()
             .find(|workspace| workspace.id == id)
-            .map(|workspace| (workspace.name.clone(), workspace.state == WorkspaceState::Temporary))
+            .map(|workspace| {
+                (
+                    workspace.name.clone(),
+                    workspace.state == WorkspaceState::Temporary,
+                )
+            })
     }) else {
         return;
     };
@@ -568,12 +577,7 @@ fn rename(
     refresher.request();
 }
 
-fn delete(
-    window: &gtk::ApplicationWindow,
-    store: &Store,
-    refresher: &Refresher,
-    id: &str,
-) {
+fn delete(window: &gtk::ApplicationWindow, store: &Store, refresher: &Refresher, id: &str) {
     let Some(name) = ({
         let app = store.borrow();
         app.workspaces
@@ -604,7 +608,11 @@ fn delete(
 
     let root = {
         let mut app = store.borrow_mut();
-        let Some(position) = app.workspaces.iter().position(|workspace| workspace.id == id) else {
+        let Some(position) = app
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == id)
+        else {
             return;
         };
         let workspace = app.workspaces.remove(position);

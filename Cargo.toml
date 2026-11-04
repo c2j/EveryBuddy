@@ -28,6 +28,9 @@ exclude = ["vendor", "prototype"]
 version = "0.7.37"
 edition = "2021"
 license = "MIT"
+# Floor for wry 0.57 (edition 2024). Not a pin: there is no root
+# rust-toolchain.toml, so each platform may use a newer compiler.
+rust-version = "1.85"
 
 # Shared tool-library versions. The Custom Model agent's search tools are
 # built on the ripgrep library family (crates/eb/src/tools/search.rs); pinning
