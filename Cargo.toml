@@ -25,7 +25,7 @@ members = [
 exclude = ["vendor", "prototype"]
 
 [workspace.package]
-version = "0.7.37"
+version = "0.7.38"
 edition = "2021"
 license = "MIT"
 # Floor for wry 0.57 (edition 2024). Not a pin: there is no root
