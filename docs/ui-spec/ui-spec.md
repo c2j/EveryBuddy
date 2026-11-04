@@ -53,9 +53,9 @@ Artifact 预览是结果面板正文里的一块区域，按平台使用系统�
 |---|---|---|
 | macOS | 嵌在 GTK 窗口内容视图里的 WKWebView | 对齐结果面板正文，随窗口移动，不另开窗口。`EB_PREVIEW=native` 强制回到 `GtkTextView` |
 | Windows | WebView2，父窗口是结果面板里的 `GtkDrawingArea` | 运行时缺失时回到 `GtkTextView`，并在 stderr 提示安装 Evergreen Bootstrapper。同样接受 `EB_PREVIEW=native`。真机 HWND 嵌套与 gnu 链接尚未在本仓库核对 |
-| Linux | `GtkTextView` | 目标桌面的 WebKitGTK 2.28 上，XEmbed 未能在目标环境验收，不交付 helper。预览保持原生文本视图 |
+| Linux | `GtkTextView` | 未设置 `EB_PREVIEW` 时保持原生文本视图。`EB_PREVIEW=webview` 在 X11 上抽出 helper，dlopen 系统 WebKitGTK 2.28 嵌进正文。版本不是 2.28、显示不是 X11、收养失败、Web 进程崩溃，或 15 秒没有 `ready`，这次进程回到文本视图。发行包不带 `libwebkit2gtk`，`main` 不设置 `GDK_BACKEND` |
 
-未设置 `EB_PREVIEW` 时，macOS 与 Windows 默认走 WebView，Linux 默认走原生文本视图。其它取值跟随该平台默认；只有 `native` 在所有平台上强制文本视图。
+未设置 `EB_PREVIEW` 时，macOS 与 Windows 默认走 WebView，Linux 默认走原生文本视图。`webview` 在 Linux 上打开上面的验证开关，在 macOS 与 Windows 上等于默认。只有 `native` 在所有平台上强制文本视图。
 
 `EB_SELFTEST` 在 WebView 模式、且代码区和文件名标签都不在控件树上时，观察行写 `host=webview`，不再要求 `file=` 与 `code scroll`。原生模式和粘性回退仍断言这两项。
 

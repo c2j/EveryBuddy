@@ -1,8 +1,9 @@
 //! The one preview host the shell talks to.
 //!
 //! macOS embeds a `WKWebView` (`preview_panel`). Windows embeds WebView2
-//! (`preview_web`). Linux has neither. Callers present, move, and wake one
-//! host; they do not name the platform modules.
+//! (`preview_web`). Linux embeds nothing unless `EB_PREVIEW=webview`, in
+//! which case `preview_linux` adopts a helper plug. Callers present, move,
+//! and wake one host; they do not name the platform modules.
 
 use crate::model::{App, PreviewMode, Route};
 use crate::preview_web_server::{FileId, PreviewText, ReadPreviewError};
@@ -11,11 +12,15 @@ use crate::preview_web_server::{FileId, PreviewText, ReadPreviewError};
 pub fn present(anchor: &gtk::Widget) {
     crate::preview_panel::present(anchor);
     crate::preview_web::present();
+    #[cfg(target_os = "linux")]
+    crate::preview_linux::present();
 }
 
 pub fn dismiss() {
     crate::preview_panel::dismiss();
     crate::preview_web::dismiss();
+    #[cfg(target_os = "linux")]
+    crate::preview_linux::dismiss();
 }
 
 pub fn reposition() {
@@ -26,11 +31,15 @@ pub fn reposition() {
 /// Finish a present that returned before the anchor had a size.
 pub fn retry_present(anchor: &gtk::Widget) {
     crate::preview_panel::retry_present(anchor);
+    #[cfg(target_os = "linux")]
+    crate::preview_linux::retry_present();
 }
 
 pub fn wake() {
     crate::preview_panel::wake();
     crate::preview_web::wake();
+    #[cfg(target_os = "linux")]
+    crate::preview_linux::wake();
 }
 
 /// Install the macOS click filter on the main window. A no-op elsewhere.
@@ -49,14 +58,30 @@ pub fn attach(anchor: gtk::DrawingArea) {
     crate::preview_web::attach(anchor);
 }
 
+/// Keep the Linux socket. It exists only when `EB_PREVIEW=webview`.
+#[cfg(target_os = "linux")]
+pub fn attach_socket(socket: gtk::Socket) {
+    crate::preview_linux::attach(socket);
+}
+
 /// Runs when an embed failure is noticed after `refresh` has returned.
 pub fn set_late_fallback(handler: std::rc::Rc<dyn Fn()>) {
+    #[cfg(target_os = "linux")]
+    crate::preview_linux::set_late_fallback(std::rc::Rc::clone(&handler));
     crate::preview_web::set_late_fallback(handler);
 }
 
 /// The reason from the latest embed failure, if `refresh` has not taken it yet.
 pub fn take_fallback() -> Option<String> {
-    crate::preview_web::take_fallback()
+    if let Some(reason) = crate::preview_web::take_fallback() {
+        return Some(reason);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return crate::preview_linux::take_fallback();
+    }
+    #[cfg(not(target_os = "linux"))]
+    None
 }
 
 /// Leave `WebView` for the rest of the process and show the text view.
