@@ -13,7 +13,7 @@ v3 收 11 项、v4 收 9 项、v5 收 5 项（[codemirror-preview-design-review.
 下文保留 v9 评审时的方案，供对照。已经落地的代码以本节为准，覆盖 ④b、NSPanel、栈上限 12、以及 `App.preview_docs`。
 
 - **macOS 不是 NSPanel。** `preview_panel.rs` 把一个 WKWebView 作为 GTK 窗口 content view 的子视图，用 `view_frame` 对齐 `detail.body`（content view 坐标，原点在左下，`isFlipped` 为 NO）。不使用屏幕坐标、`NSScreen.mainScreen()`、`max(420)`、HiDPI 乘法或 `addChildWindow`。窗口拖动时子视图跟着走。
-- **Linux ④b 没有做。** ④a 的键盘、输入法、HiDPI 未能在目标环境验收。不交付 `preview-helper`，不在 `main` 里设置 `GDK_BACKEND`。Linux 预览保持 `GtkTextView`。
+- **Linux 默认仍是 `GtkTextView`。** ④a 在 Kylin 归档包 WebKitGTK 2.28.1-1kylin1k7 上清单失败：fcitx(XIM) 中文没有进入 plug。`EB_PREVIEW=webview` 是验证开关，只在这次进程里抽出 helper，在 X11 上 dlopen 系统 WebKitGTK 2.28。失败（版本不对、不是 X11、收养失败、崩溃、15 秒没有 ready）就粘住文本视图，直到进程退出。未设置变量时不启用。`main` 不设置 `GDK_BACKEND`。记录在 `experiments/codemirror-preview-probes/README.md` 的「步骤 ④a 结论」。
 - **预览栈不在 `App` 上。** 没有 `preview_docs`。Read 预览栈是 `PreviewSession`（`preview_session.rs`），上限 `MAX_DOCS = 4`。任务已写文件的标签仍是 `MAX_TABS = 12`。
 - **同一文件再次 Read** 复用 id，`generation` 加一。`/session` 的 `open-docs` 带 `rev`。页面按 `(id, rev)` 重新拉正文；切标签时按 id 恢复 `EditorState`，`rev` 变了不用旧状态。
 - **Windows 加载器。** gnu 目标动态链接的 `WebView2Loader.dll` 来自 `webview2-com-sys` 0.39.1 自带的 `x64/WebView2Loader.dll`。该 crate 的 `build.rs` 把它拷到 `OUT_DIR/x64/`。`.github/scripts/build-windows.sh` 再把这份文件放进发行目录。这是加载器，不是 Evergreen Runtime。本仓库没有在 gnu 目标上完成链接，也没有跑过该脚本。

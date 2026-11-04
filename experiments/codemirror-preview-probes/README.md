@@ -21,12 +21,22 @@ Linux 部分使用本机已有的 `evobuddy-build-aarch64`（Debian 10 / arm64�
 - wry 0.57.1 的创建入口是 `WebViewBuilder::build_as_child<W: HasWindowHandle>`。`SetParent` 出现在 `WebViewExtWindows::reparent` 内部，不是给应用自己拿 HWND 去挂的公开步骤。`set_bounds` 只对 child webview 有效。默认 features 是 `os-webview` 和 `x11`，会在 Linux target 上打开可选的 `gtk` 0.18 和 `webkit2gtk` 2.0.2。设计把 `wry` 放在 Windows-only 依赖里时，不会把这套 gtk 编进 macOS/Linux 构建。`linux-body` 要求 `webkit2gtk/v2_40`，不能当作 WebKitGTK 2.28 的后端。
 - 当前 `objc2-web-kit` 依赖没有关 default features，解析结果里已经包含 `WKUserContentController`。关掉 default features、只留 `WKSnapshotConfiguration` 和 `block2` 时，这个类型才消失。设计把 Rust→JS 写成 `WKUserContentController` 仍然不对：绑定自己的说明是 JavaScript 向原生发消息，而 `theme_view.rs` 没有调用 `evaluateJavaScript`。
 
-没有跑到的部分：在目标桌面的 WebKitGTK 2.28 上做 XEmbed（键盘、中文输入、HiDPI），WebProcess 崩溃时 helper 仍活着，以及一台 Windows 上的真实 HWND 嵌套。2.28 本身不是待确认项。
+没有跑到的部分：一台 Windows 上的真实 HWND 嵌套。WebKitGTK 2.28.1 上的 XEmbed 清单见下面的「步骤 ④a 结论」。2.28 本身不是待确认项。
 
 ## 步骤 ④a 结论
 
 设计的验收是整张清单：socket/plug 收养、鼠标、键盘、fcitx(XIM) 中文、HiDPI、`ResizeObserver`、`web-process-crashed`。任一失败就放弃 XEmbed，Linux 保持原生，Linux 部分终止。
 
-这次只看到最小收养（plug id 与顶层 XID 不同，`add_id` 能嵌，xid 0 不能嵌，普通顶层 XID 会在 X 错误陷阱里 abort）。键盘、fcitx 中文、HiDPI、`ResizeObserver`、WebKitGTK 2.28 上的 `web-process-crashed` 都没有跑。`results/host.txt` 与 `results/linux.txt` 里还有 `gtk_init_check` 失败，以及子进程继承包内 `LD_LIBRARY_PATH` 后加载假 `libgtk`、`undefined symbol: gtk_init_check`（退出 127）。Debian 10 归档里的 2.38.6 不能拿来补上 2.28 的验收。
+2026-11-04 在本机 Docker 镜像 `kylin-arm64:v10sp1`（Kylin V10 SP1，KYLIN_RELEASE_ID=2403，aarch64，glibc 2.31，GTK 3.24.23）里跑了 `linux-webkit228/`。镜像里已经装着 WebKit 2.38.6。探针只在这个临时容器里把库降到归档包 `libwebkit2gtk-4.0-37=2.28.1-1kylin1k7`（JSC 同版本）。运行时 `webkit_get_*_version` 打印 `2.28.1`，映射文件是 `libwebkit2gtk-4.0.so.37.44.3`，链接的是 `libsoup-2.4`。这是 2403 用户空间加上归档库。容器加了 `seccomp=unconfined` 和 `apparmor=unconfined`，WebKit 的 bubblewrap 才能启动。没有设置 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS`。Web 进程命令行是 `WebKitWebProcess`。显示是 Xvfb `:98`，`GDK_BACKEND=x11` 在 `gtk_init` 之前，`GDK_SCALE=2`，`GTK_IM_MODULE=xim`，`XMODIFIERS=@im=fcitx`。fcitx 4.2.9.8 的拼音数据在。`fcitx-vk.so` 和三个 sogou 模块被移开，否则这个无头 Xvfb 上 fcitx 会在 `fcitx-vk.so` 里收到信号 11。
 
-因此不实现 ④b：没有 preview-helper 产品代码，不改 `packaging/linux/run.sh`、`Dockerfile.build`、`bundle.sh`。Linux 预览保持 `GtkTextView`。
+`results/linux-webkit228.txt` 里这一轮的结果：
+
+- 收养：通过。plug id `8388611`，`plug-added` 时 plug window 非空，X 错误陷阱为 0，页面 `LOADED`。
+- 鼠标：通过。页面收到 `360,386`。
+- 键盘：通过。页面收到 `a`。
+- fcitx(XIM) 中文：失败。fcitx 状态是 2。输入 `zhong` 时候选窗宽度从 80 增到 240，再增到 400。随后的空格和回车没有把它关掉，宽度回到 240，高度仍是 54。同一个 plug 里的 `GtkEntry` 没有 `insert-text`，文本为空。页面文本停在键盘测试留下的 `a`，`composition` 为空，按键记录是 `aUnidentifiedEnter`。
+- HiDPI：通过。socket 的 scale 是 2，页面 `devicePixelRatio` 是 2，socket 和 plug 都是 1440×1120。
+- `ResizeObserver`：通过。构造函数存在。窗口缩到 480×360 之后，记录从 `720x526` 变成 `480x326`。
+- `web-process-crashed`：通过。对 `WebKitWebProcess` 发送 `SIGKILL` 后，helper 先打印 `web-process-crashed` 和 `web-process-terminated reason=0`，当时进程还在，然后以状态 3 退出（`wait` 状态 768）。更早一轮里对同一进程发 `SIGSEGV`，8 秒内没有这组信号。
+
+清单失败，所以上面通过的单项不把 Linux 默认改成 WebView。未设置 `EB_PREVIEW` 时预览保持 `GtkTextView`。`EB_PREVIEW=webview` 是之后加的验证开关：这次进程抽出 helper，在 X11 上 dlopen 系统 WebKitGTK 2.28；失败则这次进程回到文本视图。`main.rs` 仍不设置 `GDK_BACKEND`，`packaging/linux/run.sh`、`Dockerfile.build`、`bundle.sh` 没有为 helper 改环境。Debian 10 上更早的最小收养、`gtk_init_check` 失败，以及子进程继承包内 `LD_LIBRARY_PATH` 后加载假 `libgtk`（退出 127），仍记在 `results/linux.txt`。

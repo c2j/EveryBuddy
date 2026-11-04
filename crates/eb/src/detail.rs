@@ -123,7 +123,10 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
     // X-level backstop for the whole panel: exposed strips of the panel's
     // own window clear to white instead of keeping the conversation pixels
     // that sat underneath before the panel opened (UOS/Kylin).
-    crate::widgets::pin_opaque_window_background(&root.clone().upcast::<gtk::Widget>(), gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0));
+    crate::widgets::pin_opaque_window_background(
+        &root.clone().upcast::<gtk::Widget>(),
+        gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
+    );
 
     // ---- tab strip ------------------------------------------------------
     let header = hbox(4);
@@ -189,7 +192,8 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
 
     // Windows embeds WebView2 in this area. It is created once, skipped by
     // `clear`, and hidden rather than destroyed. macOS does not pack a host
-    // widget: the web view is a subview of the window. Linux stays native.
+    // widget: the web view is a subview of the window. Linux packs a socket
+    // only when `EB_PREVIEW=webview` opts into the helper.
     #[cfg(windows)]
     {
         let anchor = gtk::DrawingArea::new();
@@ -199,6 +203,17 @@ pub fn build(wiring: &Wiring, contribs: &Contribs) -> Detail {
         hide_from_show_all(&anchor);
         body.pack_start(&anchor, true, true, 0);
         crate::preview_host::attach(anchor);
+    }
+    #[cfg(target_os = "linux")]
+    if crate::shell::preview_defaults_to_webview() {
+        let anchor = gtk::Socket::new();
+        anchor.set_widget_name("eb-preview-host");
+        anchor.set_hexpand(true);
+        anchor.set_vexpand(true);
+        anchor.set_can_focus(true);
+        hide_from_show_all(&anchor);
+        body.pack_start(&anchor, true, true, 0);
+        crate::preview_host::attach_socket(anchor);
     }
 
     Detail {
@@ -296,7 +311,8 @@ pub fn show_native_chrome(detail: &Detail) {
 /// Show or hide the host.
 ///
 /// On macOS the host is a web view aligned to `body`. On Windows it is the
-/// `eb-preview-host` drawing area packed into `body`. Linux has no web host.
+/// `eb-preview-host` drawing area packed into `body`. On Linux the same name
+/// is a socket, and only when `EB_PREVIEW=webview`.
 pub fn show_host(detail: &Detail, visible: bool) {
     for child in detail.body.children() {
         if child.widget_name().as_str() != "eb-preview-host" {

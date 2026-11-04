@@ -49,6 +49,9 @@ mod model;
 mod models;
 mod plugin_panel;
 mod preview_host;
+#[cfg(target_os = "linux")]
+mod preview_linux;
+mod preview_optin;
 mod preview_panel;
 mod preview_server;
 mod preview_session;

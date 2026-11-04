@@ -254,8 +254,9 @@ pub(crate) fn detail_should_open(
 /// `EB_PREVIEW=native` forces the text view on every platform.
 ///
 /// Unset, macOS uses the embedded WKWebView and Windows uses WebView2 when
-/// the runtime is present. Linux stays on the text view: the WebKitGTK 2.28
-/// XEmbed probe did not pass, so no helper is shipped.
+/// the runtime is present. Linux stays on the text view. `EB_PREVIEW=webview`
+/// opts Linux into the system WebKitGTK 2.28 helper for this process; a
+/// failure sticks to the text view until exit.
 pub(crate) fn preview_defaults_to_webview() -> bool {
     webview_default_for(
         cfg!(any(target_os = "macos", target_os = "windows")),
@@ -264,10 +265,7 @@ pub(crate) fn preview_defaults_to_webview() -> bool {
 }
 
 pub(crate) fn webview_default_for(host_landed: bool, eb_preview: Option<&str>) -> bool {
-    if eb_preview == Some("native") {
-        return false;
-    }
-    host_landed
+    crate::preview_optin::webview_default_for(host_landed, eb_preview)
 }
 
 thread_local! {
@@ -3429,7 +3427,7 @@ mod tests {
         assert!(webview_default_for(true, Some("webview")));
         assert!(!webview_default_for(true, Some("native")));
         assert!(!webview_default_for(false, None));
-        assert!(!webview_default_for(false, Some("webview")));
+        assert!(webview_default_for(false, Some("webview")));
     }
 
     fn sample(bytes: &str, truncated: bool) -> PreviewText {
