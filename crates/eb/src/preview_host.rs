@@ -23,6 +23,11 @@ pub fn reposition() {
     crate::preview_web::reposition();
 }
 
+/// Finish a present that returned before the anchor had a size.
+pub fn retry_present(anchor: &gtk::Widget) {
+    crate::preview_panel::retry_present(anchor);
+}
+
 pub fn wake() {
     crate::preview_panel::wake();
     crate::preview_web::wake();
@@ -78,21 +83,19 @@ pub(crate) fn fall_back_to_native(app: &mut App, reason: &str) {
         return;
     };
     let cached = crate::preview_web_server::ready_text_shared(doc.id);
-    let read = if cached.is_none() {
-        Some(crate::preview_web_server::read_preview(
-            std::path::Path::new(&doc.path),
-            crate::preview_web_server::PREVIEW_CAP,
-        ))
+    // One open: the identity and the bytes come from the same handle, so the
+    // 409 check uses the same `FileId` the register path recorded.
+    let opened = if cached.is_none() {
+        std::fs::File::open(std::path::Path::new(&doc.path)).ok()
     } else {
         None
     };
-    let observed = if cached.is_none() {
-        std::fs::metadata(&doc.path)
-            .ok()
-            .map(|meta| crate::preview_web_server::file_identity(&meta))
-    } else {
-        None
-    };
+    let observed = opened
+        .as_ref()
+        .and_then(|file| crate::preview_web_server::file_identity(file).ok());
+    let read = opened.map(|file| {
+        crate::preview_web_server::read_opened(file, crate::preview_web_server::PREVIEW_CAP)
+    });
     app.tool_preview = Some(crate::model::Artifact {
         name: doc.name,
         code: sticky_fallback_text(cached, read, doc.file_id, observed),

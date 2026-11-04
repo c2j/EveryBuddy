@@ -534,7 +534,7 @@
       "format": "esm"
     },
     "src/main.js": {
-      "bytes": 7241,
+      "bytes": 8758,
       "imports": [
         {
           "path": "node_modules/@codemirror/state/dist/index.js",
@@ -707,10 +707,10 @@
           "bytesInOutput": 2229
         },
         "src/main.js": {
-          "bytesInOutput": 6666
+          "bytesInOutput": 8245
         }
       },
-      "bytes": 1241841
+      "bytes": 1243420
     }
   }
 }

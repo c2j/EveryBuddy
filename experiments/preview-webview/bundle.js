@@ -28554,11 +28554,15 @@
   var idle204 = 0;
   var pollTimer = 0;
   var activeId = null;
+  var activeRev = null;
   var activeName = "";
   var loadGen = 0;
+  var viewDoc = null;
+  var viewRev = null;
   var reported = false;
   var dark = false;
   var wrapping = false;
+  var docStates = /* @__PURE__ */ new Map();
   function languageOf(name2) {
     const ext = name2.includes(".") ? name2.split(".").pop().toLowerCase() : "";
     switch (ext) {
@@ -28644,6 +28648,25 @@
   function replaceDoc(name2, text) {
     view.setState(EditorState.create({ doc: text, extensions: extensions(name2) }));
   }
+  function rememberView() {
+    if (viewDoc === null || viewRev === null) return;
+    docStates.set(viewDoc, { rev: viewRev, state: view.state });
+  }
+  function showCached(id2, rev) {
+    const cached = docStates.get(id2);
+    if (!cached || cached.rev !== rev) return false;
+    view.setState(cached.state);
+    view.dispatch({
+      effects: [
+        wrapComp.reconfigure(wrapping ? EditorView.lineWrapping : []),
+        themeComp.reconfigure(dark ? oneDark : [])
+      ]
+    });
+    viewDoc = id2;
+    viewRev = rev;
+    docStates.set(id2, { rev, state: view.state });
+    return true;
+  }
   function applyTheme(next) {
     dark = next;
     document.body.classList.toggle("dark", dark);
@@ -28657,39 +28680,53 @@
       body: JSON.stringify(body)
     });
   }
-  async function loadFile(id2, name2, gen) {
+  async function loadFile(id2, name2, gen, rev) {
     const res = await fetch(
       "/file?token=" + encodeURIComponent(token) + "&id=" + encodeURIComponent(id2)
     );
-    if (gen !== loadGen || id2 !== activeId) return;
+    if (gen !== loadGen || id2 !== activeId || rev !== activeRev) return;
     if (res.status === 503) {
-      setTimeout(() => loadFile(id2, name2, gen), 1e3);
+      setTimeout(() => loadFile(id2, name2, gen, rev), 1e3);
       return;
     }
     const text = await res.text();
-    if (gen !== loadGen || id2 !== activeId) return;
+    if (gen !== loadGen || id2 !== activeId || rev !== activeRev) return;
     if (!res.ok) {
       showNotice(text || "Cannot read this file");
       replaceDoc(name2, "");
+      viewDoc = null;
+      viewRev = null;
       return;
     }
     showNotice(res.headers.get("X-Preview-Truncated") === "1" ? "Truncated at 5 MiB" : "");
     replaceDoc(name2, text);
+    viewDoc = id2;
+    viewRev = rev;
+    docStates.set(id2, { rev, state: view.state });
   }
   function renderSession(data2) {
     const docs = Array.isArray(data2["open-docs"]) ? data2["open-docs"] : [];
+    const live = /* @__PURE__ */ new Set();
     const counts = {};
-    docs.forEach((doc2) => {
-      counts[doc2.name] = (counts[doc2.name] || 0) + 1;
+    docs.forEach((doc3) => {
+      if (doc3 && typeof doc3.id === "string") live.add(doc3.id);
+      counts[doc3.name] = (counts[doc3.name] || 0) + 1;
     });
+    for (const id2 of [...docStates.keys()]) {
+      if (!live.has(id2)) docStates.delete(id2);
+    }
+    if (viewDoc !== null && !live.has(viewDoc)) {
+      viewDoc = null;
+      viewRev = null;
+    }
     tabsEl.textContent = "";
-    docs.forEach((doc2) => {
+    docs.forEach((doc3) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "tab" + (doc2.id === data2.active ? " active" : "");
-      const label = doc2.name || "file";
-      button.title = counts[doc2.name] > 1 ? label + " (" + String(doc2.id).slice(0, 8) + ")" : label;
-      button.addEventListener("click", () => postEvent({ type: "select-tab", id: doc2.id }));
+      button.className = "tab" + (doc3.id === data2.active ? " active" : "");
+      const label = doc3.name || "file";
+      button.title = counts[doc3.name] > 1 ? label + " (" + String(doc3.id).slice(0, 8) + ")" : label;
+      button.addEventListener("click", () => postEvent({ type: "select-tab", id: doc3.id }));
       const name2 = document.createElement("span");
       name2.className = "tab-name";
       name2.textContent = label;
@@ -28699,21 +28736,30 @@
       close.title = "Close";
       close.addEventListener("click", (event) => {
         event.stopPropagation();
-        postEvent({ type: "close-tab", id: doc2.id });
+        postEvent({ type: "close-tab", id: doc3.id });
       });
       button.append(name2, close);
       tabsEl.appendChild(button);
     });
     if (data2.theme && typeof data2.theme.dark === "boolean") applyTheme(data2.theme.dark);
     const next = data2.active || null;
-    if (next !== activeId) {
-      activeId = next;
-      const doc2 = docs.find((item) => item.id === next);
-      activeName = doc2 ? doc2.name || "" : "";
-      loadGen += 1;
-      if (next) loadFile(next, activeName, loadGen);
-      else replaceDoc("", "");
+    const doc2 = docs.find((item) => item.id === next);
+    const nextRev = doc2 && typeof doc2.rev === "number" ? doc2.rev : null;
+    if (next === activeId && nextRev === activeRev) return;
+    rememberView();
+    const cached = next === null ? null : docStates.get(next);
+    if (cached && cached.rev !== nextRev) docStates.delete(next);
+    activeId = next;
+    activeRev = nextRev;
+    activeName = doc2 ? doc2.name || "" : "";
+    loadGen += 1;
+    if (!next) {
+      replaceDoc("", "");
+      viewDoc = null;
+      viewRev = null;
+      return;
     }
+    if (!showCached(next, nextRev)) loadFile(next, activeName, loadGen, nextRev);
   }
   async function poll() {
     if (!token) {

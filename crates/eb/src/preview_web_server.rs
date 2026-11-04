@@ -8,8 +8,6 @@
 //! calls [`read_preview`]. The macOS host starts one shared listener from
 //! [`with_shared`] the first time a WebView Read needs it.
 
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -114,14 +112,15 @@ impl PreviewWeb {
     /// bumps [`PreviewSession::version`] only after it finishes.
     pub fn register(&self, path: &Path) -> std::io::Result<[u8; 16]> {
         let canonical = path.canonicalize()?;
-        let meta = std::fs::metadata(&canonical)?;
+        let file = File::open(&canonical)?;
+        let meta = file.metadata()?;
         if !meta.is_file() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "not a file",
             ));
         }
-        let file_id = file_identity(&meta);
+        let file_id = file_identity(&file)?;
         let name = canonical
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -134,7 +133,7 @@ impl PreviewWeb {
             let opened = File::open(&canonical);
             let (observed, result) = match opened {
                 Ok(file) => {
-                    let observed = file.metadata().ok().map(|meta| file_identity(&meta));
+                    let observed = file_identity(&file).ok();
                     (observed, read_opened(file, PREVIEW_CAP))
                 }
                 Err(err) => (None, Err(ReadPreviewError::Io(err))),
@@ -235,7 +234,11 @@ fn serve_connection(mut stream: TcpStream, ctx: &Ctx, timeout: Duration) -> std:
     stream.set_read_timeout(Some(timeout))?;
     let raw = match read_request(&mut stream) {
         Ok(raw) => raw,
-        Err(ReadFail::Timeout) | Err(ReadFail::Io(_)) => return Ok(()),
+        Err(ReadFail::Timeout) => return Ok(()),
+        Err(ReadFail::Io(err)) => {
+            let _ = err;
+            return Ok(());
+        }
         Err(ReadFail::HeaderTooLarge) => {
             return write_response(&mut stream, text(400, "header too large"));
         }
@@ -372,8 +375,14 @@ fn handle(ctx: &Ctx, raw: &RawRequest) -> Response {
 }
 
 fn preview_page(token: &[u8; 16]) -> Response {
+    const NEEDLE: &str = "src=\"bundle.js\"";
+    assert_eq!(
+        INDEX_HTML.matches(NEEDLE).count(),
+        1,
+        "preview page must reference bundle.js exactly once"
+    );
     let html = INDEX_HTML.replace(
-        "src=\"bundle.js\"",
+        NEEDLE,
         &format!("src=\"/bundle.js?token={}\"", encode_hex(token)),
     );
     bytes(
@@ -413,7 +422,11 @@ fn session_response(ctx: &Ctx, since: Option<&str>) -> Response {
             if matches!(doc.cache, Cache::Pending) {
                 return None;
             }
-            Some(json!({ "id": encode_hex(id), "name": doc.name }))
+            Some(json!({
+                "id": encode_hex(id),
+                "name": doc.name,
+                "rev": doc.generation,
+            }))
         })
         .collect();
     let active = session.active.and_then(|id| {
@@ -690,10 +703,6 @@ fn same_bytes(left: &[u8; 16], right: &[u8; 16]) -> bool {
     diff == 0
 }
 
-pub(crate) fn new_preview_id() -> std::io::Result<[u8; 16]> {
-    random_16()
-}
-
 static SHARED: Mutex<Option<PreviewWeb>> = Mutex::new(None);
 static NOTIFIER: Mutex<Option<NotifyFn>> = Mutex::new(None);
 
@@ -932,6 +941,7 @@ mod tests {
         assert!(!script_text.contains("/Users/"));
         assert!(script_text.contains("__ebPreviewWake"));
         assert!(script_text.contains("tab-name"));
+        assert!(script_text.contains("activeRev"));
 
         assert_eq!(
             crate::preview_server::url(),
@@ -957,6 +967,7 @@ mod tests {
         assert_eq!(body["version"], first);
         assert_eq!(body["open-docs"][0]["id"], encode_hex(&id));
         assert_eq!(body["open-docs"][0]["name"], "notes.md");
+        assert_eq!(body["open-docs"][0]["rev"], 1);
         assert_eq!(body["active"], encode_hex(&id));
         assert_eq!(body["theme"]["dark"], false);
 
@@ -986,6 +997,10 @@ mod tests {
             &format!("/file?token={}&id={}", web.token(), encode_hex(&id)),
         );
         assert_eq!(reread.body, b"world");
+        let reread_session = get(&web, &format!("/session?token={}", web.token()));
+        let reread_body: Value = serde_json::from_slice(&reread_session.body).unwrap();
+        assert_eq!(reread_body["open-docs"][0]["id"], encode_hex(&id));
+        assert_eq!(reread_body["open-docs"][0]["rev"], 2);
         let bumped = web.with_session(|session| session.version());
         assert!(bumped > first);
 

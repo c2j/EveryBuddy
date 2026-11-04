@@ -53,7 +53,7 @@ Artifact 预览是结果面板正文里的一块区域，按平台使用系统�
 |---|---|---|
 | macOS | 嵌在 GTK 窗口内容视图里的 WKWebView | 对齐结果面板正文，随窗口移动，不另开窗口。`EB_PREVIEW=native` 强制回到 `GtkTextView` |
 | Windows | WebView2，父窗口是结果面板里的 `GtkDrawingArea` | 运行时缺失时回到 `GtkTextView`，并在 stderr 提示安装 Evergreen Bootstrapper。同样接受 `EB_PREVIEW=native`。真机 HWND 嵌套与 gnu 链接尚未在本仓库核对 |
-| Linux | `GtkTextView` | 目标桌面的 WebKitGTK 2.28 上，XEmbed 验收没有通过，不交付 helper。预览保持原生文本视图 |
+| Linux | `GtkTextView` | 目标桌面的 WebKitGTK 2.28 上，XEmbed 未能在目标环境验收，不交付 helper。预览保持原生文本视图 |
 
 未设置 `EB_PREVIEW` 时，macOS 与 Windows 默认走 WebView，Linux 默认走原生文本视图。其它取值跟随该平台默认；只有 `native` 在所有平台上强制文本视图。
 

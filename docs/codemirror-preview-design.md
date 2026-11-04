@@ -8,6 +8,18 @@ v3 收 11 项、v4 收 9 项、v5 收 5 项（[codemirror-preview-design-review.
 （1 major / 2 minor / 2 nit），v8 收 17 项（4 major / 5 moderate /
 4 minor / 4 nit）。处置映射见 §7。
 
+## 实现与本文的偏差
+
+下文保留 v9 评审时的方案，供对照。已经落地的代码以本节为准，覆盖 ④b、NSPanel、栈上限 12、以及 `App.preview_docs`。
+
+- **macOS 不是 NSPanel。** `preview_panel.rs` 把一个 WKWebView 作为 GTK 窗口 content view 的子视图，用 `view_frame` 对齐 `detail.body`（content view 坐标，原点在左下，`isFlipped` 为 NO）。不使用屏幕坐标、`NSScreen.mainScreen()`、`max(420)`、HiDPI 乘法或 `addChildWindow`。窗口拖动时子视图跟着走。
+- **Linux ④b 没有做。** ④a 的键盘、输入法、HiDPI 未能在目标环境验收。不交付 `preview-helper`，不在 `main` 里设置 `GDK_BACKEND`。Linux 预览保持 `GtkTextView`。
+- **预览栈不在 `App` 上。** 没有 `preview_docs`。Read 预览栈是 `PreviewSession`（`preview_session.rs`），上限 `MAX_DOCS = 4`。任务已写文件的标签仍是 `MAX_TABS = 12`。
+- **同一文件再次 Read** 复用 id，`generation` 加一。`/session` 的 `open-docs` 带 `rev`。页面按 `(id, rev)` 重新拉正文；切标签时按 id 恢复 `EditorState`，`rev` 变了不用旧状态。
+- **Windows 加载器。** gnu 目标动态链接的 `WebView2Loader.dll` 来自 `webview2-com-sys` 0.39.1 自带的 `x64/WebView2Loader.dll`。该 crate 的 `build.rs` 把它拷到 `OUT_DIR/x64/`。`.github/scripts/build-windows.sh` 再把这份文件放进发行目录。这是加载器，不是 Evergreen Runtime。本仓库没有在 gnu 目标上完成链接，也没有跑过该脚本。
+- **就绪超时** 仍是进程内一次。从面板显示起 15 秒内页面没有 `ready`，才粘性回到文本视图。计时不从第一次 `/preview` 开始。
+- **WebView 的 Read** 在界面线程只登记路径。读字节在服务线程。登记失败时才在界面线程读一次，给原生回退用。
+
 ## 0. 背景与问题
 
 v0.7.34 起点击会话中的 `Read …` 工具行可在 artifact 面板预览文件
@@ -448,10 +460,10 @@ detail_visible && ( task.artifact.is_some()
 | ③ | macOS：`preview_panel.rs` + 接线（锚点 `detail.body`；面板手续用 §2.0/§2.6 同一段——**仅 `preview_docs` 非空**才藏 `eb-tab` 与 `+`、显示 NSPanel、`built = None`；为空则先 `fill` 再收起 NSPanel 不销毁，原生标签可见；复制按钮按当前画面取数）。**几何合同**（评审四轮 Issue 19 + 五轮 Issue 32 + 七轮 Issue 45，完整矩形、双触发重算）：`let (wx, wy) = toplevel.position()`；`let (ax, ay) = detail.body.translate_coordinates(&toplevel, 0, 0)`；`X = wx + ax`；`Y = primary_screen_height − (wy + ay) − height`；**`primary_screen_height` 取主显示器高度**（`gdk::Display::primary_monitor().geometry().height()` 或 `NSScreen.screens[0]`；GDK quartz 以主屏底边为翻转原点，**不要**用锚点所在屏的高度）；**宽、高取本次 allocation**（不加 `max(420)`）；坐标保持 **point**（**不乘 HiDPI scale**；将来拿到设备像素才**除以** scale）。**重算两处**：`detail.body` 的每次 `size-allocate`（拖 sash、`detail_maximised` 走 `outer.set_position`，顶层不换尺寸、无 `configure-event`），以及主窗口的 `configure-event`（窗口移动，`wx/wy` 用 `toplevel.position()`）；**不听设置窗口的 `configure-event`**、不改 NSPanel 父子；禁 `CGEventTap`、禁 `activateIgnoringOtherApps`。**取焦契约**：非激活面板（`NonactivatingPanel` + `becomesKeyOnlyIfNeeded`，或 `orderFrontRegardless` + 点击取焦），显示时成为 key、ESC 后把 key 还给主窗口；**不复用** `theme_view.rs` 的取焦代码；ESC 新行为 | 新 `crates/eb/src/preview_panel.rs`、`crates/eb/src/shell.rs`、`crates/eb/src/detail.rs` | 真机（Retina + 副屏在主屏左侧/上方）：打开/多文件/主题/ESC；拖 sash（含收窄到很窄）、`detail_maximised`、移动窗口、设置窗口开关后 frame 正确；搜索面板/⌘F/复制选区可用；点 artifact 卡后是原生 `code()` 且 NSPanel 收起、socket 不显示，再点同一文件的 Read 复用同一 NSPanel |
 | ④a | Linux **嵌入探针**（falsifiable）：socket/plug 收养、鼠标、键盘、fcitx(XIM) 中文、HiDPI、`ResizeObserver`、`web-process-crashed` | `preview-helper` 原型 + 探针脚本 | **任一失败 = 放弃 XEmbed，Linux 保持原生，本设计 Linux 部分终止** |
 | ④b | ④a 通过后：helper 产品化（§1.2 spawn 契约：**URL 走 stdin** + §2.7 环境/构建闸门）+ `#[cfg(linux)]` 的 `GDK_BACKEND` 前置 + `detail.rs` `body` 内 `GtkSocket` + `rebuild` 隔离（宿主控件跳过 + `no_show_all`）+ 回退链路。**`run.sh` 不在本步改动文件内**——helper 环境只在 spawn helper 的那段代码里组装；验收含"`run.sh` 的导出列表与现在逐字相同"（评审四轮 Issue 1） | `preview-helper`、`crates/eb/src/main.rs`（cfg linux）、`crates/eb/src/detail.rs`、`crates/eb/src/shell.rs`、`packaging/linux/Dockerfile.build`、`bundle.sh` | Kylin 真机：内嵌可用；`ldd -r` 核对；裸 Debian 10 `verify.sh` 通过；`/file` 拒绝非 UTF-8；token 不在 `ps`/`/proc` 里出现；`preview_docs` 非空时拖 sash/refresh 不摘 socket；为空时隐藏 socket 不销毁、切回原生后 `eb-code-scroll` 可见且 socket 不可见，下一次 Read 复用、不再 `add_id`；`run.sh` 无 diff |
-| ⑤ | Windows：`wry`（仅 Windows target，`default-features = false`）+ `build_as_child`（HWND 经 `gdk_win32_window_get_handle`）+ §2.6 DrawingArea + `size-allocate` 重设 **Logical** bounds + `webview.set_visible` + 运行时检测 + 回退。面板手续同 §2.0：隐藏 DrawingArea 不销毁，切回 Read 不再 `build_as_child` | `Cargo.toml`（Windows target + workspace `rust-version = "1.85"`）、新 `crates/eb/src/preview_web.rs`、`crates/eb/src/detail.rs`、`crates/eb/src/shell.rs` | Windows 验证机：同 ③ 功能面；Runtime 缺失引导；DPI 切换（150%）；handle 非空且矩形与锚点重合；**gnu 目标 `cargo build` 通过并声明 `WebView2Loader` 来源**（CI 软失败不算门禁） |
+| ⑤ | Windows：`wry`（仅 Windows target，`default-features = false`）+ `build_as_child`（HWND 经 `gdk_win32_window_get_handle`）+ §2.6 DrawingArea + `size-allocate` 重设 **Logical** bounds + `webview.set_visible` + 运行时检测 + 回退。面板手续同 §2.0：隐藏 DrawingArea 不销毁，切回 Read 不再 `build_as_child`。`WebView2Loader.dll` 的来源见文首「实现与本文的偏差」：`webview2-com-sys` 0.39.1 的 `x64/`，由 `.github/scripts/build-windows.sh` 从该 crate 的 `OUT_DIR/x64/` 拷进发行目录；这不是 Evergreen Runtime | `Cargo.toml`（Windows target + workspace `rust-version = "1.85"`）、新 `crates/eb/src/preview_web.rs`、`crates/eb/src/detail.rs`、`crates/eb/src/shell.rs` | Windows 验证机：同 ③ 功能面；Runtime 缺失引导；DPI 切换（150%）；handle 非空且矩形与锚点重合；**gnu 目标 `cargo build` 通过并声明 `WebView2Loader` 来源**（CI 软失败不算门禁） |
 | ⑥ | 清理：`code()`/`tool_preview` 保留为回退路径；`EB_PREVIEW` 语义文档化；`EB_SELFTEST` 按 §2.5 调整；`ui-spec` §2 回写 | `crates/eb/src/detail.rs`、`selftest.rs`、`docs/ui-spec/*` | 三平台回归 + native 回归 + selftest 两模式绿 |
 
-错误表（三平台统一）：`ready` 5 s 超时 / 页面 `error` → sticky 回退
+错误表（三平台统一）：`ready` 15 s 超时（面板显示后计时，进程内只武装一次） / 页面 `error` → sticky 回退
 原生（按 §2.4 写回正文）；helper 挂死 → kill + 重启一次 + 再失败回退；
 文件消失 → 空态提示；`/file` 503 → 页面重试（不当成消失）；端口绑定
 失败 → 回退 + 状态栏提示；非 UTF-8 → 拒绝并提示；`file_id` 变化 →

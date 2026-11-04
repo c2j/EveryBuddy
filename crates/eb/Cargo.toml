@@ -80,3 +80,7 @@ wry = { version = "0.57.1", default-features = false }
 raw-window-handle = "0.6"
 webview2-com = "0.39"
 windows-core = "0.62"
+# Stable file identity. `std::os::windows::fs::MetadataExt::file_index` is
+# unstable (`windows_by_handle`), so the preview compares
+# `GetFileInformationByHandle` on both the register and the read.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

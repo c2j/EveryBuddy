@@ -46,6 +46,16 @@ pub fn reposition() {
     macos::reposition();
 }
 
+/// Create the host if an earlier `present` saw a zero-sized anchor.
+pub fn retry_present(anchor: &gtk::Widget) {
+    #[cfg(target_os = "macos")]
+    macos::retry_present(anchor);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = anchor;
+    }
+}
+
 /// Install the event filter on the main window. The web view is a subview,
 /// so a drag does not need a follower. Settings windows are not observed.
 pub fn follow(window: &gtk::Window) {
@@ -125,6 +135,8 @@ mod macos {
     thread_local! {
         static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
         static FILTER_INSTALLED: Cell<bool> = const { Cell::new(false) };
+        /// `present` ran while the anchor had no size. The next allocation retries.
+        static PRESENT_PENDING: Cell<bool> = const { Cell::new(false) };
     }
 
     pub fn follow(window: &gtk::Window) {
@@ -264,11 +276,16 @@ mod macos {
         };
         ensure_filter(anchor);
         let Some(parent) = content_view(anchor) else {
+            PRESENT_PENDING.with(|pending| pending.set(true));
             return;
         };
         let Some(rect) = frame_for(anchor, &parent) else {
+            // The panel was still hidden, so the body has no allocation.
+            // `size-allocate` calls `retry_present` once the frame is real.
+            PRESENT_PENDING.with(|pending| pending.set(true));
             return;
         };
+        PRESENT_PENDING.with(|pending| pending.set(false));
         HOST.with(|slot| {
             let mut slot = slot.borrow_mut();
             if slot.is_none() {
@@ -286,7 +303,14 @@ mod macos {
         });
     }
 
+    pub fn retry_present(anchor: &gtk::Widget) {
+        if PRESENT_PENDING.with(|pending| pending.get()) {
+            present(anchor);
+        }
+    }
+
     pub fn dismiss() {
+        PRESENT_PENDING.with(|pending| pending.set(false));
         HOST.with(|slot| {
             let mut slot = slot.borrow_mut();
             let Some(host) = slot.as_mut() else {

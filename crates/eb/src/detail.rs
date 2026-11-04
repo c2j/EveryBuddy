@@ -85,7 +85,6 @@ fn rebuild(view: &Rc<RefCell<ArtifactView>>) {
         )
     };
     let tab_close = view.borrow().tab_close.clone();
-    let tab_close = view.borrow().tab_close.clone();
     for (index, name) in names.iter().enumerate() {
         tabs.pack_start(
             &tab(name, index == selected, tab_close.clone(), view, index),

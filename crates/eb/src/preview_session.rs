@@ -20,8 +20,12 @@ pub enum ReadPreviewError {
 }
 
 /// Identity of the file a preview was registered against.
-/// Unix is `dev` + `ino`. Windows stores the volume serial in `dev` and
-/// the file index in `ino`.
+///
+/// Unix stores `dev` + `ino` from the open file. Windows stores the volume
+/// serial in `dev` and the file index in `ino`, both from
+/// `GetFileInformationByHandle`. Register time and the later read use this
+/// same call, so a 409 means the file changed. `MetadataExt::volume_serial_number`
+/// and `file_index` are unstable and are not used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileId {
     pub dev: u64,
@@ -84,23 +88,47 @@ pub(crate) fn read_opened(file: File, cap: usize) -> Result<PreviewText, ReadPre
     })
 }
 
-pub fn file_identity(meta: &std::fs::Metadata) -> FileId {
+/// Identity of an open file. See [`FileId`].
+pub fn file_identity(file: &File) -> std::io::Result<FileId> {
     #[cfg(unix)]
     {
+        let meta = file.metadata()?;
         use std::os::unix::fs::MetadataExt;
-        FileId {
+        Ok(FileId {
             dev: meta.dev(),
             ino: meta.ino(),
-        }
+        })
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        FileId {
-            dev: u64::from(meta.volume_serial_number().unwrap_or(0)),
-            ino: meta.file_index().unwrap_or(0),
-        }
+        file_identity_windows(file)
     }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = file;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "file identity is only implemented on unix and windows",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn file_identity_windows(file: &File) -> std::io::Result<FileId> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(FileId {
+        dev: u64::from(info.dwVolumeSerialNumber),
+        ino: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,6 +173,8 @@ pub(crate) struct SessionView {
     pub docs: Vec<PreviewDoc>,
     pub active: Option<[u8; 16]>,
     pub ready: bool,
+    /// Set when the page reports an error. Nothing reads it yet.
+    #[allow(dead_code)]
     pub last_error: Option<String>,
 }
 

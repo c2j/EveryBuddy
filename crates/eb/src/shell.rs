@@ -154,8 +154,9 @@ struct Unbuilt {
 }
 
 /// Record a Read click. Native and sticky-native write `tool_preview`.
-/// WebView registers the file on the shared preview session. A failed bind
-/// or register falls back to sticky-native.
+/// WebView registers the file on the shared preview session and does not
+/// read the bytes on this thread. A failed bind or register reads once for
+/// the native fallback.
 pub(crate) fn store_tool_read(
     app: &mut App,
     task: usize,
@@ -164,30 +165,58 @@ pub(crate) fn store_tool_read(
     text: &crate::preview_web_server::PreviewText,
 ) {
     match app.preview_mode {
-        PreviewMode::WebView => {
-            let registered = crate::preview_web_server::with_shared(|web| web.register(path));
-            match registered {
-                Some(Ok(_)) => {
-                    if crate::preview_web_server::session_view_shared().is_none() {
-                        remember_native_preview(app, task, name, text);
-                        crate::preview_host::fall_back_to_native(
-                            app,
-                            "preview session was unavailable; showing the native view",
-                        );
-                    }
-                }
-                _ => {
-                    remember_native_preview(app, task, name, text);
-                    crate::preview_host::fall_back_to_native(
-                        app,
-                        "preview server did not register the file; showing the native view",
-                    );
-                }
-            }
-        }
+        PreviewMode::WebView => store_webview_read(app, task, path, name, Some(text)),
         PreviewMode::Native | PreviewMode::StickyNative => {
             remember_native_preview(app, task, name, text);
+            app.artifact_dismissed = false;
+            app.detail_visible = true;
         }
+    }
+}
+
+/// WebView Read. `prepared` is only the fallback text. The success path
+/// registers and returns; the server thread reads the file.
+fn store_webview_read(
+    app: &mut App,
+    task: usize,
+    path: &std::path::Path,
+    name: String,
+    prepared: Option<&crate::preview_web_server::PreviewText>,
+) {
+    let registered = crate::preview_web_server::with_shared(|web| web.register(path));
+    let registered_ok = matches!(registered, Some(Ok(_)))
+        && crate::preview_web_server::session_view_shared().is_some();
+    if !registered_ok {
+        let fallback = match prepared {
+            Some(text) => text.clone(),
+            None => match crate::preview_web_server::read_preview(
+                path,
+                crate::preview_web_server::PREVIEW_CAP,
+            ) {
+                Ok(text) => text,
+                Err(crate::preview_web_server::ReadPreviewError::NotUtf8) => {
+                    eprintln!(
+                        "[evobuddy] tool row: {} is not UTF-8 text",
+                        path.display()
+                    );
+                    return;
+                }
+                Err(crate::preview_web_server::ReadPreviewError::Io(error)) => {
+                    eprintln!(
+                        "[evobuddy] tool row: cannot read {}: {error}",
+                        path.display()
+                    );
+                    return;
+                }
+            },
+        };
+        remember_native_preview(app, task, name, &fallback);
+        let reason = if matches!(registered, Some(Ok(_))) {
+            "preview session was unavailable; showing the native view"
+        } else {
+            "preview server did not register the file; showing the native view"
+        };
+        crate::preview_host::fall_back_to_native(app, reason);
     }
     app.artifact_dismissed = false;
     app.detail_visible = true;
@@ -308,6 +337,9 @@ fn apply_preview_events(store: &Store, refresher: &Refresher) {
     refresher.request();
 }
 
+/// One shot for the process. The clock starts when the panel is shown, not
+/// on the first `/preview`. Fifteen seconds leaves room for a cold WebView2
+/// process before the page posts `ready`. A miss stays on the text view.
 fn arm_ready_timeout(store: Store, refresher: Refresher) {
     static ARMED: AtomicBool = AtomicBool::new(false);
     if ARMED.swap(true, Ordering::AcqRel) {
@@ -316,7 +348,7 @@ fn arm_ready_timeout(store: Store, refresher: Refresher) {
     if crate::preview_web_server::session_view_shared().is_some_and(|view| view.ready) {
         return;
     }
-    gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(5), move || {
+    gtk::glib::timeout_add_local_once(std::time::Duration::from_secs(15), move || {
         if crate::preview_web_server::session_view_shared().is_some_and(|view| view.ready) {
             return;
         }
@@ -329,7 +361,7 @@ fn arm_ready_timeout(store: Store, refresher: Refresher) {
         }
         crate::preview_host::fall_back_to_native(
             &mut app,
-            "preview page was not ready after 5s; showing the native view",
+            "preview page was not ready after 15s; showing the native view",
         );
         drop(app);
         refresher.request();
@@ -1085,27 +1117,32 @@ pub fn build(
                         eprintln!("[evobuddy] tool row: cannot resolve {raw}");
                         return;
                     };
-                    // Capped on the caller. `read_preview` cuts on a character
-                    // boundary and rejects bytes that are not UTF-8.
-                    let text = match crate::preview_web_server::read_preview(
-                        &path,
-                        crate::preview_web_server::PREVIEW_CAP,
-                    ) {
-                        Ok(text) => text,
-                        Err(crate::preview_web_server::ReadPreviewError::NotUtf8) => {
-                            eprintln!("[evobuddy] tool row: {raw} is not UTF-8 text");
-                            return;
-                        }
-                        Err(crate::preview_web_server::ReadPreviewError::Io(error)) => {
-                            eprintln!("[evobuddy] tool row: cannot read {raw}: {error}");
-                            return;
-                        }
-                    };
                     let name = path
                         .file_name()
                         .map(|name| name.to_string_lossy().to_string())
                         .unwrap_or_else(|| raw.clone());
-                    store_tool_read(&mut app, index, &path, name, &text);
+                    if app.preview_mode == PreviewMode::WebView {
+                        // Register only. The server thread reads the bytes.
+                        store_webview_read(&mut app, index, &path, name, None);
+                    } else {
+                        // Capped on the caller. `read_preview` cuts on a character
+                        // boundary and rejects bytes that are not UTF-8.
+                        let text = match crate::preview_web_server::read_preview(
+                            &path,
+                            crate::preview_web_server::PREVIEW_CAP,
+                        ) {
+                            Ok(text) => text,
+                            Err(crate::preview_web_server::ReadPreviewError::NotUtf8) => {
+                                eprintln!("[evobuddy] tool row: {raw} is not UTF-8 text");
+                                return;
+                            }
+                            Err(crate::preview_web_server::ReadPreviewError::Io(error)) => {
+                                eprintln!("[evobuddy] tool row: cannot read {raw}: {error}");
+                                return;
+                            }
+                        };
+                        store_tool_read(&mut app, index, &path, name, &text);
+                    }
                     drop(app);
                     refresher.request();
                 })
@@ -1171,7 +1208,9 @@ pub fn build(
         },
         contribs,
     );
-    detail.body.connect_size_allocate(|_body, _allocation| {
+    detail.body.connect_size_allocate(|body, _allocation| {
+        // A present that ran before this body had a size left no host.
+        crate::preview_host::retry_present(body.upcast_ref());
         crate::preview_host::reposition();
     });
     *feedback_anchor.borrow_mut() = Some(detail.body.clone());
@@ -1824,6 +1863,13 @@ impl Views {
             has_docs,
             preview.is_some(),
         );
+        let was_open = self.detail.root.is_visible();
+        if open && !was_open {
+            // present() reads the body allocation. A hidden panel reports
+            // 0×0 and returns without creating the host. Show it first;
+            // size-allocate retries if this show has not allocated yet.
+            self.detail.root.set_visible(true);
+        }
         let mut show_webview = open && app.preview_mode == PreviewMode::WebView && has_docs;
         if show_webview {
             detail::detach_native_body(&self.detail);
@@ -1902,7 +1948,6 @@ impl Views {
         } else {
             detail::show_host(&self.detail, false);
         }
-        let was_open = self.detail.root.is_visible();
         self.detail.root.set_visible(open);
         if open && !was_open {
             // The panel just uncovered a region of the toplevel window. On
@@ -3454,7 +3499,7 @@ mod tests {
         assert_eq!(app.preview_mode, PreviewMode::WebView);
         assert_eq!(
             view.docs[0].file_id,
-            crate::preview_web_server::file_identity(&std::fs::metadata(&path).unwrap())
+            crate::preview_web_server::file_identity(&std::fs::File::open(&path).unwrap()).unwrap()
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
